@@ -40,7 +40,6 @@ plans
 .claude
 .cursor
 
-electron/dist
 /data/
 .gomodcache/
 .gocache-temp
