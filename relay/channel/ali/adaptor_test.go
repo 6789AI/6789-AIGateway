@@ -2,11 +2,13 @@ package ali
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	relayhelper "github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/gin-gonic/gin"
@@ -14,6 +16,29 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestImageModelClassificationUsesMappedUpstreamModel(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		RelayMode:       relayconstant.RelayModeImagesGenerations,
+		OriginModelName: "customer-image-model",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelBaseUrl:    "https://dashscope.example.com",
+			UpstreamModelName: "qwen-image-plus",
+		},
+	}
+
+	requestURL, err := (&Adaptor{}).GetRequestURL(info)
+	require.NoError(t, err)
+	assert.Equal(t, "https://dashscope.example.com/api/v1/services/aigc/multimodal-generation/generation", requestURL)
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	c.Request.Header.Set("Content-Type", "application/json")
+	headers := http.Header{}
+	err = (&Adaptor{}).SetupRequestHeader(c, &headers, info)
+	require.NoError(t, err)
+	assert.Empty(t, headers.Get("X-DashScope-Async"))
+}
 
 func TestConvertOpenAIRequestFiltersThinkingBudgetByUpstreamModel(t *testing.T) {
 	tests := []struct {

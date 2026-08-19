@@ -9,6 +9,10 @@ const (
 
 	ContextKeyOriginalModel    ContextKey = "original_model"
 	ContextKeyRequestStartTime ContextKey = "request_start_time"
+	// ContextKeyChannelSelectionPath overrides the public request path only for
+	// channel selection and affinity matching.
+	ContextKeyChannelSelectionPath ContextKey = "channel_selection_path"
+	ContextKeyAsyncImageRequest    ContextKey = "async_image_request"
 
 	/* token related keys */
 	ContextKeyTokenUnlimited         ContextKey = "token_unlimited_quota"

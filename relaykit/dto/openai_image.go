@@ -2,6 +2,7 @@ package dto
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -34,6 +35,8 @@ type ImageRequest struct {
 	Mask              json.RawMessage `json:"mask,omitempty"`
 	InputFidelity     json.RawMessage `json:"input_fidelity,omitempty"`
 	Watermark         *bool           `json:"watermark,omitempty"`
+	// Async is a gateway-only opt-in and must never be forwarded upstream.
+	Async *bool `json:"-"`
 	// zhipu 4v
 	WatermarkEnabled json.RawMessage `json:"watermark_enabled,omitempty"`
 	UserId           json.RawMessage `json:"user_id,omitempty"`
@@ -59,10 +62,23 @@ func (i *ImageRequest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*i = ImageRequest(known)
+	if rawAsync, ok := rawMap["async"]; ok {
+		if kitutil.GetJsonType(rawAsync) != "boolean" {
+			return fmt.Errorf("field async must be a boolean")
+		}
+		var async bool
+		if err := kitutil.Unmarshal(rawAsync, &async); err != nil {
+			return fmt.Errorf("field async must be a boolean: %w", err)
+		}
+		i.Async = &async
+	}
 
 	// 提取多余字段
 	i.Extra = make(map[string]json.RawMessage)
 	for k, v := range rawMap {
+		if k == "async" {
+			continue
+		}
 		if _, ok := knownFields[k]; !ok {
 			i.Extra[k] = v
 		}
@@ -189,4 +205,38 @@ type ImageData struct {
 	Url           string `json:"url"`
 	B64Json       string `json:"b64_json"`
 	RevisedPrompt string `json:"revised_prompt"`
+}
+
+const (
+	ImageTaskStatusQueued     = "queued"
+	ImageTaskStatusInProgress = "in_progress"
+	ImageTaskStatusCompleted  = "completed"
+	ImageTaskStatusFailed     = "failed"
+)
+
+type ImageTaskResponse struct {
+	ID          string          `json:"id"`
+	TaskID      string          `json:"task_id"`
+	Object      string          `json:"object"`
+	Status      string          `json:"status"`
+	Progress    int             `json:"progress"`
+	CreatedAt   int64           `json:"created_at"`
+	CompletedAt int64           `json:"completed_at,omitempty"`
+	Model       string          `json:"model"`
+	Data        []ImageData     `json:"data,omitempty"`
+	Error       *ImageTaskError `json:"error,omitempty"`
+}
+
+type ImageTaskError struct {
+	Message string `json:"message"`
+	Code    string `json:"code,omitempty"`
+}
+
+func NewImageTaskResponse(taskID string) *ImageTaskResponse {
+	return &ImageTaskResponse{
+		ID:     taskID,
+		TaskID: taskID,
+		Object: "image.generation.task",
+		Status: ImageTaskStatusQueued,
+	}
 }

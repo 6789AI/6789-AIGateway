@@ -475,6 +475,14 @@ func RelayNotFound(c *gin.Context) {
 }
 
 func RelayTaskFetch(c *gin.Context) {
+	relayTaskFetch(c, 0)
+}
+
+func RelayImageTaskFetch(c *gin.Context) {
+	relayTaskFetch(c, relayconstant.RelayModeImageFetch)
+}
+
+func relayTaskFetch(c *gin.Context, relayMode int) {
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, &taskdto.TaskError{
@@ -483,6 +491,9 @@ func RelayTaskFetch(c *gin.Context) {
 			StatusCode: http.StatusInternalServerError,
 		})
 		return
+	}
+	if relayMode != 0 {
+		relayInfo.RelayMode = relayMode
 	}
 	if taskErr := relay.RelayTaskFetch(c, relayInfo.RelayMode); taskErr != nil {
 		respondTaskError(c, taskErr)
@@ -490,6 +501,14 @@ func RelayTaskFetch(c *gin.Context) {
 }
 
 func RelayTask(c *gin.Context) {
+	relayTask(c, 0)
+}
+
+func RelayImageTask(c *gin.Context) {
+	relayTask(c, relayconstant.RelayModeImageSubmit)
+}
+
+func relayTask(c *gin.Context, relayMode int) {
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, &taskdto.TaskError{
@@ -498,6 +517,9 @@ func RelayTask(c *gin.Context) {
 			StatusCode: http.StatusInternalServerError,
 		})
 		return
+	}
+	if relayMode != 0 {
+		relayInfo.RelayMode = relayMode
 	}
 
 	if taskErr := relay.ResolveOriginTask(c, relayInfo); taskErr != nil {
@@ -513,11 +535,15 @@ func RelayTask(c *gin.Context) {
 		}
 	}()
 
+	requestPath := common.GetContextKeyString(c, constant.ContextKeyChannelSelectionPath)
+	if requestPath == "" {
+		requestPath = c.Request.URL.Path
+	}
 	retryParam := &service.RetryParam{
 		Ctx:         c,
 		TokenGroup:  relayInfo.TokenGroup,
 		ModelName:   relayInfo.OriginModelName,
-		RequestPath: c.Request.URL.Path,
+		RequestPath: requestPath,
 		Retry:       common.GetPointer(0),
 	}
 
@@ -579,11 +605,12 @@ func RelayTask(c *gin.Context) {
 
 	// ── 成功：结算 + 日志 + 插入任务 ──
 	if taskErr == nil {
-		if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
-			common.SysError("settle task billing error: " + settleErr.Error())
+		taskQuota := result.Quota
+		if result.ClientResponse != nil && relayInfo.Billing != nil {
+			// Async tasks retain the full reservation until their terminal state.
+			// This leaves a durable refund/settlement amount if the process exits.
+			taskQuota = relayInfo.Billing.GetPreConsumedQuota()
 		}
-		service.LogTaskConsumption(c, relayInfo)
-
 		task := model.InitTask(result.Platform, relayInfo)
 		task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
 		task.PrivateData.BillingSource = relayInfo.BillingSource
@@ -591,6 +618,7 @@ func RelayTask(c *gin.Context) {
 		task.PrivateData.TokenId = relayInfo.TokenId
 		task.PrivateData.NodeName = common.NodeName
 		task.PrivateData.BillingContext = &model.TaskBillingContext{
+			Version:         model.TaskBillingContextVersion,
 			ModelPrice:      relayInfo.PriceData.ModelPrice,
 			GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
 			ModelRatio:      relayInfo.PriceData.ModelRatio,
@@ -598,11 +626,47 @@ func RelayTask(c *gin.Context) {
 			OriginModelName: relayInfo.OriginModelName,
 			PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
 		}
-		task.Quota = result.Quota
+		task.Quota = taskQuota
 		task.Data = result.TaskData
 		task.Action = relayInfo.Action
-		if insertErr := task.Insert(); insertErr != nil {
-			common.SysError("insert task error: " + insertErr.Error())
+
+		if result.ClientResponse != nil {
+			if insertErr := task.Insert(); insertErr != nil {
+				taskErr = service.TaskErrorWrapperLocal(insertErr, "insert_task_failed", http.StatusInternalServerError)
+			} else {
+				relayInfo.PriceData.Quota = taskQuota
+				service.LogTaskConsumption(c, relayInfo)
+				for name, values := range result.ClientResponse.Header {
+					for _, value := range values {
+						c.Header(name, value)
+					}
+				}
+				if common.HasPreferDirective(c.Request.Header, "respond-async") {
+					c.Header("Preference-Applied", "respond-async")
+				}
+				createdAt := task.CreatedAt
+				if createdAt == 0 {
+					createdAt = task.SubmitTime
+				}
+				imageTask := dto.NewImageTaskResponse(task.TaskID)
+				imageTask.CreatedAt = createdAt
+				imageTask.Model = relayInfo.OriginModelName
+				body, marshalErr := common.Marshal(imageTask)
+				if marshalErr != nil {
+					common.SysError("marshal image task response error: " + marshalErr.Error())
+					c.Status(http.StatusInternalServerError)
+				} else {
+					c.Data(result.ClientResponse.StatusCode, "application/json", body)
+				}
+			}
+		} else {
+			if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
+				common.SysError("settle task billing error: " + settleErr.Error())
+			}
+			service.LogTaskConsumption(c, relayInfo)
+			if insertErr := task.Insert(); insertErr != nil {
+				common.SysError("insert task error: " + insertErr.Error())
+			}
 		}
 	}
 
@@ -623,13 +687,16 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskEr
 	if taskErr == nil {
 		return false
 	}
-	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
-		return false
-	}
 	if retryTimes <= 0 {
 		return false
 	}
 	if _, ok := c.Get("specific_channel_id"); ok {
+		return false
+	}
+	if taskErr.Code == "async_image_not_supported" {
+		return true
+	}
+	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}
 	if taskErr.StatusCode == http.StatusTooManyRequests {

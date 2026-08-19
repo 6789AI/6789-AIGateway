@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
@@ -221,8 +222,17 @@ func filterChannelsByRequestPathAndModel(channels []int, requestPath string, mod
 	for _, channelId := range channels {
 		channel, ok := channelsIDM[channelId]
 		if !ok {
+			if requestPath == relayconstant.AsyncImageGenerationSelectionPath {
+				continue
+			}
 			// keep it so the downstream consistency error is raised as before
 			filtered = append(filtered, channelId)
+			continue
+		}
+		if requestPath == relayconstant.AsyncImageGenerationSelectionPath {
+			if ChannelSupportsAsyncImage(channel, model) {
+				filtered = append(filtered, channelId)
+			}
 			continue
 		}
 		if channel.Type != constant.ChannelTypeAdvancedCustom {

@@ -19,6 +19,9 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
+	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
 
@@ -27,7 +30,14 @@ type TaskSubmitResult struct {
 	TaskData       []byte
 	Platform       constant.TaskPlatform
 	Quota          int
+	ClientResponse *TaskClientResponse
 	//PerCallPrice   types.PriceData
+}
+
+type TaskClientResponse struct {
+	StatusCode int
+	Header     http.Header
+	Body       []byte
 }
 
 // ResolveOriginTask 处理基于已有任务的提交（remix / continuation）：
@@ -144,9 +154,16 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 // 控制器负责 defer Refund 和成功后 Settle。
 func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitResult, *dto.TaskError) {
 	info.InitChannelMeta(c)
+	isGrsaiImageChannel := model.IsGrsaiAsyncImageChannel(info.ChannelBaseUrl, info.ChannelOtherSettings)
+	if info.RelayMode == relayconstant.RelayModeImageSubmit && info.ChannelType != constant.ChannelTypeAli && !isGrsaiImageChannel {
+		return nil, service.TaskErrorWrapperLocal(errors.New("the selected channel does not support native asynchronous image generation"), "async_image_not_supported", http.StatusBadRequest)
+	}
 
 	// 1. 确定 platform → 创建适配器 → 验证请求
 	platform := constant.TaskPlatform(c.GetString("platform"))
+	if info.RelayMode == relayconstant.RelayModeImageSubmit && isGrsaiImageChannel {
+		platform = constant.TaskPlatformGrsai
+	}
 	if platform == "" {
 		platform = GetTaskPlatform(c)
 	}
@@ -171,6 +188,33 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if err := helper.ModelMappedHelper(c, info, nil); err != nil {
 		return nil, service.TaskErrorWrapperLocal(err, "model_mapping_failed", http.StatusBadRequest)
 	}
+	if info.RelayMode == relayconstant.RelayModeImageSubmit && !model.ChannelMetadataSupportsAsyncImage(
+		info.ChannelType,
+		info.ChannelBaseUrl,
+		info.ChannelOtherSettings,
+		info.UpstreamModelName,
+	) {
+		return nil, service.TaskErrorWrapperLocal(errors.New("the selected channel does not support native asynchronous image generation for this model"), "async_image_not_supported", http.StatusBadRequest)
+	}
+	if validator, ok := adaptor.(channel.MappedTaskRequestValidator); ok {
+		if taskErr := validator.ValidateMappedTaskRequest(c, info); taskErr != nil {
+			return nil, taskErr
+		}
+	}
+	if info.RelayMode == relayconstant.RelayModeImageSubmit {
+		if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeTieredExpr {
+			return nil, service.TaskErrorWrapperLocal(errors.New("tiered expression billing is not supported for asynchronous image generation"), "async_image_billing_not_supported", http.StatusBadRequest)
+		}
+		meta := info.Request.GetTokenCountMeta()
+		if meta == nil {
+			return nil, service.TaskErrorWrapperLocal(errors.New("image token metadata is unavailable"), "invalid_image_request", http.StatusBadRequest)
+		}
+		if setting.ShouldCheckPromptSensitive() {
+			if contains, _ := service.CheckSensitiveText(meta.CombineText); contains {
+				return nil, service.TaskErrorWrapperLocal(errors.New("prompt contains sensitive words"), "sensitive_words_detected", http.StatusBadRequest)
+			}
+		}
+	}
 
 	// 3. 预生成公开 task ID（仅首次）
 	if info.PublicTaskID == "" {
@@ -179,7 +223,22 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 
 	// 4. 价格计算：基础模型价格
 	info.OriginModelName = modelName
-	priceData, err := helper.ModelPriceHelperPerCall(c, info)
+	priceData := info.PriceData
+	var err error
+	if info.RelayMode == relayconstant.RelayModeImageSubmit {
+		meta := info.Request.GetTokenCountMeta()
+		promptTokens, countErr := service.EstimateRequestToken(c, meta, info)
+		if countErr != nil {
+			return nil, service.TaskErrorWrapper(countErr, "count_token_failed", http.StatusInternalServerError)
+		}
+		info.SetEstimatePromptTokens(promptTokens)
+		priceData, err = helper.ModelPriceHelper(c, info, promptTokens, meta)
+		if err == nil && !priceData.UsePrice {
+			priceData.Quota = priceData.QuotaToPreConsume
+		}
+	} else {
+		priceData, err = helper.ModelPriceHelperPerCall(c, info)
+	}
 	if err != nil {
 		return nil, service.TaskErrorWrapper(err, "model_price_error", http.StatusBadRequest)
 	}
@@ -196,8 +255,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 
 	// 6. 将 OtherRatios 应用到基础额度（饱和转换，防止溢出成负数）
 	if !common.StringsContains(constant.TaskPricePatches, modelName) {
-		quotaWithRatios := info.PriceData.ApplyOtherRatiosToFloat(float64(info.PriceData.Quota))
-		quota, clamp := common.QuotaFromFloatChecked(quotaWithRatios)
+		quota, clamp := taskQuotaFromPriceData(info.PriceData, float64(info.PriceData.Quota))
 		info.PriceData.Quota = quota
 		noteTaskQuotaClamp(info, clamp)
 	}
@@ -208,6 +266,11 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		if apiErr := service.PreConsumeBilling(c, info.PriceData.Quota, info); apiErr != nil {
 			return nil, service.TaskErrorFromAPIError(apiErr)
 		}
+	} else if info.Billing != nil && info.PriceData.Quota > info.Billing.GetPreConsumedQuota() {
+		if reserveErr := info.Billing.Reserve(info.PriceData.Quota); reserveErr != nil {
+			return nil, service.TaskErrorWrapperLocal(reserveErr, "reserve_task_quota_failed", http.StatusForbidden)
+		}
+		info.FinalPreConsumedQuota = info.Billing.GetPreConsumedQuota()
 	}
 
 	// 8. 构建请求体
@@ -250,12 +313,23 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 			info.PriceData.Quota = finalQuota
 		}
 	}
+	var clientResponse *TaskClientResponse
+	if info.RelayMode == relayconstant.RelayModeImageSubmit {
+		clientResponse = &TaskClientResponse{
+			StatusCode: http.StatusAccepted,
+			Header: http.Header{
+				"Location":    []string{fmt.Sprintf("/v1/images/generations/%s", info.PublicTaskID)},
+				"Retry-After": []string{"5"},
+			},
+		}
+	}
 
 	return &TaskSubmitResult{
 		UpstreamTaskID: upstreamTaskID,
 		TaskData:       taskData,
 		Platform:       platform,
 		Quota:          finalQuota,
+		ClientResponse: clientResponse,
 	}, nil
 }
 
@@ -268,11 +342,17 @@ func recalcQuotaFromRatios(info *relaycommon.RelayInfo, ratios map[string]float6
 	if !priceData.ReplaceOtherRatios(ratios) {
 		return 0, false
 	}
-	// 应用新的 ratios
-	result := priceData.ApplyOtherRatiosToFloat(baseQuota)
-	quota, clamp := common.QuotaFromFloatChecked(result)
+	quota, clamp := taskQuotaFromPriceData(priceData, baseQuota)
 	noteTaskQuotaClamp(info, clamp)
 	return quota, true
+}
+
+func taskQuotaFromPriceData(priceData hosttypes.PriceData, fallbackBaseQuota float64) (int, *common.QuotaClamp) {
+	baseQuota := fallbackBaseQuota
+	if priceData.UsePrice {
+		baseQuota = priceData.ModelPrice * common.QuotaPerUnit * priceData.GroupRatioInfo.GroupRatio
+	}
+	return common.QuotaFromFloatChecked(priceData.ApplyOtherRatiosToFloat(baseQuota))
 }
 
 // noteTaskQuotaClamp records the first quota saturation event onto the task's
@@ -291,12 +371,13 @@ var fetchRespBuilders = map[int]func(c *gin.Context) (respBody []byte, taskResp 
 	relayconstant.RelayModeSunoFetchByID:  sunoFetchByIDRespBodyBuilder,
 	relayconstant.RelayModeSunoFetch:      sunoFetchRespBodyBuilder,
 	relayconstant.RelayModeVideoFetchByID: videoFetchByIDRespBodyBuilder,
+	relayconstant.RelayModeImageFetch:     imageFetchByIDRespBodyBuilder,
 }
 
 func RelayTaskFetch(c *gin.Context, relayMode int) (taskResp *dto.TaskError) {
 	respBuilder, ok := fetchRespBuilders[relayMode]
 	if !ok {
-		taskResp = service.TaskErrorWrapperLocal(errors.New("invalid_relay_mode"), "invalid_relay_mode", http.StatusBadRequest)
+		return service.TaskErrorWrapperLocal(errors.New("invalid_relay_mode"), "invalid_relay_mode", http.StatusBadRequest)
 	}
 
 	respBody, taskErr := respBuilder(c)
@@ -314,6 +395,35 @@ func RelayTaskFetch(c *gin.Context, relayMode int) (taskResp *dto.TaskError) {
 		return
 	}
 	return
+}
+
+func imageFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *dto.TaskError) {
+	taskID := c.Param("task_id")
+	if taskID == "" {
+		return nil, service.TaskErrorWrapperLocal(errors.New("task_id is required"), "invalid_request", http.StatusBadRequest)
+	}
+
+	originTask, exist, err := model.GetByTaskId(c.GetInt("id"), taskID)
+	if err != nil {
+		return nil, service.TaskErrorWrapper(err, "get_task_failed", http.StatusInternalServerError)
+	}
+	if !exist || originTask.Action != constant.TaskActionImageGenerate {
+		return nil, service.TaskErrorWrapperLocal(errors.New("task_not_exist"), "task_not_exist", http.StatusNotFound)
+	}
+
+	adaptor := GetTaskAdaptor(originTask.Platform)
+	if adaptor == nil {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("invalid task platform: %s", originTask.Platform), "invalid_task_platform", http.StatusInternalServerError)
+	}
+	converter, ok := adaptor.(channel.OpenAIImageTaskConverter)
+	if !ok {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("image task conversion is not implemented for platform %s", originTask.Platform), "not_implemented", http.StatusNotImplemented)
+	}
+	respBody, err = converter.ConvertToOpenAIImageTask(originTask)
+	if err != nil {
+		return nil, service.TaskErrorWrapper(err, "convert_to_openai_image_task_failed", http.StatusInternalServerError)
+	}
+	return respBody, nil
 }
 
 func sunoFetchRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *dto.TaskError) {

@@ -327,14 +327,25 @@
     },
     "/v1/images/generations": {
       "post": {
-        "summary": "生成图像(qwen-image)",
+        "summary": "生成图像",
         "deprecated": false,
-        "description": " 百炼qwen-image系列图片生成",
+        "description": "图片生成。默认同步返回图片结果；请求体设置 `async: true` 或发送 `Prefer: respond-async` 可请求异步处理。异步模式支持阿里原生异步图片模型，以及 Grsai 的 nano-banana / gpt-image-2 图片模型。Grsai 渠道通过官方 Base URL 自动识别，也可在渠道设置中指定 `async_image_provider: grsai`；Grsai 异步请求当前仅支持 `n=1`。所有异步请求均要求 `response_format` 为 `url`、`stream` 不为 `true`。计费模式为 `tiered_expr` 的模型当前不支持异步图片请求，此类请求返回 HTTP 400。",
         "operationId": "createImage",
         "tags": [
           "图片生成/Qwen千问"
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "Prefer",
+            "in": "header",
+            "description": "包含 `respond-async` 指令时请求异步处理，与请求体 `async: true` 等效。",
+            "required": false,
+            "example": "respond-async",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -343,6 +354,11 @@
                 "properties": {
                   "model": {
                     "type": "string"
+                  },
+                  "async": {
+                    "type": "boolean",
+                    "description": "是否异步处理。设为 `true` 时成功提交返回 HTTP 202 和图片任务对象；默认仍按同步方式处理。支持阿里原生异步图片模型和 Grsai nano-banana / gpt-image-2 图片模型；Grsai 当前仅支持 `n=1`。`tiered_expr` 计费模型当前不支持异步处理并返回 HTTP 400。",
+                    "default": false
                   },
                   "input": {
                     "type": "object",
@@ -428,6 +444,108 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ImageResponse"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "202": {
+            "description": "异步图片生成任务已接受",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageTaskResponse"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "图片任务状态查询路径",
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference",
+                  "example": "/v1/images/generations/task_abc123"
+                }
+              },
+              "Retry-After": {
+                "description": "建议再次查询前等待的秒数",
+                "schema": {
+                  "type": "string",
+                  "example": "5"
+                }
+              },
+              "Preference-Applied": {
+                "description": "使用 `Prefer: respond-async` 请求异步处理时返回",
+                "schema": {
+                  "type": "string",
+                  "example": "respond-async"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "异步请求参数或计费模式不受支持。`tiered_expr` 计费模型发起异步图片请求时返回此状态。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskErrorResponse"
+                },
+                "example": {
+                  "code": "async_image_billing_not_supported",
+                  "message": "tiered expression billing is not supported for asynchronous image generation",
+                  "data": null
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/images/generations/{task_id}": {
+      "get": {
+        "summary": "获取异步图片生成任务状态",
+        "deprecated": false,
+        "description": "查询当前用户提交的异步图片生成任务。任务状态可能为 `queued`、`in_progress`、`completed` 或 `failed`；完成时 `data` 包含生成结果，失败时 `error` 包含错误信息。",
+        "operationId": "getImageGenerationTask",
+        "tags": [
+          "图片生成/Qwen千问"
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "异步图片生成任务 ID",
+            "required": true,
+            "example": "task_abc123",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功获取图片任务状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageTaskResponse"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "404": {
+            "description": "任务不存在或不属于当前用户",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskErrorResponse"
                 }
               }
             },
@@ -2337,6 +2455,31 @@
           }
         }
       },
+      "TaskErrorResponse": {
+        "type": "object",
+        "description": "异步任务接口错误响应",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "错误代码",
+            "example": "task_not_exist"
+          },
+          "message": {
+            "type": "string",
+            "description": "错误信息",
+            "example": "task_not_exist"
+          },
+          "data": {
+            "description": "可选的错误详情",
+            "nullable": true
+          }
+        }
+      },
       "Usage": {
         "type": "object",
         "properties": {
@@ -3697,6 +3840,11 @@
             ],
             "default": "url"
           },
+          "async": {
+            "type": "boolean",
+            "description": "是否异步处理。设为 `true` 时成功提交返回 HTTP 202 和图片任务对象；与 `Prefer: respond-async` 等效。支持阿里原生异步图片模型和 Grsai nano-banana / gpt-image-2 图片模型；Grsai 当前仅支持 `n=1`。`tiered_expr` 计费模型当前不支持异步处理并返回 HTTP 400。",
+            "default": false
+          },
           "user": {
             "type": "string"
           }
@@ -3756,6 +3904,114 @@
                 }
               }
             }
+          }
+        }
+      },
+      "ImageTaskResponse": {
+        "type": "object",
+        "description": "异步图片生成任务提交或状态查询响应",
+        "required": [
+          "id",
+          "task_id",
+          "object",
+          "status",
+          "progress",
+          "created_at",
+          "model"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "公开任务 ID",
+            "example": "task_abc123"
+          },
+          "task_id": {
+            "type": "string",
+            "description": "公开任务 ID，兼容任务接口字段",
+            "example": "task_abc123"
+          },
+          "object": {
+            "type": "string",
+            "description": "对象类型",
+            "enum": [
+              "image.generation.task"
+            ],
+            "example": "image.generation.task"
+          },
+          "status": {
+            "type": "string",
+            "description": "任务状态",
+            "enum": [
+              "queued",
+              "in_progress",
+              "completed",
+              "failed"
+            ],
+            "example": "queued"
+          },
+          "progress": {
+            "type": "integer",
+            "description": "任务完成百分比",
+            "minimum": 0,
+            "maximum": 100,
+            "example": 0
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "任务创建时间（Unix 时间戳）",
+            "example": 1764347090
+          },
+          "completed_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "任务完成时间（Unix 时间戳，仅完成或失败时返回）",
+            "example": 1764347105
+          },
+          "model": {
+            "type": "string",
+            "description": "请求使用的模型",
+            "example": "wanx-v1"
+          },
+          "data": {
+            "type": "array",
+            "description": "图片生成结果，仅任务成功时返回",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "b64_json": {
+                  "type": "string"
+                },
+                "revised_prompt": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "$ref": "#/components/schemas/ImageTaskError"
+          }
+        }
+      },
+      "ImageTaskError": {
+        "type": "object",
+        "description": "异步图片生成任务失败信息",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "错误信息",
+            "example": "image generation failed"
+          },
+          "code": {
+            "type": "string",
+            "description": "上游错误代码"
           }
         }
       },

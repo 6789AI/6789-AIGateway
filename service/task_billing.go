@@ -208,7 +208,7 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 // reason 用于日志记录（例如 "token重算" 或 "adaptor调整"）。
 // clamps 可选：若计算 actualQuota 时发生额度饱和，将其记入日志 admin_info（仅管理员可见）。
 func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) {
-	if actualQuota <= 0 {
+	if actualQuota < 0 {
 		return
 	}
 	preConsumedQuota := task.Quota
@@ -283,34 +283,41 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	}
 
 	modelName := taskModelName(task)
+	var modelRatio, finalGroupRatio float64
+	if billingContext := task.PrivateData.BillingContext; billingContext != nil && billingContext.Version >= model.TaskBillingContextVersion {
+		if billingContext.GroupRatio == 0 {
+			RecalculateTaskQuota(ctx, task, 0, "token重算：提交时分组倍率为 0")
+			return
+		}
+		modelRatio = billingContext.ModelRatio
+		finalGroupRatio = billingContext.GroupRatio
+	} else {
+		var hasRatioSetting bool
+		modelRatio, hasRatioSetting, _ = ratio_setting.GetModelRatio(modelName)
+		if !hasRatioSetting {
+			return
+		}
 
-	// 获取模型价格和倍率
-	modelRatio, hasRatioSetting, _ := ratio_setting.GetModelRatio(modelName)
-	// 只有配置了倍率(非固定价格)时才按 token 重新计费
-	if !hasRatioSetting || modelRatio <= 0 {
-		return
-	}
+		group := task.Group
+		userGroup := ""
+		user, userErr := model.GetUserById(task.UserId, false)
+		if userErr == nil {
+			userGroup = user.Group
+			if group == "" {
+				group = userGroup
+			}
+		}
+		if group == "" {
+			return
+		}
 
-	// 获取用户和组的倍率信息
-	group := task.Group
-	if group == "" {
-		user, err := model.GetUserById(task.UserId, false)
-		if err == nil {
-			group = user.Group
+		finalGroupRatio = ratio_setting.GetGroupRatio(group)
+		if specialRatio, ok := ratio_setting.GetGroupGroupRatio(userGroup, group); ok {
+			finalGroupRatio = specialRatio
 		}
 	}
-	if group == "" {
+	if modelRatio <= 0 || finalGroupRatio <= 0 {
 		return
-	}
-
-	groupRatio := ratio_setting.GetGroupRatio(group)
-	userGroupRatio, hasUserGroupRatio := ratio_setting.GetGroupGroupRatio(group, group)
-
-	var finalGroupRatio float64
-	if hasUserGroupRatio {
-		finalGroupRatio = userGroupRatio
-	} else {
-		finalGroupRatio = groupRatio
 	}
 
 	// 计算 OtherRatios 乘积（视频折扣、时长等）

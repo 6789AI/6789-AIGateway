@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
@@ -389,20 +390,28 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 	}
 	cacheGetChannel, err := model.CacheGetChannel(channelId)
 	if err != nil {
-		// Collect DB primary key IDs for bulk update (taskIds are upstream IDs, not task_id column values)
-		var failedIDs []int64
+		reason := fmt.Sprintf("Failed to get channel info, channel ID: %d", channelId)
+		now := time.Now().Unix()
 		for _, upstreamID := range taskIds {
-			if t, ok := taskM[upstreamID]; ok {
-				failedIDs = append(failedIDs, t.ID)
+			task, ok := taskM[upstreamID]
+			if !ok || task == nil {
+				continue
 			}
-		}
-		errUpdate := model.TaskBulkUpdateByID(failedIDs, map[string]any{
-			"fail_reason": fmt.Sprintf("Failed to get channel info, channel ID: %d", channelId),
-			"status":      "FAILURE",
-			"progress":    "100%",
-		})
-		if errUpdate != nil {
-			common.SysLog(fmt.Sprintf("UpdateVideoTask error: %v", errUpdate))
+			oldStatus := task.Status
+			task.Status = model.TaskStatusFailure
+			task.Progress = taskcommon.ProgressComplete
+			task.FailReason = reason
+			if task.FinishTime == 0 {
+				task.FinishTime = now
+			}
+			won, updateErr := task.UpdateWithStatus(oldStatus)
+			if updateErr != nil {
+				logger.LogError(ctx, fmt.Sprintf("Failed to mark task %s after channel lookup failure: %s", task.TaskID, updateErr.Error()))
+				continue
+			}
+			if won && task.Quota != 0 {
+				RefundTaskQuota(ctx, task, reason)
+			}
 		}
 		return fmt.Errorf("CacheGetChannel failed: %w", err)
 	}
@@ -473,6 +482,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	logger.LogDebug(ctx, "updateVideoSingleTask response: %s", responseBody)
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError {
+		return fmt.Errorf("upstream returned transient status %d for task %s", resp.StatusCode, taskId)
+	}
 
 	snap := task.Snapshot()
 
@@ -490,6 +502,16 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		task.Data = t.Data
 	} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
 		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
+	}
+	if billingContext := task.PrivateData.BillingContext; billingContext != nil && len(taskResult.BillingRatios) > 0 {
+		priceData := taskBillingContextPriceData(billingContext)
+		if priceData == nil {
+			priceData = &hosttypes.PriceData{}
+		}
+		for name, ratio := range taskResult.BillingRatios {
+			priceData.AddOtherRatio(name, ratio)
+		}
+		billingContext.OtherRatios = priceData.OtherRatios()
 	}
 
 	task.Data = redactVideoResponseBody(responseBody)
@@ -545,6 +567,10 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		} else if taskResult.Url != "" {
 			// Direct upstream URL (e.g. Kling, Ali, Doubao, etc.)
 			task.PrivateData.ResultURL = taskResult.Url
+		} else if task.Action == constant.TaskActionImageGenerate {
+			// Image tasks keep their full ordered result set in Data. They do not
+			// use the video content proxy fallback.
+			task.PrivateData.ResultURL = ""
 		} else {
 			// No URL from adaptor — construct proxy URL using public task ID
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
@@ -641,8 +667,17 @@ func truncateBase64(s string) string {
 //  2. taskResult.TotalTokens > 0 → 按 token 重算
 //  3. 都不满足 → 保持预扣额度不变
 func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) {
-	// 0. 按次计费的任务不做差额结算
+	// 0. 按次计费仅在上游返回实际倍率时做差额结算。
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
+		if len(taskResult.BillingRatios) > 0 {
+			multiplier := 1.0
+			if priceData := taskBillingContextPriceData(bc); priceData != nil {
+				multiplier = priceData.OtherRatioMultiplier()
+			}
+			actualQuota, clamp := common.QuotaFromFloatChecked(bc.ModelPrice * common.QuotaPerUnit * bc.GroupRatio * multiplier)
+			RecalculateTaskQuota(ctx, task, actualQuota, "upstream actual billing ratios", clamp)
+			return
+		}
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
 		return
 	}

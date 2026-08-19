@@ -41,6 +41,17 @@ func TestChannelValidateSettingsRejectsInvalidHTTPTransport(t *testing.T) {
 	}
 }
 
+func TestChannelValidateSettingsValidatesAsyncImageProvider(t *testing.T) {
+	channel := &Channel{}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{AsyncImageProvider: "grsai"})
+	require.NoError(t, channel.ValidateSettings())
+
+	channel.SetOtherSettings(dto.ChannelOtherSettings{AsyncImageProvider: "unknown"})
+	err := channel.ValidateSettings()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "async_image_provider")
+}
+
 func TestAdvancedCustomChannelRequiresModelListRouteOnlyWhenUpdateChecksEnabled(t *testing.T) {
 	inferenceRoute := dto.AdvancedCustomRoute{
 		IncomingPath: "/v1/chat/completions",

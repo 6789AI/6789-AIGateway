@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/samber/lo"
@@ -168,12 +169,17 @@ func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath strin
 
 	var channels []*Channel
 	if err := DB.Where("id IN ?", channelIds).Find(&channels).Error; err != nil {
+		if requestPath == relayconstant.AsyncImageGenerationSelectionPath {
+			return nil
+		}
 		// On error, fall back to unfiltered candidates to avoid blocking selection
 		return abilities
 	}
 
+	channelsByID := make(map[int]*Channel, len(channels))
 	advancedConfigs := make(map[int]*dto.AdvancedCustomConfig)
 	for _, channel := range channels {
+		channelsByID[channel.Id] = channel
 		if channel.Type == constant.ChannelTypeAdvancedCustom {
 			advancedConfigs[channel.Id] = channel.GetOtherSettings().AdvancedCustom
 		}
@@ -181,6 +187,12 @@ func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath strin
 
 	filtered := make([]Ability, 0, len(abilities))
 	for _, ability := range abilities {
+		if requestPath == relayconstant.AsyncImageGenerationSelectionPath {
+			if ChannelSupportsAsyncImage(channelsByID[ability.ChannelId], model) {
+				filtered = append(filtered, ability)
+			}
+			continue
+		}
 		config, isAdvancedCustom := advancedConfigs[ability.ChannelId]
 		if !isAdvancedCustom {
 			filtered = append(filtered, ability)

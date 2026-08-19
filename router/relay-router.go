@@ -1,6 +1,7 @@
 package router
 
 import (
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
@@ -59,6 +60,14 @@ func SetRelayRouter(router *gin.Engine) {
 		})
 	}
 
+	imageTaskRouter := router.Group("/v1/images/generations")
+	imageTaskRouter.Use(middleware.RouteTag("relay"))
+	imageTaskRouter.Use(middleware.SystemPerformanceCheck())
+	imageTaskRouter.Use(middleware.TokenAuth())
+	{
+		imageTaskRouter.GET("/:task_id", controller.RelayImageTaskFetch)
+	}
+
 	playgroundRouter := router.Group("/pg")
 	playgroundRouter.Use(middleware.RouteTag("relay"))
 	playgroundRouter.Use(middleware.SystemPerformanceCheck())
@@ -115,6 +124,10 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatOpenAIImage)
 		})
 		httpRouter.POST("/images/generations", func(c *gin.Context) {
+			if common.GetContextKeyBool(c, constant.ContextKeyAsyncImageRequest) {
+				controller.RelayImageTask(c)
+				return
+			}
 			controller.Relay(c, types.RelayFormatOpenAIImage)
 		})
 		httpRouter.POST("/images/edits", func(c *gin.Context) {

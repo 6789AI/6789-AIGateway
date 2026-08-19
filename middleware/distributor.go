@@ -39,6 +39,10 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
+		selectionPath := c.Request.URL.Path
+		if override := common.GetContextKeyString(c, constant.ContextKeyChannelSelectionPath); override != "" {
+			selectionPath = override
+		}
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {
@@ -106,7 +110,7 @@ func Distribute() func(c *gin.Context) {
 					affinityUsable := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
-						channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) {
+						channelSupportsRequestPath(preferred, selectionPath, modelRequest.Model) {
 						if usingGroup == "auto" {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetRequestAutoGroups(c, userGroup)
@@ -137,7 +141,7 @@ func Distribute() func(c *gin.Context) {
 						Ctx:         c,
 						ModelName:   modelRequest.Model,
 						TokenGroup:  usingGroup,
-						RequestPath: c.Request.URL.Path,
+						RequestPath: selectionPath,
 						Retry:       common.GetPointer(0),
 					})
 					if err != nil {
@@ -176,6 +180,9 @@ func Distribute() func(c *gin.Context) {
 func channelSupportsRequestPath(channel *model.Channel, requestPath string, requestModel string) bool {
 	if channel == nil {
 		return false
+	}
+	if requestPath == relayconstant.AsyncImageGenerationSelectionPath {
+		return model.ChannelSupportsAsyncImage(channel, requestModel)
 	}
 	if channel.Type != constant.ChannelTypeAdvancedCustom {
 		return true
@@ -336,6 +343,29 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		if _, ok := c.Get("relay_mode"); !ok {
 			c.Set("relay_mode", relayMode)
 		}
+	} else if strings.HasPrefix(c.Request.URL.Path, "/v1/images/generations") {
+		if c.Request.Method == http.MethodGet {
+			shouldSelectChannel = false
+			modelRequest.Model = getTaskOriginModelName(c)
+			c.Set("relay_mode", relayconstant.RelayModeImageFetch)
+		} else {
+			imageRequest := dto.ImageRequest{}
+			if err := common.UnmarshalBodyReusable(c, &imageRequest); err != nil {
+				return nil, false, errors.New(i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
+			}
+			modelRequest.Model = imageRequest.Model
+			async := imageRequest.Async != nil && *imageRequest.Async
+			if common.HasPreferDirective(c.Request.Header, "respond-async") {
+				async = true
+			}
+			common.SetContextKey(c, constant.ContextKeyAsyncImageRequest, async)
+			if async {
+				common.SetContextKey(c, constant.ContextKeyChannelSelectionPath, relayconstant.AsyncImageGenerationSelectionPath)
+				c.Set("relay_mode", relayconstant.RelayModeImageSubmit)
+			} else {
+				c.Set("relay_mode", relayconstant.RelayModeImagesGenerations)
+			}
+		}
 	} else if strings.HasPrefix(c.Request.URL.Path, "/v1beta/models/") || strings.HasPrefix(c.Request.URL.Path, "/v1/models/") {
 		// Gemini API 路径处理: /v1beta/models/gemini-2.0-flash:generateContent
 		relayMode := relayconstant.RelayModeGemini
@@ -365,7 +395,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			modelRequest.Model = c.Param("model")
 		}
 	}
-	if strings.HasPrefix(c.Request.URL.Path, "/v1/images/generations") {
+	if strings.HasPrefix(c.Request.URL.Path, "/v1/images/generations") && c.Request.Method != http.MethodGet {
 		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "dall-e")
 	} else if strings.HasPrefix(c.Request.URL.Path, "/v1/images/edits") {
 		//modelRequest.Model = common.GetStringIfEmpty(c.PostForm("model"), "gpt-image-1")

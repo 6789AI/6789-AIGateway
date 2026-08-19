@@ -166,6 +166,97 @@ func TestPriceDataOtherRatiosFilterAndSnapshot(t *testing.T) {
 	assert.NotContains(t, nextSnapshot, "new")
 }
 
+func TestRecalculateTaskQuotaByTokensUsesPersistedBillingSnapshot(t *testing.T) {
+	truncate(t)
+
+	const (
+		userID       = 150
+		initialQuota = 10_000
+		reserved     = 20
+	)
+	seedUser(t, userID, initialQuota)
+	task := makeTask(userID, 0, reserved, 0, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.Version = model.TaskBillingContextVersion
+	task.PrivateData.BillingContext.ModelRatio = 2
+	task.PrivateData.BillingContext.GroupRatio = 3
+	task.PrivateData.BillingContext.OtherRatios = map[string]float64{"n": 2}
+	require.NoError(t, model.DB.Create(task).Error)
+
+	RecalculateTaskQuotaByTokens(context.Background(), task, 1)
+
+	const expectedQuota = 12
+	assert.Equal(t, expectedQuota, getTaskQuota(t, task.ID))
+	assert.Equal(t, initialQuota+(reserved-expectedQuota), getUserQuota(t, userID))
+}
+
+func TestRecalculateTaskQuotaByTokensRefundsVersionedFreeGroupReservation(t *testing.T) {
+	tests := []struct {
+		name          string
+		billingSource string
+		userID        int
+		tokenID       int
+		subscription  int
+	}{
+		{name: "wallet and token", billingSource: BillingSourceWallet, userID: 152, tokenID: 152},
+		{name: "subscription and token", billingSource: BillingSourceSubscription, userID: 153, tokenID: 153, subscription: 153},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			truncate(t)
+			const reserved = 4_000
+			seedUser(t, tt.userID, 10_000)
+			seedToken(t, tt.tokenID, tt.userID, "sk-free-group-"+tt.name, 6_000)
+			if tt.subscription != 0 {
+				seedSubscription(t, tt.subscription, tt.userID, 20_000, 5_000)
+			}
+
+			task := makeTask(tt.userID, 0, reserved, tt.tokenID, tt.billingSource, tt.subscription)
+			task.PrivateData.BillingContext.Version = model.TaskBillingContextVersion
+			task.PrivateData.BillingContext.ModelRatio = 2
+			task.PrivateData.BillingContext.GroupRatio = 0
+			require.NoError(t, model.DB.Create(task).Error)
+
+			RecalculateTaskQuotaByTokens(context.Background(), task, 1)
+
+			assert.Zero(t, getTaskQuota(t, task.ID))
+			assert.Equal(t, 10_000, getTokenRemainQuota(t, tt.tokenID))
+			if tt.subscription == 0 {
+				assert.Equal(t, 14_000, getUserQuota(t, tt.userID))
+			} else {
+				assert.Equal(t, int64(1_000), getSubscriptionUsed(t, tt.subscription))
+			}
+		})
+	}
+}
+
+func TestSettleTaskBillingUsesActualImageCountForFixedPrice(t *testing.T) {
+	truncate(t)
+
+	const (
+		userID       = 151
+		initialQuota = 10_000
+	)
+	seedUser(t, userID, initialQuota)
+	baseQuota, clamp := common.QuotaFromFloatChecked(0.001 * common.QuotaPerUnit)
+	require.Nil(t, clamp)
+	reserved := baseQuota * 2
+	task := makeTask(userID, 0, reserved, 0, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.ModelPrice = 0.001
+	task.PrivateData.BillingContext.ModelRatio = 0
+	task.PrivateData.BillingContext.GroupRatio = 1
+	task.PrivateData.BillingContext.OtherRatios = map[string]float64{"n": 1}
+	task.PrivateData.BillingContext.PerCallBilling = true
+	require.NoError(t, model.DB.Create(task).Error)
+
+	settleTaskBillingOnComplete(context.Background(), &taskPollingFetchAdaptor{}, task, &relaycommon.TaskInfo{
+		BillingRatios: map[string]float64{"n": 1},
+	})
+
+	assert.Equal(t, baseQuota, getTaskQuota(t, task.ID))
+	assert.Equal(t, initialQuota+baseQuota, getUserQuota(t, userID))
+}
+
 func TestPriceDataReplaceAndApplyOtherRatios(t *testing.T) {
 	priceData := types.PriceData{}
 
@@ -512,22 +603,26 @@ func TestRecalculate_ZeroDelta(t *testing.T) {
 	assert.Equal(t, int64(0), countLogs(t))
 }
 
-func TestRecalculate_ActualQuotaZero(t *testing.T) {
+func TestRecalculate_ActualQuotaZeroRefundsReservation(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
 	const userID = 13
-	const initQuota = 10000
+	const initQuota, preConsumed = 10_000, 5_000
 
 	seedUser(t, userID, initQuota)
 
-	task := makeTask(userID, 0, 5000, 0, BillingSourceWallet, 0)
+	task := makeTask(userID, 0, preConsumed, 0, BillingSourceWallet, 0)
+	require.NoError(t, model.DB.Create(task).Error)
 
 	RecalculateTaskQuota(ctx, task, 0, "zero actual")
 
-	// No change (early return)
-	assert.Equal(t, initQuota, getUserQuota(t, userID))
-	assert.Equal(t, int64(0), countLogs(t))
+	assert.Equal(t, initQuota+preConsumed, getUserQuota(t, userID))
+	assert.Zero(t, getTaskQuota(t, task.ID))
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, preConsumed, log.Quota)
 }
 
 func TestRecalculate_Subscription_NegativeDelta(t *testing.T) {

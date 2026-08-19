@@ -79,6 +79,16 @@ type TaskAdaptor interface {
 	ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error)
 }
 
+// MappedTaskRequestValidator validates provider capabilities after model
+// mapping has resolved the actual upstream model name.
+type MappedTaskRequestValidator interface {
+	ValidateMappedTaskRequest(c *gin.Context, info *relaycommon.RelayInfo) *taskdto.TaskError
+}
+
 type OpenAIVideoConverter interface {
 	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
+}
+
+type OpenAIImageTaskConverter interface {
+	ConvertToOpenAIImageTask(originTask *model.Task) ([]byte, error)
 }

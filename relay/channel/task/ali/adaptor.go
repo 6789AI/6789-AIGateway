@@ -9,14 +9,20 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
+	imageali "github.com/QuantumNous/new-api/relay/channel/ali"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	relayhelper "github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
+	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/samber/lo"
 
 	"github.com/gin-gonic/gin"
@@ -119,9 +125,11 @@ type AliMetadata struct {
 
 type TaskAdaptor struct {
 	taskcommon.BaseBilling
-	ChannelType int
-	apiKey      string
-	baseURL     string
+	ChannelType        int
+	apiKey             string
+	baseURL            string
+	imageRequest       *dto.ImageRequest
+	imageBillingRatios map[string]float64
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
@@ -131,11 +139,65 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *taskdto.TaskError) {
+	if info.RelayMode == relayconstant.RelayModeImageSubmit {
+		imageRequest, err := relayhelper.GetAndValidOpenAIImageRequest(c, relayconstant.RelayModeImagesGenerations)
+		if err != nil {
+			return service.TaskErrorWrapperLocal(err, "invalid_image_request", http.StatusBadRequest)
+		}
+		if imageRequest.Stream != nil && *imageRequest.Stream {
+			return service.TaskErrorWrapperLocal(errors.New("stream and asynchronous image generation cannot be used together"), "invalid_image_request", http.StatusBadRequest)
+		}
+		if imageRequest.ResponseFormat != "" && !strings.EqualFold(imageRequest.ResponseFormat, "url") {
+			return service.TaskErrorWrapperLocal(errors.New("asynchronous image generation only supports response_format=url"), "invalid_image_request", http.StatusBadRequest)
+		}
+
+		a.imageRequest = imageRequest
+		info.Request = imageRequest
+		info.Action = constant.TaskActionImageGenerate
+		return nil
+	}
+
 	// ValidateMultipartDirect 负责解析并将原始 TaskSubmitReq 存入 context
 	return relaycommon.ValidateMultipartDirect(c, info)
 }
 
+func (a *TaskAdaptor) ValidateMappedTaskRequest(c *gin.Context, info *relaycommon.RelayInfo) *taskdto.TaskError {
+	if info.RelayMode != relayconstant.RelayModeImageSubmit {
+		return nil
+	}
+	if !constant.UpdateTask {
+		return service.TaskErrorWrapperLocal(errors.New("asynchronous task polling is disabled"), "async_task_polling_disabled", http.StatusServiceUnavailable)
+	}
+	modelName := info.UpstreamModelName
+	if modelName == "" {
+		modelName = info.OriginModelName
+	}
+	if model_setting.IsSyncImageModel(modelName) {
+		return service.TaskErrorWrapperLocal(fmt.Errorf("model %s uses the synchronous image API and cannot be submitted asynchronously", info.OriginModelName), "async_image_not_supported", http.StatusBadRequest)
+	}
+	if a.imageRequest == nil {
+		return service.TaskErrorWrapperLocal(errors.New("image request is not initialized"), "invalid_image_request", http.StatusBadRequest)
+	}
+
+	mappedRequest := *a.imageRequest
+	mappedRequest.Model = modelName
+	mappedInfo := *info
+	mappedInfo.PriceData = hosttypes.PriceData{}
+	converted, err := (&imageali.Adaptor{}).ConvertImageRequest(c, &mappedInfo, mappedRequest)
+	if err != nil {
+		return service.TaskErrorWrapperLocal(err, "invalid_image_request", http.StatusBadRequest)
+	}
+	if _, ok := converted.(*imageali.AliImageRequest); !ok {
+		return service.TaskErrorWrapperLocal(fmt.Errorf("unexpected Ali image request type %T", converted), "invalid_image_request", http.StatusBadRequest)
+	}
+	a.imageBillingRatios = mappedInfo.PriceData.OtherRatios()
+	return nil
+}
+
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if info.RelayMode == relayconstant.RelayModeImageSubmit {
+		return fmt.Sprintf("%s/api/v1/services/aigc/text2image/image-synthesis", a.baseURL), nil
+	}
 	return fmt.Sprintf("%s/api/v1/services/aigc/video-generation/video-synthesis", a.baseURL), nil
 }
 
@@ -148,6 +210,26 @@ func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info
 }
 
 func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error) {
+	if info.RelayMode == relayconstant.RelayModeImageSubmit {
+		if a.imageRequest == nil {
+			return nil, errors.New("image request is not initialized")
+		}
+		imageRequest := *a.imageRequest
+		if info.UpstreamModelName != "" {
+			imageRequest.Model = info.UpstreamModelName
+		}
+		converted, err := (&imageali.Adaptor{}).ConvertImageRequest(c, info, imageRequest)
+		if err != nil {
+			return nil, errors.Wrap(err, "convert_to_ali_image_request_failed")
+		}
+		bodyBytes, err := common.Marshal(converted)
+		if err != nil {
+			return nil, errors.Wrap(err, "marshal_ali_image_request_failed")
+		}
+		logger.LogDebug(c, "ali asynchronous image request body: %s", bodyBytes)
+		return bytes.NewReader(bodyBytes), nil
+	}
+
 	taskReq, err := relaycommon.GetTaskRequest(c)
 	if err != nil {
 		return nil, errors.Wrap(err, "get_task_request_failed")
@@ -447,6 +529,16 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 // EstimateBilling 根据用户请求参数计算 OtherRatios（时长、分辨率等）。
 // 在 ValidateRequestAndSetAction 之后、价格计算之前调用。
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
+	if info.RelayMode == relayconstant.RelayModeImageSubmit {
+		ratios := make(map[string]float64, len(a.imageBillingRatios))
+		for name, ratio := range a.imageBillingRatios {
+			if ratio > 0 {
+				ratios[name] = ratio
+			}
+		}
+		return ratios
+	}
+
 	taskReq, err := relaycommon.GetTaskRequest(c)
 	if err != nil {
 		return nil
@@ -485,6 +577,29 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		return
 	}
 	_ = resp.Body.Close()
+	if info.RelayMode == relayconstant.RelayModeImageSubmit {
+		var aliResp imageali.AliResponse
+		if err := common.Unmarshal(responseBody, &aliResp); err != nil {
+			return "", nil, service.TaskErrorWrapper(errors.Wrapf(err, "body: %s", responseBody), "unmarshal_response_body_failed", http.StatusInternalServerError)
+		}
+		if aliResp.Code != "" || aliResp.Message != "" {
+			message := aliResp.Message
+			if message == "" {
+				message = aliResp.Code
+			} else if aliResp.Code != "" {
+				message = aliResp.Code + ": " + message
+			}
+			statusCode := resp.StatusCode
+			if statusCode < http.StatusBadRequest {
+				statusCode = http.StatusBadGateway
+			}
+			return "", nil, service.TaskErrorWrapper(errors.New(message), "ali_api_error", statusCode)
+		}
+		if aliResp.Output.TaskId == "" {
+			return "", nil, service.TaskErrorWrapper(errors.New("task_id is empty"), "invalid_response", http.StatusInternalServerError)
+		}
+		return aliResp.Output.TaskId, responseBody, nil
+	}
 
 	// 解析阿里响应
 	var aliResp AliVideoResponse
@@ -554,13 +669,36 @@ func (a *TaskAdaptor) GetChannelName() string {
 
 // ParseTaskResult 解析任务结果
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
-	var aliResp AliVideoResponse
+	var aliResp struct {
+		Output struct {
+			TaskStatus string                `json:"task_status"`
+			VideoURL   string                `json:"video_url,omitempty"`
+			Results    []imageali.TaskResult `json:"results,omitempty"`
+			Code       string                `json:"code,omitempty"`
+			Message    string                `json:"message,omitempty"`
+		} `json:"output"`
+		Usage struct {
+			ImageCount int `json:"image_count,omitempty"`
+		} `json:"usage"`
+		Code    string `json:"code,omitempty"`
+		Message string `json:"message,omitempty"`
+	}
 	if err := common.Unmarshal(respBody, &aliResp); err != nil {
 		return nil, errors.Wrap(err, "unmarshal task result failed")
 	}
 
 	taskResult := relaycommon.TaskInfo{
 		Code: 0,
+	}
+	if aliResp.Output.TaskStatus == "" && (aliResp.Code != "" || aliResp.Message != "") {
+		taskResult.Status = model.TaskStatusFailure
+		taskResult.Reason = aliResp.Message
+		if taskResult.Reason == "" {
+			taskResult.Reason = aliResp.Code
+		} else if aliResp.Code != "" {
+			taskResult.Reason = aliResp.Code + ": " + taskResult.Reason
+		}
+		return &taskResult, nil
 	}
 
 	// 状态映射
@@ -571,8 +709,19 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		taskResult.Status = model.TaskStatusInProgress
 	case "SUCCEEDED":
 		taskResult.Status = model.TaskStatusSuccess
-		// 阿里直接返回视频URL，不需要额外的代理端点
 		taskResult.Url = aliResp.Output.VideoURL
+		imageCount := aliResp.Usage.ImageCount
+		if len(aliResp.Output.Results) > 0 {
+			taskResult.Url = aliResp.Output.Results[0].Url
+			if imageCount == 0 {
+				imageCount = len(aliResp.Output.Results)
+			}
+		}
+		imageCount = min(imageCount, dto.MaxImageN)
+		if imageCount > 0 {
+			taskResult.TotalTokens = 1
+			taskResult.BillingRatios = map[string]float64{"n": float64(imageCount)}
+		}
 	case "FAILED", "CANCELED", "UNKNOWN":
 		taskResult.Status = model.TaskStatusFailure
 		if aliResp.Message != "" {
@@ -620,6 +769,79 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	}
 
 	return common.Marshal(openAIResp)
+}
+
+func (a *TaskAdaptor) ConvertToOpenAIImageTask(task *model.Task) ([]byte, error) {
+	imageTask := dto.NewImageTaskResponse(task.TaskID)
+	imageTask.Model = task.Properties.OriginModelName
+	imageTask.CreatedAt = task.CreatedAt
+	if imageTask.CreatedAt == 0 {
+		imageTask.CreatedAt = task.SubmitTime
+	}
+	if progress, err := strconv.Atoi(strings.TrimSuffix(task.Progress, "%")); err == nil {
+		imageTask.Progress = min(max(progress, 0), 100)
+	}
+
+	switch task.Status {
+	case model.TaskStatusNotStart, model.TaskStatusSubmitted, model.TaskStatusQueued:
+		imageTask.Status = dto.ImageTaskStatusQueued
+	case model.TaskStatusInProgress:
+		imageTask.Status = dto.ImageTaskStatusInProgress
+	case model.TaskStatusSuccess:
+		imageTask.Status = dto.ImageTaskStatusCompleted
+		imageTask.Progress = 100
+		imageTask.CompletedAt = task.FinishTime
+		if imageTask.CompletedAt == 0 {
+			imageTask.CompletedAt = task.UpdatedAt
+		}
+	case model.TaskStatusFailure:
+		imageTask.Status = dto.ImageTaskStatusFailed
+		imageTask.Progress = 100
+		imageTask.CompletedAt = task.FinishTime
+		if imageTask.CompletedAt == 0 {
+			imageTask.CompletedAt = task.UpdatedAt
+		}
+	default:
+		imageTask.Status = dto.ImageTaskStatusQueued
+	}
+
+	var aliResp imageali.AliResponse
+	if len(task.Data) > 0 {
+		if err := common.Unmarshal(task.Data, &aliResp); err != nil {
+			return nil, errors.Wrap(err, "unmarshal Ali image task response failed")
+		}
+	}
+	if task.Status == model.TaskStatusSuccess {
+		imageTask.Data = make([]dto.ImageData, 0, len(aliResp.Output.Results))
+		for _, result := range aliResp.Output.Results {
+			if result.Url == "" && result.B64Image == "" {
+				continue
+			}
+			imageTask.Data = append(imageTask.Data, dto.ImageData{
+				Url:     result.Url,
+				B64Json: result.B64Image,
+			})
+		}
+	}
+	if task.Status == model.TaskStatusFailure {
+		message := task.FailReason
+		if message == "" {
+			message = aliResp.Output.Message
+		}
+		if message == "" {
+			message = aliResp.Message
+		}
+		if message == "" {
+			message = "image generation failed"
+		}
+		code := aliResp.Output.Code
+		if code == "" {
+			code = aliResp.Code
+		}
+		imageTask.Error = &dto.ImageTaskError{Code: code, Message: message}
+	}
+
+	return common.Marshal(imageTask)
 }
 
 func convertAliStatus(aliStatus string) string {

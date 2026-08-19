@@ -225,6 +225,41 @@ func TestUpdateVideoTasksCanSkipPollingSleepPerChannel(t *testing.T) {
 	assert.Equal(t, 2, adaptor.fetchCount())
 }
 
+func TestUpdateVideoTasksRefundsWhenChannelIsMissing(t *testing.T) {
+	truncate(t)
+
+	const (
+		userID       = 109
+		channelID    = 999999
+		initialQuota = 10_000
+		taskQuota    = 1_200
+	)
+	seedUser(t, userID, initialQuota)
+	task := makeTask(userID, channelID, taskQuota, 0, BillingSourceWallet, 0)
+	task.TaskID = "task_missing_channel"
+	task.Platform = constant.TaskPlatform("17")
+	task.Action = constant.TaskActionImageGenerate
+	task.Progress = "30%"
+	task.SubmitTime = time.Now().Unix()
+	task.PrivateData.UpstreamTaskID = "upstream_missing_channel"
+	require.NoError(t, model.DB.Create(task).Error)
+
+	err := updateVideoTasks(context.Background(), task.Platform, channelID, []string{
+		task.GetUpstreamTaskID(),
+	}, map[string]*model.Task{
+		task.GetUpstreamTaskID(): task,
+	})
+
+	require.Error(t, err)
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
+	assert.Equal(t, "100%", reloaded.Progress)
+	assert.Zero(t, reloaded.Quota)
+	assert.Equal(t, initialQuota+taskQuota, getUserQuota(t, userID))
+	assert.Equal(t, int64(1), countLogs(t))
+}
+
 func TestUpdateVideoTasksDefaultSleepDoesNotBlockOtherChannels(t *testing.T) {
 	truncate(t)
 

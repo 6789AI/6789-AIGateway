@@ -112,8 +112,11 @@ type TaskPrivateData struct {
 	BillingContext *TaskBillingContext `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
 }
 
+const TaskBillingContextVersion = 1
+
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
 type TaskBillingContext struct {
+	Version         int                `json:"version,omitempty"`           // 快照版本，用于区分历史不完整数据和显式零倍率
 	ModelPrice      float64            `json:"model_price,omitempty"`       // 模型单价
 	GroupRatio      float64            `json:"group_ratio,omitempty"`       // 分组倍率
 	ModelRatio      float64            `json:"model_ratio,omitempty"`       // 模型倍率
@@ -178,7 +181,9 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 	properties := Properties{}
 	privateData := TaskPrivateData{}
 	if relayInfo != nil && relayInfo.ChannelMeta != nil {
-		if relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeGemini ||
+		if relayInfo.ChannelMeta.ChannelIsMultiKey ||
+			platform == constant.TaskPlatformGrsai ||
+			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeGemini ||
 			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeVertexAi {
 			privateData.Key = relayInfo.ChannelMeta.ApiKey
 		}

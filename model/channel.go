@@ -964,6 +964,9 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
+	if provider := strings.ToLower(strings.TrimSpace(channelOtherSettings.AsyncImageProvider)); provider != "" && provider != "grsai" {
+		return fmt.Errorf("invalid async_image_provider: %s", channelOtherSettings.AsyncImageProvider)
+	}
 	if channel.Type == constant.ChannelTypeAdvancedCustom {
 		if channelOtherSettings.AdvancedCustom == nil {
 			return fmt.Errorf("advanced_custom is required")

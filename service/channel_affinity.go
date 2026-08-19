@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/cachex"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -555,6 +556,11 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 	path := ""
 	if c != nil && c.Request != nil && c.Request.URL != nil {
 		path = c.Request.URL.Path
+	}
+	if c != nil {
+		if selectionPath := common.GetContextKeyString(c, constant.ContextKeyChannelSelectionPath); selectionPath != "" {
+			path = selectionPath
+		}
 	}
 	userAgent := ""
 	if c != nil && c.Request != nil {
