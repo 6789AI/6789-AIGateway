@@ -16,7 +16,71 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type TopNavLink } from '../types'
+import type { HeaderNavModules } from '../../../lib/nav-modules'
+import type { TopNavLink } from '../types'
+
+export const comfyCanvasTopNavLink = {
+  href: 'https://comfy.6789api.top/',
+  external: true,
+} as const satisfies Pick<TopNavLink, 'href' | 'external'>
+
+type BuildTopNavLinksOptions = {
+  modules: HeaderNavModules
+  docsLink?: string
+  isAuthed: boolean
+  translate: (key: string) => string
+}
+
+export function buildTopNavLinks(
+  options: BuildTopNavLinksOptions
+): TopNavLink[] {
+  const links: TopNavLink[] = []
+
+  if (options.modules.home !== false) {
+    links.push({ title: options.translate('Home'), href: '/' })
+  }
+
+  if (options.modules.console !== false) {
+    links.push({ title: options.translate('Console'), href: '/dashboard' })
+  }
+
+  if (options.modules.comfyCanvas !== false) {
+    links.push({
+      title: options.translate('Comfy Canvas'),
+      ...comfyCanvasTopNavLink,
+    })
+  }
+
+  if (options.modules.pricing.enabled) {
+    links.push({
+      title: options.translate('Model Square'),
+      href: '/pricing',
+      requiresAuth: options.modules.pricing.requireAuth && !options.isAuthed,
+    })
+  }
+
+  if (options.modules.rankings.enabled) {
+    links.push({
+      title: options.translate('Rankings'),
+      href: '/rankings',
+      requiresAuth: options.modules.rankings.requireAuth && !options.isAuthed,
+    })
+  }
+
+  if (options.modules.docs !== false) {
+    links.push({
+      title: options.translate('Docs'),
+      href: options.docsLink ?? '/docs',
+      external: Boolean(options.docsLink),
+    })
+  }
+
+  if (options.modules.about !== false) {
+    links.push({ title: options.translate('About'), href: '/about' })
+  }
+
+  return links
+}
 
 /**
  * Default top navigation links
