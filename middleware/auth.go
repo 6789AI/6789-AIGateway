@@ -243,35 +243,6 @@ func WssAuth(c *gin.Context) {
 
 }
 
-// TokenOrUserAuth allows either session-based user auth or API token auth.
-// Used for endpoints that need to be accessible from both the dashboard and API clients.
-func TokenOrUserAuth() func(c *gin.Context) {
-	return func(c *gin.Context) {
-		raw, ok := authorizationToken(c.GetHeader("Authorization"))
-		if ok {
-			identity, internal, err := service.ParseDashboardAccessToken(raw)
-			if !internal {
-				TokenAuth()(c)
-				return
-			}
-			if err != nil {
-				writeDashboardAuthError(c, err)
-				return
-			}
-			_, user, err := service.ValidateLoginSession(identity)
-			if err != nil {
-				writeDashboardAuthError(c, err)
-				return
-			}
-			setDashboardAuthContext(c, user, identity, false)
-			c.Next()
-			return
-		}
-		// Opaque credentials are relay API keys here, never dashboard PATs.
-		TokenAuth()(c)
-	}
-}
-
 // TokenAuthReadOnly 宽松版本的令牌认证中间件，用于只读查询接口。
 // 只验证令牌 key 是否存在，不检查令牌状态、过期时间和额度。
 // 即使令牌已过期、已耗尽或已禁用，也允许访问。
