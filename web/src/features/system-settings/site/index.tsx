@@ -26,6 +26,14 @@ import {
 
 const defaultSiteSettings: SiteSettings = {
   Notice: '',
+  'marketing_banner.enabled': false,
+  'marketing_banner.content': '',
+  'marketing_banner.background_color': '#A3E635',
+  'marketing_banner.text_color': '#1A2E05',
+  'marketing_banner.icon': 'megaphone',
+  'marketing_banner.countdown_enabled': false,
+  'marketing_banner.countdown_end_at': 0,
+  'marketing_banner.link_url': '',
   SystemName: 'New API',
   Logo: '',
   Footer: '',

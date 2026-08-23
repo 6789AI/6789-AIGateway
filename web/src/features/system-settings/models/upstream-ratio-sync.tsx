@@ -31,6 +31,7 @@ import {
 } from '../api'
 import type {
   DifferencesMap,
+  RatioSyncValue,
   RatioType,
   UpstreamChannel,
   UpstreamConfig,
@@ -56,6 +57,7 @@ import {
   applyResolutionSelection,
   applyResolutionSelections,
   deleteResolutionField,
+  syncValuesEqual,
   type ResolutionRemovalPlan,
   type ResolutionSelection,
   type ResolutionsMap,
@@ -78,6 +80,7 @@ type UpstreamRatioSyncProps = {
     AudioCompletionRatio: string
     'billing_setting.billing_mode': string
     'billing_setting.billing_expr': string
+    'billing_setting.price_schedules': string
   }
 }
 
@@ -99,6 +102,7 @@ function optionKeyBySyncField(ratioType: string): string {
   const explicit: Record<string, string> = {
     billing_mode: 'billing_setting.billing_mode',
     billing_expr: 'billing_setting.billing_expr',
+    price_schedules: 'billing_setting.price_schedules',
   }
   if (explicit[ratioType]) return explicit[ratioType]
   return ratioType
@@ -252,7 +256,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
     (
       model: string,
       ratioType: RatioType,
-      value: number | string,
+      value: RatioSyncValue,
       sourceName: string
     ) => {
       setResolutions((prev) =>
@@ -307,6 +311,9 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       'billing_setting.billing_expr': parseJsonRecord<string>(
         modelRatios['billing_setting.billing_expr']
       ),
+      'billing_setting.price_schedules': parseJsonRecord<RatioSyncValue>(
+        modelRatios['billing_setting.price_schedules']
+      ),
     }
   }, [modelRatios])
 
@@ -333,7 +340,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
 
   const performSync = useCallback(
     async (currentRatios: ParsedRatios): Promise<boolean> => {
-      const finalRatios: Record<string, Record<string, number | string>> = {
+      const finalRatios: Record<string, Record<string, RatioSyncValue>> = {
         ModelRatio: { ...currentRatios.ModelRatio },
         CompletionRatio: { ...currentRatios.CompletionRatio },
         CacheRatio: { ...currentRatios.CacheRatio },
@@ -348,6 +355,9 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         'billing_setting.billing_expr': {
           ...currentRatios['billing_setting.billing_expr'],
         },
+        'billing_setting.price_schedules': {
+          ...currentRatios['billing_setting.price_schedules'],
+        },
       }
 
       Object.entries(resolutions).forEach(([model, ratios]) => {
@@ -356,6 +366,13 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         const hasRatio = selectedTypes.some((rt) =>
           RATIO_SYNC_FIELDS.includes(rt as RatioType)
         )
+
+        if (selectedTypes.includes('price_schedules')) {
+          delete finalRatios['billing_setting.billing_expr'][model]
+        }
+        if (selectedTypes.includes('billing_expr')) {
+          delete finalRatios['billing_setting.price_schedules'][model]
+        }
 
         if (hasPrice) {
           delete finalRatios.ModelRatio[model]
@@ -396,11 +413,15 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
   const findSourceChannel = (
     model: string,
     ratioType: RatioType,
-    value: number | string
+    value: RatioSyncValue
   ): string => {
     const upMap = differences[model]?.[ratioType]?.upstreams
     if (!upMap) return 'Unknown'
-    const entry = Object.entries(upMap).find(([, v]) => v === value)
+    const entry = Object.entries(upMap).find(([, upstreamValue]) =>
+      upstreamValue === null || upstreamValue === 'same'
+        ? false
+        : syncValuesEqual(upstreamValue, value)
+    )
     return entry ? entry[0] : 'Unknown'
   }
 
@@ -416,7 +437,13 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       const localCat = getLocalBillingCategory(model, currentRatios)
       const selectedTypes = Object.keys(ratios)
       let newCat: 'price' | 'ratio' | 'tiered'
-      if ('model_price' in ratios) {
+      if (
+        'price_schedules' in ratios ||
+        'billing_expr' in ratios ||
+        'billing_mode' in ratios
+      ) {
+        newCat = 'tiered'
+      } else if ('model_price' in ratios) {
         newCat = 'price'
       } else if (RATIO_SYNC_FIELDS.some((rt) => selectedTypes.includes(rt))) {
         newCat = 'ratio'

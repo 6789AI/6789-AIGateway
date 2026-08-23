@@ -33,6 +33,7 @@ import { ThemeCustomizationProvider } from '@/context/theme-customization-provid
 import { saveAffiliateCode } from '@/features/auth/lib/storage'
 import { GeneralError } from '@/features/errors/general-error'
 import { NotFoundError } from '@/features/errors/not-found-error'
+import { GlobalBannerHost } from '@/features/global-banner'
 import { getSetupStatus } from '@/features/setup/api'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import {
@@ -95,8 +96,16 @@ function RootComponent() {
   return (
     <ThemeCustomizationProvider>
       <NavigationProgress />
-      <Outlet />
-      <Toaster closeButton duration={5000} position='top-center' richColors />
+      <GlobalBannerHost>
+        <Outlet />
+        <Toaster
+          closeButton
+          duration={5000}
+          position='top-center'
+          offset='calc(var(--global-banner-height, 0px) + 16px)'
+          richColors
+        />
+      </GlobalBannerHost>
       {import.meta.env.MODE === 'development' && (
         <>
           <ReactQueryDevtools buttonPosition='bottom-left' />

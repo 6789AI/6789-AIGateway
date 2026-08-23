@@ -36,8 +36,11 @@ const getModelDefaults = (settings: BillingSettings) => ({
   AudioRatio: settings.AudioRatio,
   AudioCompletionRatio: settings.AudioCompletionRatio,
   ExposeRatioEnabled: settings.ExposeRatioEnabled,
+  FreeModelBannerEnabled:
+    settings['billing_setting.free_model_banner_enabled'],
   BillingMode: settings['billing_setting.billing_mode'],
   BillingExpr: settings['billing_setting.billing_expr'],
+  PriceSchedules: settings['billing_setting.price_schedules'],
 })
 
 const getGroupDefaults = (settings: BillingSettings) => ({

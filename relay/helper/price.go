@@ -3,6 +3,7 @@ package helper
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -72,6 +73,11 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hostty
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (hosttypes.PriceData, error) {
 	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
+	if usePrice && billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeScheduled {
+		if scheduledPrice, matched := billing_setting.GetScheduledPrice(info.OriginModelName, time.Now()); matched {
+			modelPrice = scheduledPrice
+		}
+	}
 
 	groupRatioInfo := HandleGroupRatio(c, info)
 
@@ -207,6 +213,11 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 			if !ratioSuccess && !acceptUnsetRatio {
 				return hosttypes.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
 			}
+		}
+	}
+	if usePrice && billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeScheduled {
+		if scheduledPrice, matched := billing_setting.GetScheduledPrice(info.OriginModelName, time.Now()); matched {
+			modelPrice = scheduledPrice
 		}
 	}
 

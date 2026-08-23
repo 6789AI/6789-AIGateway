@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -260,6 +261,31 @@ func UpdateOption(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": err.Error(),
+			})
+			return
+		}
+	case "billing_setting." + billing_setting.PriceSchedulesField:
+		err = billing_setting.ValidatePriceSchedulesJSON(option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "模型时段价格设置失败: " + err.Error(),
+			})
+			return
+		}
+	case system_setting.MarketingBannerOptionPrefix + "enabled",
+		system_setting.MarketingBannerOptionPrefix + "content",
+		system_setting.MarketingBannerOptionPrefix + "background_color",
+		system_setting.MarketingBannerOptionPrefix + "text_color",
+		system_setting.MarketingBannerOptionPrefix + "icon",
+		system_setting.MarketingBannerOptionPrefix + "countdown_enabled",
+		system_setting.MarketingBannerOptionPrefix + "countdown_end_at",
+		system_setting.MarketingBannerOptionPrefix + "link_url":
+		err = system_setting.ValidateMarketingBannerOption(option.Key, option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "营销横幅设置失败: " + err.Error(),
 			})
 			return
 		}

@@ -57,8 +57,10 @@ type ModelFormValues = {
   AudioRatio: string
   AudioCompletionRatio: string
   ExposeRatioEnabled: boolean
+  FreeModelBannerEnabled: boolean
   BillingMode: string
   BillingExpr: string
+  PriceSchedules: string
 }
 
 type ModelRatioFormProps = {
@@ -80,6 +82,7 @@ type ModelJsonFieldName =
   | 'ImageRatio'
   | 'AudioRatio'
   | 'AudioCompletionRatio'
+  | 'PriceSchedules'
 
 const modelJsonFields: Array<{
   name: ModelJsonFieldName
@@ -129,6 +132,12 @@ const modelJsonFields: Array<{
     name: 'AudioCompletionRatio',
     labelKey: 'Audio completion ratio',
     descriptionKey: 'Ratio applied to audio completions for streaming models.',
+  },
+  {
+    name: 'PriceSchedules',
+    labelKey: 'Time-based price schedules',
+    descriptionKey:
+      'JSON map of model identifiers to fixed-range or weekly per-request price schedules.',
   },
 ]
 
@@ -275,6 +284,7 @@ export const ModelRatioForm = memo(function ModelRatioForm({
               savedAudioCompletionRatio={savedValues.AudioCompletionRatio}
               savedBillingMode={savedValues.BillingMode}
               savedBillingExpr={savedValues.BillingExpr}
+              savedPriceSchedules={savedValues.PriceSchedules}
               modelPrice={form.watch('ModelPrice')}
               modelRatio={form.watch('ModelRatio')}
               cacheRatio={form.watch('CacheRatio')}
@@ -285,6 +295,7 @@ export const ModelRatioForm = memo(function ModelRatioForm({
               audioCompletionRatio={form.watch('AudioCompletionRatio')}
               billingMode={form.watch('BillingMode')}
               billingExpr={form.watch('BillingExpr')}
+              priceSchedules={form.watch('PriceSchedules')}
               candidateModelNames={
                 isUnsetVariant ? enabledModelsQuery.data?.data : undefined
               }
@@ -298,6 +309,7 @@ export const ModelRatioForm = memo(function ModelRatioForm({
                 const fieldMap: Record<string, keyof ModelFormValues> = {
                   'billing_setting.billing_mode': 'BillingMode',
                   'billing_setting.billing_expr': 'BillingExpr',
+                  'billing_setting.price_schedules': 'PriceSchedules',
                 }
                 const formField =
                   fieldMap[field] || (field as keyof ModelFormValues)
@@ -306,6 +318,93 @@ export const ModelRatioForm = memo(function ModelRatioForm({
             />
 
             {!isUnsetVariant && (
+              <div className='flex flex-col gap-3'>
+                <FormField
+                  control={form.control}
+                  name='FreeModelBannerEnabled'
+                  render={({ field }) => (
+                    <SettingsSwitchItem>
+                      <SettingsSwitchContent>
+                        <FormLabel>
+                          {t('Homepage free-period banner')}
+                        </FormLabel>
+                        <FormDescription>
+                          {t(
+                            'Show a countdown banner on the homepage when promoted schedules are free.'
+                          )}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name='ExposeRatioEnabled'
+                  render={({ field }) => (
+                    <SettingsSwitchItem>
+                      <SettingsSwitchContent>
+                        <FormLabel>{t('Expose ratio API')}</FormLabel>
+                        <FormDescription>
+                          {t(
+                            'Allow clients to query configured ratios via `/api/ratio`.'
+                          )}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  )}
+                />
+              </div>
+            )}
+          </div>
+        ) : (
+          <SettingsForm onSubmit={form.handleSubmit(onSave)}>
+            <div className='grid min-w-0 gap-x-5 gap-y-8 lg:grid-cols-2 2xl:grid-cols-3'>
+              {modelJsonFields.map((config) => (
+                <ModelJsonTextareaField
+                  key={config.name}
+                  form={form}
+                  name={config.name}
+                  label={t(config.labelKey)}
+                  description={t(config.descriptionKey)}
+                />
+              ))}
+            </div>
+
+            <div className='flex flex-col gap-3'>
+              <FormField
+                control={form.control}
+                name='FreeModelBannerEnabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Homepage free-period banner')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Show a countdown banner on the homepage when promoted schedules are free.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
               <FormField
                 control={form.control}
                 name='ExposeRatioEnabled'
@@ -328,44 +427,7 @@ export const ModelRatioForm = memo(function ModelRatioForm({
                   </SettingsSwitchItem>
                 )}
               />
-            )}
-          </div>
-        ) : (
-          <SettingsForm onSubmit={form.handleSubmit(onSave)}>
-            <div className='grid min-w-0 gap-x-5 gap-y-8 lg:grid-cols-2 2xl:grid-cols-3'>
-              {modelJsonFields.map((config) => (
-                <ModelJsonTextareaField
-                  key={config.name}
-                  form={form}
-                  name={config.name}
-                  label={t(config.labelKey)}
-                  description={t(config.descriptionKey)}
-                />
-              ))}
             </div>
-
-            <FormField
-              control={form.control}
-              name='ExposeRatioEnabled'
-              render={({ field }) => (
-                <SettingsSwitchItem>
-                  <SettingsSwitchContent>
-                    <FormLabel>{t('Expose ratio API')}</FormLabel>
-                    <FormDescription>
-                      {t(
-                        'Allow clients to query configured ratios via `/api/ratio`.'
-                      )}
-                    </FormDescription>
-                  </SettingsSwitchContent>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </SettingsSwitchItem>
-              )}
-            />
           </SettingsForm>
         )}
       </Form>

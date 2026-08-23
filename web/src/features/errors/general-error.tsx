@@ -55,7 +55,12 @@ export function GeneralError({
     : t('Please try again later.')
 
   return (
-    <div className={cn('h-svh w-full', className)}>
+    <div
+      className={cn(
+        'h-[calc(100svh-var(--global-banner-height,0px))] w-full',
+        className
+      )}
+    >
       <div className='m-auto flex h-full w-full flex-col items-center justify-center gap-2'>
         {!minimal && (
           <h1 className='text-[7rem] leading-tight font-bold'>

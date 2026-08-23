@@ -61,7 +61,7 @@ export function Home() {
   if (!isLoaded) {
     return (
       <PublicLayout showMainContainer={false}>
-        <main className='flex min-h-screen items-center justify-center'>
+        <main className='flex min-h-[calc(100svh-var(--global-banner-height,0px))] items-center justify-center'>
           <div className='text-muted-foreground'>{t('Loading...')}</div>
         </main>
       </PublicLayout>
@@ -83,7 +83,7 @@ export function Home() {
           <iframe
             ref={iframeRef}
             src={content}
-            className='h-screen w-full border-none'
+            className='h-[calc(100svh-var(--global-banner-height,0px))] w-full border-none'
             title={t('Custom Home Page')}
             sandbox='allow-forms allow-popups allow-popups-to-escape-sandbox allow-scripts allow-top-navigation-by-user-activation'
             onLoad={syncIframePreferences}

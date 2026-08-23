@@ -1,9 +1,11 @@
 package helper
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -15,6 +17,52 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestScheduledPriceAppliesFreeActivityToRequestAndTaskBilling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	savedConfig := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		savedConfig[key] = value
+		return nil
+	}))
+	savedPrices := ratio_setting.ModelPrice2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(savedPrices))
+	})
+
+	now := time.Now().Unix()
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":    `{"scheduled-free-model":"scheduled_price"}`,
+		"billing_setting.price_schedules": fmt.Sprintf(`{"scheduled-free-model":[{"type":"absolute","price":0,"start_at":%d,"end_at":%d}]}`, now-60, now+60),
+		"group_ratio_setting.group_ratio": `{"default":1}`,
+	}))
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"scheduled-free-model":0.25}`))
+
+	newContext := func() (*gin.Context, *relaycommon.RelayInfo) {
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Set("group", "default")
+		return ctx, &relaycommon.RelayInfo{
+			OriginModelName: "scheduled-free-model",
+			UserGroup:       "default",
+			UsingGroup:      "default",
+		}
+	}
+
+	ctx, info := newContext()
+	requestPrice, err := ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{})
+	require.NoError(t, err)
+	require.True(t, requestPrice.UsePrice)
+	require.Zero(t, requestPrice.ModelPrice)
+	require.Zero(t, requestPrice.QuotaToPreConsume)
+
+	ctx, info = newContext()
+	taskPrice, err := ModelPriceHelperPerCall(ctx, info)
+	require.NoError(t, err)
+	require.True(t, taskPrice.UsePrice)
+	require.Zero(t, taskPrice.ModelPrice)
+	require.Zero(t, taskPrice.Quota)
+}
 
 func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
 	gin.SetMode(gin.TestMode)

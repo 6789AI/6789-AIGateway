@@ -26,7 +26,7 @@ export function UnauthorisedError() {
   const navigate = useNavigate()
   const { history } = useRouter()
   return (
-    <div className='h-svh'>
+    <div className='h-[calc(100svh-var(--global-banner-height,0px))]'>
       <div className='m-auto flex h-full w-full flex-col items-center justify-center gap-2'>
         <h1 className='text-[7rem] leading-tight font-bold'>401</h1>
         <span className='font-medium'>{t('Unauthorized Access')}</span>

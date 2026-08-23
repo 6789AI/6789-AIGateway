@@ -54,7 +54,22 @@ const SITE_SECTIONS = [
     id: 'notice',
     titleKey: 'System Notice',
     build: (settings: SiteSettings) => (
-      <NoticeSection defaultValue={settings.Notice ?? ''} />
+      <NoticeSection
+        defaultValues={{
+          Notice: settings.Notice ?? '',
+          MarketingBannerEnabled: settings['marketing_banner.enabled'],
+          MarketingBannerContent: settings['marketing_banner.content'],
+          MarketingBannerBackgroundColor:
+            settings['marketing_banner.background_color'],
+          MarketingBannerTextColor: settings['marketing_banner.text_color'],
+          MarketingBannerIcon: settings['marketing_banner.icon'],
+          MarketingBannerCountdownEnabled:
+            settings['marketing_banner.countdown_enabled'],
+          MarketingBannerCountdownEndAt:
+            settings['marketing_banner.countdown_end_at'],
+          MarketingBannerLinkURL: settings['marketing_banner.link_url'],
+        }}
+      />
     ),
   },
   {

@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { MarketingBannerIconName } from '@/features/global-banner'
+
 export type SystemOption = {
   key: string
   value: string
@@ -108,6 +110,14 @@ export type SystemTaskListResponse = {
 
 export type SiteSettings = {
   Notice: string
+  'marketing_banner.enabled': boolean
+  'marketing_banner.content': string
+  'marketing_banner.background_color': string
+  'marketing_banner.text_color': string
+  'marketing_banner.icon': MarketingBannerIconName
+  'marketing_banner.countdown_enabled': boolean
+  'marketing_banner.countdown_end_at': number
+  'marketing_banner.link_url': string
   SystemName: string
   Logo: string
   Footer: string
@@ -217,6 +227,8 @@ export type ModelSettings = {
   ExposeRatioEnabled: boolean
   'billing_setting.billing_mode': string
   'billing_setting.billing_expr': string
+  'billing_setting.price_schedules': string
+  'billing_setting.free_model_banner_enabled': boolean
   'tool_price_setting.prices': string
   TopupGroupRatio: string
   GroupRatio: string
@@ -272,6 +284,8 @@ export type BillingSettings = {
   ExposeRatioEnabled: boolean
   'billing_setting.billing_mode': string
   'billing_setting.billing_expr': string
+  'billing_setting.price_schedules': string
+  'billing_setting.free_model_banner_enabled': boolean
   'tool_price_setting.prices': string
   TopupGroupRatio: string
   GroupRatio: string
@@ -403,10 +417,13 @@ export type RatioType =
   | 'model_price'
   | 'billing_mode'
   | 'billing_expr'
+  | 'price_schedules'
+
+export type RatioSyncValue = number | string | Array<Record<string, unknown>>
 
 export type RatioDifference = {
-  current: number | string | null
-  upstreams: Record<string, number | string | 'same'>
+  current: RatioSyncValue | null
+  upstreams: Record<string, RatioSyncValue | 'same' | null>
   confidence: Record<string, boolean>
 }
 

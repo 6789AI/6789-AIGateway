@@ -39,7 +39,24 @@ export type ModelPricingFormValues = z.infer<
   ReturnType<typeof createModelPricingSchema>
 >
 
-export type PricingMode = 'per-token' | 'per-request' | 'tiered_expr'
+export type PricingMode =
+  | 'per-token'
+  | 'per-request'
+  | 'scheduled_price'
+  | 'tiered_expr'
+
+export type PriceSchedule = {
+  id: string
+  type: 'absolute' | 'weekly'
+  price: number
+  start_at?: number
+  end_at?: number
+  weekdays?: number[]
+  start_minute?: number
+  end_minute?: number
+  timezone?: string
+  show_banner?: boolean
+}
 
 export type LaneKey =
   | 'completion'
@@ -62,6 +79,7 @@ export type ModelRatioData = {
   billingMode?: PricingMode
   billingExpr?: string
   requestRuleExpr?: string
+  priceSchedules?: PriceSchedule[]
 }
 
 export type PreviewRow = {
@@ -212,6 +230,7 @@ export function buildPreviewRows(
   mode: PricingMode,
   billingExpr: string,
   requestRuleExpr: string,
+  priceSchedules: PriceSchedule[],
   promptPrice: string,
   lanePrices: Record<LaneKey, string>,
   laneEnabled: Record<LaneKey, boolean>,
@@ -226,6 +245,21 @@ export function buildPreviewRows(
         label: t('Expression'),
         value: effectiveExpr || t('Empty'),
         multiline: true,
+      },
+    ]
+  }
+
+  if (mode === 'scheduled_price') {
+    return [
+      {
+        key: 'price',
+        label: t('Base price'),
+        value: values.price || t('Empty'),
+      },
+      {
+        key: 'schedules',
+        label: t('Price schedules'),
+        value: `${priceSchedules.length} ${t('rules')}`,
       },
     ]
   }

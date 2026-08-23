@@ -31,8 +31,9 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 
-import type { RatioType } from '../types'
+import type { RatioSyncValue, RatioType } from '../types'
 import {
+  formatSyncValue,
   getAlignedRatioTypes,
   getPreferredSyncField,
   getSyncFieldLabel,
@@ -56,7 +57,7 @@ export function useUpstreamRatioSyncColumns(
   onSelectValue: (
     model: string,
     ratioType: RatioType,
-    value: number | string,
+    value: RatioSyncValue,
     sourceName: string
   ) => void,
   onUnselectValue: (model: string, ratioType: RatioType) => void,
@@ -138,7 +139,7 @@ export function useUpstreamRatioSyncColumns(
                           <TooltipTrigger
                             render={
                               <StatusBadge
-                                label={String(current)}
+                                label={formatSyncValue(current)}
                                 variant='info'
                                 size='sm'
                                 className='max-w-[160px] truncate font-mono'
@@ -147,7 +148,7 @@ export function useUpstreamRatioSyncColumns(
                           />
                           <TooltipContent>
                             <p className='max-w-xs text-xs break-all'>
-                              {String(current)}
+                              {formatSyncValue(current)}
                             </p>
                           </TooltipContent>
                         </Tooltip>
@@ -253,7 +254,7 @@ export function useUpstreamRatioSyncColumns(
                           onSelectValue(
                             row.original.model,
                             ratioType,
-                            upstreamVal as number | string,
+                            upstreamVal as RatioSyncValue,
                             upstreamName
                           ),
                         onUnselect: () =>
@@ -285,7 +286,7 @@ export function useUpstreamRatioSyncColumns(
 }
 
 type RenderUpstreamValueArgs = {
-  upstreamVal: number | string | 'same' | null | undefined
+  upstreamVal: RatioSyncValue | 'same' | null | undefined
   isAvailable: boolean
   isConfident: boolean
   isSelected: boolean
@@ -327,7 +328,7 @@ function renderUpstreamValue(args: RenderUpstreamValueArgs) {
     )
   }
 
-  const text = String(upstreamVal)
+  const text = formatSyncValue(upstreamVal)
 
   return (
     <div className='flex h-full min-w-0 items-center gap-2'>

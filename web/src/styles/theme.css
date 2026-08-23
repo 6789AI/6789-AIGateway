@@ -64,6 +64,10 @@ For commercial licensing, please contact support@quantumnous.com
   --color-info-foreground: var(--info-foreground);
   --color-neutral: var(--neutral);
   --color-neutral-foreground: var(--neutral-foreground);
+  --color-promotion: var(--promotion);
+  --color-promotion-foreground: var(--promotion-foreground);
+  --color-promotion-counter: var(--promotion-counter);
+  --color-promotion-counter-foreground: var(--promotion-counter-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -127,6 +131,10 @@ For commercial licensing, please contact support@quantumnous.com
   --info-foreground: oklch(0.985 0 0);
   --neutral: oklch(0.708 0 0);
   --neutral-foreground: oklch(0.145 0 0);
+  --promotion: oklch(0.92 0.22 122);
+  --promotion-foreground: oklch(0.24 0.055 125);
+  --promotion-counter: oklch(1 0 0 / 92%);
+  --promotion-counter-foreground: oklch(0.23 0.04 125);
   --border: oklch(0.93 0 0);
   --input: oklch(0.93 0 0);
   --ring: oklch(0.708 0.16 249.003);
@@ -204,6 +212,10 @@ For commercial licensing, please contact support@quantumnous.com
   --info-foreground: oklch(0.145 0 0);
   --neutral: oklch(0.76 0 0);
   --neutral-foreground: oklch(0.155 0 0);
+  --promotion: oklch(0.88 0.2 122);
+  --promotion-foreground: oklch(0.2 0.045 125);
+  --promotion-counter: oklch(0.98 0 0 / 94%);
+  --promotion-counter-foreground: oklch(0.2 0.04 125);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 17%);
   --ring: oklch(0.554 0.148 250.726);

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
@@ -31,45 +31,174 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  MARKETING_BANNER_ICON_NAMES,
+  type MarketingBannerIconName,
+} from '@/features/global-banner'
 
 import { SettingsForm } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
+import { MarketingBannerFields } from './marketing-banner-fields'
 
-const noticeSchema = z.object({
-  Notice: z.string().optional(),
-})
+const hexColorPattern = /^#[0-9a-fA-F]{6}$/
 
-type NoticeFormValues = z.infer<typeof noticeSchema>
-
-type NoticeSectionProps = {
-  defaultValue: string
+export type NoticeFormValues = {
+  Notice: string
+  MarketingBannerEnabled: boolean
+  MarketingBannerContent: string
+  MarketingBannerBackgroundColor: string
+  MarketingBannerTextColor: string
+  MarketingBannerIcon: MarketingBannerIconName
+  MarketingBannerCountdownEnabled: boolean
+  MarketingBannerCountdownEndAt: number
+  MarketingBannerLinkURL: string
 }
 
-export function NoticeSection({ defaultValue }: NoticeSectionProps) {
+type NoticeSectionProps = {
+  defaultValues: NoticeFormValues
+}
+
+export function NoticeSection(props: NoticeSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
+  const noticeSchema = useMemo(
+    () =>
+      z
+        .object({
+          Notice: z.string(),
+          MarketingBannerEnabled: z.boolean(),
+          MarketingBannerContent: z.string().max(300),
+          MarketingBannerBackgroundColor: z
+            .string()
+            .regex(hexColorPattern, t('Colors must use a 6-digit hex value')),
+          MarketingBannerTextColor: z
+            .string()
+            .regex(hexColorPattern, t('Colors must use a 6-digit hex value')),
+          MarketingBannerIcon: z.enum(MARKETING_BANNER_ICON_NAMES),
+          MarketingBannerCountdownEnabled: z.boolean(),
+          MarketingBannerCountdownEndAt: z.number().int().nonnegative(),
+          MarketingBannerLinkURL: z.string().trim().max(2048),
+        })
+        .superRefine((values, context) => {
+          if (
+            values.MarketingBannerEnabled &&
+            values.MarketingBannerContent.trim().length === 0
+          ) {
+            context.addIssue({
+              code: 'custom',
+              path: ['MarketingBannerContent'],
+              message: t(
+                'Content is required when the marketing banner is enabled'
+              ),
+            })
+          }
+          if (
+            values.MarketingBannerEnabled &&
+            values.MarketingBannerCountdownEnabled &&
+            values.MarketingBannerCountdownEndAt <= Date.now() / 1000
+          ) {
+            context.addIssue({
+              code: 'custom',
+              path: ['MarketingBannerCountdownEndAt'],
+              message: t('Countdown end time must be in the future'),
+            })
+          }
+          const link = values.MarketingBannerLinkURL.trim()
+          if (link) {
+            let validLink = /^\/(?!\/)/.test(link)
+            if (!validLink) {
+              try {
+                const parsed = new URL(link)
+                validLink =
+                  parsed.protocol === 'http:' || parsed.protocol === 'https:'
+              } catch {
+                validLink = false
+              }
+            }
+            if (!validLink) {
+              context.addIssue({
+                code: 'custom',
+                path: ['MarketingBannerLinkURL'],
+                message: t(
+                  'Enter an HTTP(S) URL or a site path starting with /'
+                ),
+              })
+            }
+          }
+        }),
+    [t]
+  )
   const form = useForm<NoticeFormValues>({
     resolver: zodResolver(noticeSchema),
-    defaultValues: {
-      Notice: defaultValue ?? '',
-    },
+    defaultValues: props.defaultValues,
   })
 
   useEffect(() => {
-    form.reset({ Notice: defaultValue ?? '' })
-  }, [defaultValue, form])
+    form.reset(props.defaultValues)
+  }, [form, props.defaultValues])
 
   const onSubmit = async (values: NoticeFormValues) => {
-    const normalized = values.Notice ?? ''
-    if (normalized === (defaultValue ?? '')) {
-      return
+    const updates: Array<{
+      key: string
+      value: string | boolean | number
+      previous: string | boolean | number
+    }> = [
+      {
+        key: 'Notice',
+        value: values.Notice,
+        previous: props.defaultValues.Notice,
+      },
+      {
+        key: 'marketing_banner.content',
+        value: values.MarketingBannerContent.trim(),
+        previous: props.defaultValues.MarketingBannerContent,
+      },
+      {
+        key: 'marketing_banner.background_color',
+        value: values.MarketingBannerBackgroundColor.toUpperCase(),
+        previous: props.defaultValues.MarketingBannerBackgroundColor,
+      },
+      {
+        key: 'marketing_banner.text_color',
+        value: values.MarketingBannerTextColor.toUpperCase(),
+        previous: props.defaultValues.MarketingBannerTextColor,
+      },
+      {
+        key: 'marketing_banner.icon',
+        value: values.MarketingBannerIcon,
+        previous: props.defaultValues.MarketingBannerIcon,
+      },
+      {
+        key: 'marketing_banner.countdown_end_at',
+        value: values.MarketingBannerCountdownEndAt,
+        previous: props.defaultValues.MarketingBannerCountdownEndAt,
+      },
+      {
+        key: 'marketing_banner.link_url',
+        value: values.MarketingBannerLinkURL.trim(),
+        previous: props.defaultValues.MarketingBannerLinkURL,
+      },
+      {
+        key: 'marketing_banner.countdown_enabled',
+        value: values.MarketingBannerCountdownEnabled,
+        previous: props.defaultValues.MarketingBannerCountdownEnabled,
+      },
+      {
+        key: 'marketing_banner.enabled',
+        value: values.MarketingBannerEnabled,
+        previous: props.defaultValues.MarketingBannerEnabled,
+      },
+    ]
+
+    for (const update of updates) {
+      if (update.value === update.previous) continue
+      await updateOption.mutateAsync({
+        key: update.key,
+        value: update.value,
+      })
     }
-    await updateOption.mutateAsync({
-      key: 'Notice',
-      value: normalized,
-    })
   }
 
   return (
@@ -79,7 +208,7 @@ export function NoticeSection({ defaultValue }: NoticeSectionProps) {
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             isSaving={updateOption.isPending}
-            saveLabel='Save notice'
+            saveLabel='Save notice and banner'
           />
           <FormField
             control={form.control}
@@ -89,7 +218,7 @@ export function NoticeSection({ defaultValue }: NoticeSectionProps) {
                 <FormLabel>{t('Announcement content')}</FormLabel>
                 <FormControl>
                   <Textarea
-                    rows={8}
+                    rows={5}
                     placeholder={t(
                       'Planned maintenance on Friday at 22:00 UTC...'
                     )}
@@ -100,6 +229,8 @@ export function NoticeSection({ defaultValue }: NoticeSectionProps) {
               </FormItem>
             )}
           />
+
+          <MarketingBannerFields form={form} />
         </SettingsForm>
       </Form>
     </SettingsSection>

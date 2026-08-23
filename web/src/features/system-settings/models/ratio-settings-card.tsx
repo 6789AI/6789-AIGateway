@@ -115,8 +115,10 @@ const createModelSchema = (t: Translate) =>
     AudioRatio: createJsonStringField(t),
     AudioCompletionRatio: createJsonStringField(t),
     ExposeRatioEnabled: z.boolean(),
+    FreeModelBannerEnabled: z.boolean(),
     BillingMode: createJsonStringField(t),
     BillingExpr: createJsonStringField(t),
+    PriceSchedules: createJsonStringField(t),
   })
 
 const createGroupSchema = (t: Translate) =>
@@ -193,8 +195,10 @@ export function RatioSettingsCard({
       modelDefaults.AudioCompletionRatio
     ),
     ExposeRatioEnabled: modelDefaults.ExposeRatioEnabled,
+    FreeModelBannerEnabled: modelDefaults.FreeModelBannerEnabled,
     BillingMode: normalizeJsonString(modelDefaults.BillingMode),
     BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
+    PriceSchedules: normalizeJsonString(modelDefaults.PriceSchedules),
   })
   const [savedModelValues, setSavedModelValues] = useState(
     modelNormalizedDefaults.current
@@ -232,6 +236,7 @@ export function RatioSettingsCard({
       ),
       BillingMode: formatJsonForTextarea(modelDefaults.BillingMode),
       BillingExpr: formatJsonForTextarea(modelDefaults.BillingExpr),
+      PriceSchedules: formatJsonForTextarea(modelDefaults.PriceSchedules),
     },
   })
 
@@ -264,8 +269,10 @@ export function RatioSettingsCard({
         modelDefaults.AudioCompletionRatio
       ),
       ExposeRatioEnabled: modelDefaults.ExposeRatioEnabled,
+      FreeModelBannerEnabled: modelDefaults.FreeModelBannerEnabled,
       BillingMode: normalizeJsonString(modelDefaults.BillingMode),
       BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
+      PriceSchedules: normalizeJsonString(modelDefaults.PriceSchedules),
     }
     setSavedModelValues(modelNormalizedDefaults.current)
 
@@ -283,6 +290,7 @@ export function RatioSettingsCard({
       ),
       BillingMode: formatJsonForTextarea(modelDefaults.BillingMode),
       BillingExpr: formatJsonForTextarea(modelDefaults.BillingExpr),
+      PriceSchedules: formatJsonForTextarea(modelDefaults.PriceSchedules),
     })
   }, [modelDefaults, modelForm])
 
@@ -325,13 +333,17 @@ export function RatioSettingsCard({
         AudioRatio: normalizeJsonString(values.AudioRatio),
         AudioCompletionRatio: normalizeJsonString(values.AudioCompletionRatio),
         ExposeRatioEnabled: values.ExposeRatioEnabled,
+        FreeModelBannerEnabled: values.FreeModelBannerEnabled,
         BillingMode: normalizeJsonString(values.BillingMode),
         BillingExpr: normalizeJsonString(values.BillingExpr),
+        PriceSchedules: normalizeJsonString(values.PriceSchedules),
       }
 
       const apiKeyMap: Record<string, string> = {
         BillingMode: 'billing_setting.billing_mode',
         BillingExpr: 'billing_setting.billing_expr',
+        PriceSchedules: 'billing_setting.price_schedules',
+        FreeModelBannerEnabled: 'billing_setting.free_model_banner_enabled',
       }
 
       const updates = (
@@ -458,6 +470,7 @@ export function RatioSettingsCard({
           AudioCompletionRatio: modelDefaults.AudioCompletionRatio,
           'billing_setting.billing_mode': modelDefaults.BillingMode,
           'billing_setting.billing_expr': modelDefaults.BillingExpr,
+          'billing_setting.price_schedules': modelDefaults.PriceSchedules,
         }}
       />
     )
