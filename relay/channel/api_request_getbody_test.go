@@ -350,12 +350,18 @@ func awaitH2ServerResult(t *testing.T, resultCh <-chan h2ServerResult) h2ServerR
 // been fully written, and then resets the stream with REFUSED_STREAM (the
 // retry-safe reset some proxy/CDN-fronted upstreams send under load or during
 // graceful shutdown, see RFC 9113 section 8.7). When expectRetry is true it
-// serves the retried stream a 200 response; otherwise it stops after the reset.
+// serves the retried stream a 200 response; otherwise it reports the reset and
+// drains the connection until the client transport closes it.
 func runResetOnFirstStreamServer(ln net.Listener, expectRetry bool) <-chan h2ServerResult {
 	resCh := make(chan h2ServerResult, 1)
 	go func() {
 		res := h2ServerResult{}
-		defer func() { resCh <- res }()
+		resultSent := false
+		defer func() {
+			if !resultSent {
+				resCh <- res
+			}
+		}()
 
 		conn, framer, err := acceptH2TestConnection(ln)
 		if err != nil {
@@ -364,7 +370,6 @@ func runResetOnFirstStreamServer(ln net.Listener, expectRetry bool) <-chan h2Ser
 		}
 		defer conn.Close()
 
-	attempts:
 		for attempt := 0; ; attempt++ {
 			streamID, body, err := readH2TestRequest(framer)
 			if err != nil {
@@ -380,7 +385,13 @@ func runResetOnFirstStreamServer(ln net.Listener, expectRetry bool) <-chan h2Ser
 					return
 				}
 				if !expectRetry {
-					break attempts
+					// Report the reset before waiting for the client's transport cleanup.
+					// Draining avoids Windows replacing the HTTP/2 reset with a TCP RST
+					// when the socket still has unread control frames.
+					resCh <- res
+					resultSent = true
+					_, _ = io.Copy(io.Discard, conn)
+					return
 				}
 				continue
 			}
@@ -399,6 +410,12 @@ func runGoAwayAfterFirstRequestServer(ln net.Listener) <-chan h2ServerResult {
 	go func() {
 		res := h2ServerResult{}
 		defer func() { resCh <- res }()
+		var drainingConn net.Conn
+		defer func() {
+			if drainingConn != nil {
+				drainingConn.Close()
+			}
+		}()
 
 		for attempt := 0; attempt < 2; attempt++ {
 			conn, framer, err := acceptH2TestConnection(ln)
@@ -417,11 +434,15 @@ func runGoAwayAfterFirstRequestServer(ln net.Listener) <-chan h2ServerResult {
 
 			if attempt == 0 {
 				err = framer.WriteGoAway(0, http2.ErrCodeNo, nil)
-				conn.Close()
 				if err != nil {
+					conn.Close()
 					res.err = err
 					return
 				}
+				// GOAWAY starts a graceful drain. Keep this connection open while
+				// the client retries on a new connection so Windows does not turn
+				// an immediate close with pending frames into a TCP reset.
+				drainingConn = conn
 				continue
 			}
 
