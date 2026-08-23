@@ -50,6 +50,7 @@ export const MARKETING_BANNER_ICON_NAMES = [
 
 export type MarketingBannerIconName =
   (typeof MARKETING_BANNER_ICON_NAMES)[number]
+export type BannerIconName = MarketingBannerIconName | ''
 
 export const MARKETING_BANNER_ICON_OPTIONS = [
   { value: 'megaphone', labelKey: 'Megaphone', icon: Megaphone01Icon },

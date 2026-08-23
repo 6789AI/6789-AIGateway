@@ -43,6 +43,11 @@ func TestValidateMarketingBannerOption(t *testing.T) {
 			value: "coupon",
 		},
 		{
+			name:  "accepts no icon",
+			key:   MarketingBannerOptionPrefix + "icon",
+			value: "",
+		},
+		{
 			name:    "rejects an unsupported icon",
 			key:     MarketingBannerOptionPrefix + "icon",
 			value:   "custom-svg",
@@ -93,4 +98,13 @@ func TestValidateMarketingBannerOption(t *testing.T) {
 			assert.ErrorContains(t, err, test.wantErr)
 		})
 	}
+}
+
+func TestValidateGlobalBannerOptionUsesSharedRules(t *testing.T) {
+	assert.NoError(t, ValidateBannerOption(GlobalBannerOptionPrefix+"icon", "gift"))
+	assert.ErrorContains(
+		t,
+		ValidateBannerOption(GlobalBannerOptionPrefix+"link_url", "javascript:alert(1)"),
+		"HTTP(S)",
+	)
 }

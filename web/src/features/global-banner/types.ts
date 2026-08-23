@@ -16,27 +16,33 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { MarketingBannerIconName } from './marketing-banner-icons'
+import type { BannerIconName } from './marketing-banner-icons'
 
 export type FreeModelPromotion = {
   model_name: string
   ends_at?: number
 }
 
-export type MarketingBannerConfig = {
+export type BannerConfig = {
   enabled: boolean
   content: string
   background_color: string
   text_color: string
-  icon: MarketingBannerIconName
+  icon: BannerIconName
   countdown_enabled: boolean
   countdown_end_at: number
   link_url: string
 }
 
+export type FreeModelBannerStyle = Pick<
+  BannerConfig,
+  'background_color' | 'text_color' | 'icon' | 'link_url'
+>
+
 export type GlobalBannerData = {
   active: boolean
-  marketing_banner: MarketingBannerConfig
+  global_banner?: BannerConfig
+  free_model_banner: FreeModelBannerStyle
   server_time: number
   next_change_at?: number
   models: FreeModelPromotion[]
@@ -49,8 +55,9 @@ export type GlobalBannerResponse = {
 
 export type GlobalBannerView = {
   visible: boolean
-  marketingBanner: MarketingBannerConfig
+  globalBanner: BannerConfig
+  freeModelBanner: FreeModelBannerStyle
   models: FreeModelPromotion[]
-  marketingRemainingSeconds: number | null
+  globalRemainingSeconds: number | null
   promotionRemainingSeconds: number | null
 }

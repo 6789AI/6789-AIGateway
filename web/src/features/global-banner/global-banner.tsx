@@ -16,15 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ArrowRight01Icon, GiftIcon } from '@hugeicons/core-free-icons'
+import { ArrowRight01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { Link } from '@tanstack/react-router'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { getCountdownParts } from './countdown'
 import { MarketingBannerIcon } from './marketing-banner-icon'
-import type { GlobalBannerView } from './types'
+import type { BannerConfig, GlobalBannerView } from './types'
 import { useGlobalBanner } from './use-global-banner'
 
 const bannerRowHeightRem = 2.5
@@ -86,22 +85,30 @@ function safeBannerLink(value: string): string | null {
   }
 }
 
-function MarketingBannerRow(props: GlobalBannerProps) {
-  const { t } = useTranslation()
-  const link = safeBannerLink(props.view.marketingBanner.link_url)
+type ConfiguredBannerRowProps = {
+  config: BannerConfig
+  remainingSeconds: number | null
+  kind: 'global'
+  ariaLabel: string
+  countdownLabel: string
+  openLabel: string
+}
+
+function ConfiguredBannerRow(props: ConfiguredBannerRowProps) {
+  const link = safeBannerLink(props.config.link_url)
   const content = (
     <div className='mx-auto flex h-full w-full max-w-7xl min-w-0 items-center justify-center gap-2 px-2 sm:px-4'>
       <MarketingBannerIcon
-        name={props.view.marketingBanner.icon}
+        name={props.config.icon}
         className='size-4 shrink-0'
       />
       <span className='min-w-0 truncate text-xs font-semibold'>
-        {props.view.marketingBanner.content}
+        {props.config.content}
       </span>
-      {props.view.marketingRemainingSeconds !== null && (
+      {props.remainingSeconds !== null && (
         <Countdown
-          remainingSeconds={props.view.marketingRemainingSeconds}
-          label={t('Promotion ends in')}
+          remainingSeconds={props.remainingSeconds}
+          label={props.countdownLabel}
         />
       )}
       {link && (
@@ -120,16 +127,13 @@ function MarketingBannerRow(props: GlobalBannerProps) {
       className='flex h-10 w-full items-center'
       style={{
         backgroundColor: safeHexColor(
-          props.view.marketingBanner.background_color,
+          props.config.background_color,
           fallbackBackgroundColor
         ),
-        color: safeHexColor(
-          props.view.marketingBanner.text_color,
-          fallbackTextColor
-        ),
+        color: safeHexColor(props.config.text_color, fallbackTextColor),
       }}
-      aria-label={t('Marketing banner')}
-      data-banner-kind='marketing'
+      aria-label={props.ariaLabel}
+      data-banner-kind={props.kind}
     >
       {link ? (
         <a
@@ -137,7 +141,7 @@ function MarketingBannerRow(props: GlobalBannerProps) {
           target={link.startsWith('/') ? undefined : '_blank'}
           rel='noreferrer'
           className='h-full w-full outline-none focus-visible:ring-2 focus-visible:ring-current focus-visible:ring-inset'
-          aria-label={`${t('Open promotion')}: ${props.view.marketingBanner.content}`}
+          aria-label={`${props.openLabel}: ${props.config.content}`}
         >
           {content}
         </a>
@@ -148,8 +152,24 @@ function MarketingBannerRow(props: GlobalBannerProps) {
   )
 }
 
+function GlobalAnnouncementBannerRow(props: GlobalBannerProps) {
+  const { t } = useTranslation()
+  return (
+    <ConfiguredBannerRow
+      config={props.view.globalBanner}
+      remainingSeconds={props.view.globalRemainingSeconds}
+      kind='global'
+      ariaLabel={t('Global announcement banner')}
+      countdownLabel={t('Announcement ends in')}
+      openLabel={t('Open announcement')}
+    />
+  )
+}
+
 function FreeModelBannerRow(props: GlobalBannerProps) {
   const { t } = useTranslation()
+  const configuredLink = safeBannerLink(props.view.freeModelBanner.link_url)
+  const link = configuredLink ?? '/pricing'
   const modelSummary = props.view.models
     .slice(0, 3)
     .map((model) => model.model_name)
@@ -161,16 +181,24 @@ function FreeModelBannerRow(props: GlobalBannerProps) {
 
   return (
     <aside
-      className='bg-foreground text-background flex h-10 w-full items-center'
+      className='flex h-10 w-full items-center'
+      style={{
+        backgroundColor: safeHexColor(
+          props.view.freeModelBanner.background_color,
+          fallbackBackgroundColor
+        ),
+        color: safeHexColor(
+          props.view.freeModelBanner.text_color,
+          fallbackTextColor
+        ),
+      }}
       aria-label={t('Limited-time free')}
       data-banner-kind='free-models'
     >
       <div className='mx-auto flex h-full w-full max-w-7xl min-w-0 items-center justify-center gap-2 px-2 sm:px-4'>
-        <HugeiconsIcon
-          icon={GiftIcon}
-          strokeWidth={2}
+        <MarketingBannerIcon
+          name={props.view.freeModelBanner.icon}
           className='size-4 shrink-0'
-          aria-hidden='true'
         />
         <span className='hidden min-w-0 truncate text-xs font-semibold sm:inline'>
           {t('{{models}} are free now', {
@@ -189,9 +217,11 @@ function FreeModelBannerRow(props: GlobalBannerProps) {
           </span>
         )}
 
-        <Link
-          to='/pricing'
-          className='inline-flex size-7 shrink-0 items-center justify-center rounded outline-none hover:bg-white/20 focus-visible:ring-2 focus-visible:ring-current'
+        <a
+          href={link}
+          target={link.startsWith('/') ? undefined : '_blank'}
+          rel='noreferrer'
+          className='inline-flex size-7 shrink-0 items-center justify-center rounded outline-none hover:bg-black/10 focus-visible:ring-2 focus-visible:ring-current'
           aria-label={t('View models')}
           title={t('View models')}
         >
@@ -200,7 +230,7 @@ function FreeModelBannerRow(props: GlobalBannerProps) {
             strokeWidth={2}
             aria-hidden='true'
           />
-        </Link>
+        </a>
       </div>
     </aside>
   )
@@ -209,8 +239,8 @@ function FreeModelBannerRow(props: GlobalBannerProps) {
 export function GlobalBanner(props: GlobalBannerProps) {
   return (
     <div className='flex w-full flex-col'>
-      {props.view.marketingBanner.enabled && (
-        <MarketingBannerRow view={props.view} />
+      {props.view.globalBanner.enabled && (
+        <GlobalAnnouncementBannerRow view={props.view} />
       )}
       {props.view.models.length > 0 && <FreeModelBannerRow view={props.view} />}
     </div>
@@ -219,7 +249,7 @@ export function GlobalBanner(props: GlobalBannerProps) {
 
 export function GlobalBannerFrame(props: GlobalBannerFrameProps) {
   const bannerCount =
-    Number(props.view.marketingBanner.enabled) +
+    Number(props.view.globalBanner.enabled) +
     Number(props.view.models.length > 0)
   const bannerHeight = `${bannerCount * bannerRowHeightRem}rem`
 

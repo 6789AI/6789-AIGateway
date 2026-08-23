@@ -52,11 +52,22 @@ const SITE_SECTIONS = [
   },
   {
     id: 'notice',
-    titleKey: 'System Notice',
+    titleKey: 'Global banners',
     build: (settings: SiteSettings) => (
       <NoticeSection
         defaultValues={{
           Notice: settings.Notice ?? '',
+          GlobalBannerEnabled: settings['global_banner.enabled'],
+          GlobalBannerContent: settings['global_banner.content'],
+          GlobalBannerBackgroundColor:
+            settings['global_banner.background_color'],
+          GlobalBannerTextColor: settings['global_banner.text_color'],
+          GlobalBannerIcon: settings['global_banner.icon'],
+          GlobalBannerCountdownEnabled:
+            settings['global_banner.countdown_enabled'],
+          GlobalBannerCountdownEndAt:
+            settings['global_banner.countdown_end_at'],
+          GlobalBannerLinkURL: settings['global_banner.link_url'],
           MarketingBannerEnabled: settings['marketing_banner.enabled'],
           MarketingBannerContent: settings['marketing_banner.content'],
           MarketingBannerBackgroundColor:

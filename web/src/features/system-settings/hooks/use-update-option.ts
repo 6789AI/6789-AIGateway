@@ -59,7 +59,10 @@ export function useUpdateOption() {
           }
         }
 
-        if (variables.key.startsWith('marketing_banner.')) {
+        if (
+          variables.key.startsWith('global_banner.') ||
+          variables.key.startsWith('marketing_banner.')
+        ) {
           queryClient.invalidateQueries({ queryKey: ['global-banner'] })
         }
 

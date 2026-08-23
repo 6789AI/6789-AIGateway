@@ -273,7 +273,15 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
-	case system_setting.MarketingBannerOptionPrefix + "enabled",
+	case system_setting.GlobalBannerOptionPrefix + "enabled",
+		system_setting.GlobalBannerOptionPrefix + "content",
+		system_setting.GlobalBannerOptionPrefix + "background_color",
+		system_setting.GlobalBannerOptionPrefix + "text_color",
+		system_setting.GlobalBannerOptionPrefix + "icon",
+		system_setting.GlobalBannerOptionPrefix + "countdown_enabled",
+		system_setting.GlobalBannerOptionPrefix + "countdown_end_at",
+		system_setting.GlobalBannerOptionPrefix + "link_url",
+		system_setting.MarketingBannerOptionPrefix + "enabled",
 		system_setting.MarketingBannerOptionPrefix + "content",
 		system_setting.MarketingBannerOptionPrefix + "background_color",
 		system_setting.MarketingBannerOptionPrefix + "text_color",
@@ -281,11 +289,11 @@ func UpdateOption(c *gin.Context) {
 		system_setting.MarketingBannerOptionPrefix + "countdown_enabled",
 		system_setting.MarketingBannerOptionPrefix + "countdown_end_at",
 		system_setting.MarketingBannerOptionPrefix + "link_url":
-		err = system_setting.ValidateMarketingBannerOption(option.Key, option.Value.(string))
+		err = system_setting.ValidateBannerOption(option.Key, option.Value.(string))
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "营销横幅设置失败: " + err.Error(),
+				"message": "横幅设置失败: " + err.Error(),
 			})
 			return
 		}

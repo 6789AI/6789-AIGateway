@@ -22,18 +22,24 @@ import { describe, test } from 'node:test'
 import { getGlobalBannerView } from '../use-global-banner'
 
 describe('global banner view', () => {
-  test('shows a configured marketing banner without a free model promotion', () => {
+  test('does not show the free-model style without an active promotion', () => {
     const view = getGlobalBannerView(
       {
         active: false,
-        marketing_banner: {
-          enabled: true,
-          content: 'Weekend bonus',
-          background_color: '#112233',
-          text_color: '#FFFFFF',
+        global_banner: {
+          enabled: false,
+          content: '',
+          background_color: '#0EA5E9',
+          text_color: '#082F49',
           icon: 'gift',
           countdown_enabled: false,
           countdown_end_at: 0,
+          link_url: '/pricing',
+        },
+        free_model_banner: {
+          background_color: '#112233',
+          text_color: '#FFFFFF',
+          icon: 'gift',
           link_url: '/wallet',
         },
         server_time: 1_000,
@@ -43,8 +49,8 @@ describe('global banner view', () => {
       10_000
     )
 
-    assert.equal(view.visible, true)
-    assert.equal(view.marketingBanner.content, 'Weekend bonus')
+    assert.equal(view.visible, false)
+    assert.equal(view.freeModelBanner.link_url, '/wallet')
     assert.deepEqual(view.models, [])
   })
 
@@ -52,14 +58,20 @@ describe('global banner view', () => {
     const view = getGlobalBannerView(
       {
         active: true,
-        marketing_banner: {
+        global_banner: {
           enabled: false,
           content: '',
+          background_color: '#0EA5E9',
+          text_color: '#082F49',
+          icon: 'gift',
+          countdown_enabled: false,
+          countdown_end_at: 0,
+          link_url: '/pricing',
+        },
+        free_model_banner: {
           background_color: '#A3E635',
           text_color: '#1A2E05',
           icon: 'megaphone',
-          countdown_enabled: false,
-          countdown_end_at: 0,
           link_url: '',
         },
         server_time: 1_000,
@@ -73,36 +85,8 @@ describe('global banner view', () => {
     )
 
     assert.equal(view.visible, true)
+    assert.equal(view.globalBanner.background_color, '#0EA5E9')
     assert.deepEqual(view.models, [{ model_name: 'active', ends_at: 1_010 }])
     assert.equal(view.promotionRemainingSeconds, 8)
-  })
-
-  test('hides an expired marketing countdown without hiding free models', () => {
-    const view = getGlobalBannerView(
-      {
-        active: true,
-        marketing_banner: {
-          enabled: true,
-          content: 'Expired campaign',
-          background_color: '#112233',
-          text_color: '#FFFFFF',
-          icon: 'bell',
-          countdown_enabled: true,
-          countdown_end_at: 1_005,
-          link_url: 'https://example.com/promotion',
-        },
-        server_time: 1_000,
-        models: [{ model_name: 'still-free', ends_at: 1_020 }],
-      },
-      10_000,
-      16_000
-    )
-
-    assert.equal(view.visible, true)
-    assert.equal(view.marketingBanner.enabled, false)
-    assert.equal(view.marketingRemainingSeconds, null)
-    assert.deepEqual(view.models, [
-      { model_name: 'still-free', ends_at: 1_020 },
-    ])
   })
 })

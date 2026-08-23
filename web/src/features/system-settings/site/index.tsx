@@ -26,6 +26,14 @@ import {
 
 const defaultSiteSettings: SiteSettings = {
   Notice: '',
+  'global_banner.enabled': false,
+  'global_banner.content': '',
+  'global_banner.background_color': '#0EA5E9',
+  'global_banner.text_color': '#082F49',
+  'global_banner.icon': 'gift',
+  'global_banner.countdown_enabled': false,
+  'global_banner.countdown_end_at': 0,
+  'global_banner.link_url': '/pricing',
   'marketing_banner.enabled': false,
   'marketing_banner.content': '',
   'marketing_banner.background_color': '#A3E635',

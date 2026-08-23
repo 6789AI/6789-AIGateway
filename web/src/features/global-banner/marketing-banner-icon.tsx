@@ -20,15 +20,17 @@ import { HugeiconsIcon } from '@hugeicons/react'
 
 import {
   MARKETING_BANNER_ICON_OPTIONS,
-  type MarketingBannerIconName,
+  type BannerIconName,
 } from './marketing-banner-icons'
 
 type MarketingBannerIconProps = {
-  name: MarketingBannerIconName
+  name: BannerIconName
   className?: string
 }
 
 export function MarketingBannerIcon(props: MarketingBannerIconProps) {
+  if (!props.name) return null
+
   const option =
     MARKETING_BANNER_ICON_OPTIONS.find((item) => item.value === props.name) ??
     MARKETING_BANNER_ICON_OPTIONS[0]

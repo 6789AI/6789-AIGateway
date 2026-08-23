@@ -22,35 +22,35 @@ import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
 
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form'
-import { Textarea } from '@/components/ui/textarea'
+import { Form } from '@/components/ui/form'
 import {
   MARKETING_BANNER_ICON_NAMES,
-  type MarketingBannerIconName,
+  type BannerIconName,
 } from '@/features/global-banner'
 
 import { SettingsForm } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
-import { MarketingBannerFields } from './marketing-banner-fields'
+import { BannerFields } from './marketing-banner-fields'
 
 const hexColorPattern = /^#[0-9a-fA-F]{6}$/
 
 export type NoticeFormValues = {
   Notice: string
+  GlobalBannerEnabled: boolean
+  GlobalBannerContent: string
+  GlobalBannerBackgroundColor: string
+  GlobalBannerTextColor: string
+  GlobalBannerIcon: BannerIconName
+  GlobalBannerCountdownEnabled: boolean
+  GlobalBannerCountdownEndAt: number
+  GlobalBannerLinkURL: string
   MarketingBannerEnabled: boolean
   MarketingBannerContent: string
   MarketingBannerBackgroundColor: string
   MarketingBannerTextColor: string
-  MarketingBannerIcon: MarketingBannerIconName
+  MarketingBannerIcon: BannerIconName
   MarketingBannerCountdownEnabled: boolean
   MarketingBannerCountdownEndAt: number
   MarketingBannerLinkURL: string
@@ -68,6 +68,21 @@ export function NoticeSection(props: NoticeSectionProps) {
       z
         .object({
           Notice: z.string(),
+          GlobalBannerEnabled: z.boolean(),
+          GlobalBannerContent: z.string().max(300),
+          GlobalBannerBackgroundColor: z
+            .string()
+            .regex(hexColorPattern, t('Colors must use a 6-digit hex value')),
+          GlobalBannerTextColor: z
+            .string()
+            .regex(hexColorPattern, t('Colors must use a 6-digit hex value')),
+          GlobalBannerIcon: z.union([
+            z.enum(MARKETING_BANNER_ICON_NAMES),
+            z.literal(''),
+          ]),
+          GlobalBannerCountdownEnabled: z.boolean(),
+          GlobalBannerCountdownEndAt: z.number().int().nonnegative(),
+          GlobalBannerLinkURL: z.string().trim().max(2048),
           MarketingBannerEnabled: z.boolean(),
           MarketingBannerContent: z.string().max(300),
           MarketingBannerBackgroundColor: z
@@ -76,34 +91,59 @@ export function NoticeSection(props: NoticeSectionProps) {
           MarketingBannerTextColor: z
             .string()
             .regex(hexColorPattern, t('Colors must use a 6-digit hex value')),
-          MarketingBannerIcon: z.enum(MARKETING_BANNER_ICON_NAMES),
+          MarketingBannerIcon: z.union([
+            z.enum(MARKETING_BANNER_ICON_NAMES),
+            z.literal(''),
+          ]),
           MarketingBannerCountdownEnabled: z.boolean(),
           MarketingBannerCountdownEndAt: z.number().int().nonnegative(),
           MarketingBannerLinkURL: z.string().trim().max(2048),
         })
         .superRefine((values, context) => {
           if (
-            values.MarketingBannerEnabled &&
-            values.MarketingBannerContent.trim().length === 0
+            values.GlobalBannerEnabled &&
+            values.GlobalBannerContent.trim().length === 0
           ) {
             context.addIssue({
               code: 'custom',
-              path: ['MarketingBannerContent'],
+              path: ['GlobalBannerContent'],
               message: t(
-                'Content is required when the marketing banner is enabled'
+                'Content is required when the global announcement banner is enabled'
               ),
             })
           }
           if (
-            values.MarketingBannerEnabled &&
-            values.MarketingBannerCountdownEnabled &&
-            values.MarketingBannerCountdownEndAt <= Date.now() / 1000
+            values.GlobalBannerEnabled &&
+            values.GlobalBannerCountdownEnabled &&
+            values.GlobalBannerCountdownEndAt <= Date.now() / 1000
           ) {
             context.addIssue({
               code: 'custom',
-              path: ['MarketingBannerCountdownEndAt'],
+              path: ['GlobalBannerCountdownEndAt'],
               message: t('Countdown end time must be in the future'),
             })
+          }
+          const globalLink = values.GlobalBannerLinkURL.trim()
+          if (globalLink) {
+            let validGlobalLink = /^\/(?!\/)/.test(globalLink)
+            if (!validGlobalLink) {
+              try {
+                const parsed = new URL(globalLink)
+                validGlobalLink =
+                  parsed.protocol === 'http:' || parsed.protocol === 'https:'
+              } catch {
+                validGlobalLink = false
+              }
+            }
+            if (!validGlobalLink) {
+              context.addIssue({
+                code: 'custom',
+                path: ['GlobalBannerLinkURL'],
+                message: t(
+                  'Enter an HTTP(S) URL or a site path starting with /'
+                ),
+              })
+            }
           }
           const link = values.MarketingBannerLinkURL.trim()
           if (link) {
@@ -151,9 +191,44 @@ export function NoticeSection(props: NoticeSectionProps) {
         previous: props.defaultValues.Notice,
       },
       {
-        key: 'marketing_banner.content',
-        value: values.MarketingBannerContent.trim(),
-        previous: props.defaultValues.MarketingBannerContent,
+        key: 'global_banner.content',
+        value: values.GlobalBannerContent.trim(),
+        previous: props.defaultValues.GlobalBannerContent,
+      },
+      {
+        key: 'global_banner.background_color',
+        value: values.GlobalBannerBackgroundColor.toUpperCase(),
+        previous: props.defaultValues.GlobalBannerBackgroundColor,
+      },
+      {
+        key: 'global_banner.text_color',
+        value: values.GlobalBannerTextColor.toUpperCase(),
+        previous: props.defaultValues.GlobalBannerTextColor,
+      },
+      {
+        key: 'global_banner.icon',
+        value: values.GlobalBannerIcon,
+        previous: props.defaultValues.GlobalBannerIcon,
+      },
+      {
+        key: 'global_banner.countdown_end_at',
+        value: values.GlobalBannerCountdownEndAt,
+        previous: props.defaultValues.GlobalBannerCountdownEndAt,
+      },
+      {
+        key: 'global_banner.link_url',
+        value: values.GlobalBannerLinkURL.trim(),
+        previous: props.defaultValues.GlobalBannerLinkURL,
+      },
+      {
+        key: 'global_banner.countdown_enabled',
+        value: values.GlobalBannerCountdownEnabled,
+        previous: props.defaultValues.GlobalBannerCountdownEnabled,
+      },
+      {
+        key: 'global_banner.enabled',
+        value: values.GlobalBannerEnabled,
+        previous: props.defaultValues.GlobalBannerEnabled,
       },
       {
         key: 'marketing_banner.background_color',
@@ -171,24 +246,9 @@ export function NoticeSection(props: NoticeSectionProps) {
         previous: props.defaultValues.MarketingBannerIcon,
       },
       {
-        key: 'marketing_banner.countdown_end_at',
-        value: values.MarketingBannerCountdownEndAt,
-        previous: props.defaultValues.MarketingBannerCountdownEndAt,
-      },
-      {
         key: 'marketing_banner.link_url',
         value: values.MarketingBannerLinkURL.trim(),
         previous: props.defaultValues.MarketingBannerLinkURL,
-      },
-      {
-        key: 'marketing_banner.countdown_enabled',
-        value: values.MarketingBannerCountdownEnabled,
-        previous: props.defaultValues.MarketingBannerCountdownEnabled,
-      },
-      {
-        key: 'marketing_banner.enabled',
-        value: values.MarketingBannerEnabled,
-        previous: props.defaultValues.MarketingBannerEnabled,
       },
     ]
 
@@ -202,35 +262,16 @@ export function NoticeSection(props: NoticeSectionProps) {
   }
 
   return (
-    <SettingsSection title={t('System Notice')}>
+    <SettingsSection title={t('Global banners')}>
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             isSaving={updateOption.isPending}
-            saveLabel='Save notice and banner'
+            saveLabel='Save banners'
           />
-          <FormField
-            control={form.control}
-            name='Notice'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t('Announcement content')}</FormLabel>
-                <FormControl>
-                  <Textarea
-                    rows={5}
-                    placeholder={t(
-                      'Planned maintenance on Friday at 22:00 UTC...'
-                    )}
-                    {...field}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <MarketingBannerFields form={form} />
+          <BannerFields form={form} kind='global' />
+          <BannerFields form={form} kind='free-model' />
         </SettingsForm>
       </Form>
     </SettingsSection>

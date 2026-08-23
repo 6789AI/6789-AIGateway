@@ -21,28 +21,37 @@ import { useEffect, useState } from 'react'
 
 import { getGlobalBanner } from './api'
 import type {
+  BannerConfig,
+  FreeModelBannerStyle,
   GlobalBannerData,
   GlobalBannerView,
-  MarketingBannerConfig,
 } from './types'
 
 const BANNER_REFRESH_INTERVAL = 15_000
-const defaultMarketingBanner: MarketingBannerConfig = {
+const defaultGlobalBanner: BannerConfig = {
   enabled: false,
   content: '',
+  background_color: '#0EA5E9',
+  text_color: '#082F49',
+  icon: 'gift',
+  countdown_enabled: false,
+  countdown_end_at: 0,
+  link_url: '/pricing',
+}
+
+const defaultFreeModelBanner: FreeModelBannerStyle = {
   background_color: '#A3E635',
   text_color: '#1A2E05',
   icon: 'megaphone',
-  countdown_enabled: false,
-  countdown_end_at: 0,
   link_url: '',
 }
 
 const inactiveBannerView: GlobalBannerView = {
   visible: false,
-  marketingBanner: defaultMarketingBanner,
+  globalBanner: defaultGlobalBanner,
+  freeModelBanner: defaultFreeModelBanner,
   models: [],
-  marketingRemainingSeconds: null,
+  globalRemainingSeconds: null,
   promotionRemainingSeconds: null,
 }
 
@@ -63,23 +72,25 @@ export function getGlobalBannerView(
     .filter((endsAt): endsAt is number => !!endsAt && endsAt > serverTime)
   const nextChangeAt =
     finiteEndTimes.length > 0 ? Math.min(...finiteEndTimes) : null
-  const marketingBanner = data.marketing_banner ?? defaultMarketingBanner
-  const marketingVisible =
-    marketingBanner.enabled &&
-    marketingBanner.content.trim().length > 0 &&
-    (!marketingBanner.countdown_enabled ||
-      marketingBanner.countdown_end_at > serverTime)
+  const globalBanner = data.global_banner ?? defaultGlobalBanner
+  const globalVisible =
+    globalBanner.enabled &&
+    globalBanner.content.trim().length > 0 &&
+    (!globalBanner.countdown_enabled ||
+      globalBanner.countdown_end_at > serverTime)
+  const freeModelBanner = data.free_model_banner ?? defaultFreeModelBanner
 
   return {
-    visible: marketingVisible || models.length > 0,
-    marketingBanner: {
-      ...marketingBanner,
-      enabled: marketingVisible,
+    visible: globalVisible || models.length > 0,
+    globalBanner: {
+      ...globalBanner,
+      enabled: globalVisible,
     },
+    freeModelBanner,
     models,
-    marketingRemainingSeconds:
-      marketingVisible && marketingBanner.countdown_enabled
-        ? Math.max(0, Math.ceil(marketingBanner.countdown_end_at - serverTime))
+    globalRemainingSeconds:
+      globalVisible && globalBanner.countdown_enabled
+        ? Math.max(0, Math.ceil(globalBanner.countdown_end_at - serverTime))
         : null,
     promotionRemainingSeconds:
       nextChangeAt === null
@@ -101,9 +112,9 @@ export function useGlobalBanner(): GlobalBannerView {
   const data = query.data?.success ? query.data.data : undefined
   const hasLiveCountdown =
     data?.models.some((model) => !!model.ends_at) ||
-    (data?.marketing_banner.enabled &&
-      data.marketing_banner.countdown_enabled &&
-      data.marketing_banner.countdown_end_at > 0)
+    (data?.global_banner?.enabled &&
+      data.global_banner.countdown_enabled &&
+      data.global_banner.countdown_end_at > 0)
 
   useEffect(() => {
     setNow(Date.now())

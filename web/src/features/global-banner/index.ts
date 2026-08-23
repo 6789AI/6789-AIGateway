@@ -28,9 +28,13 @@ export {
 } from './marketing-banner-icons'
 export { MarketingBannerIcon } from './marketing-banner-icon'
 export type {
+  BannerConfig,
   FreeModelPromotion,
+  FreeModelBannerStyle,
   GlobalBannerData,
   GlobalBannerView,
-  MarketingBannerConfig,
 } from './types'
-export type { MarketingBannerIconName } from './marketing-banner-icons'
+export type {
+  BannerIconName,
+  MarketingBannerIconName,
+} from './marketing-banner-icons'

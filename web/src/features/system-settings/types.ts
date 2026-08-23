@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { MarketingBannerIconName } from '@/features/global-banner'
+import type { BannerIconName } from '@/features/global-banner'
 
 export type SystemOption = {
   key: string
@@ -110,11 +110,19 @@ export type SystemTaskListResponse = {
 
 export type SiteSettings = {
   Notice: string
+  'global_banner.enabled': boolean
+  'global_banner.content': string
+  'global_banner.background_color': string
+  'global_banner.text_color': string
+  'global_banner.icon': BannerIconName
+  'global_banner.countdown_enabled': boolean
+  'global_banner.countdown_end_at': number
+  'global_banner.link_url': string
   'marketing_banner.enabled': boolean
   'marketing_banner.content': string
   'marketing_banner.background_color': string
   'marketing_banner.text_color': string
-  'marketing_banner.icon': MarketingBannerIconName
+  'marketing_banner.icon': BannerIconName
   'marketing_banner.countdown_enabled': boolean
   'marketing_banner.countdown_end_at': number
   'marketing_banner.link_url': string

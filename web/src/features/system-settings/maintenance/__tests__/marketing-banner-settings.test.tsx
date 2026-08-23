@@ -79,12 +79,12 @@ function changeInputValue(input: HTMLInputElement, value: string) {
   )
 }
 
-describe('marketing banner settings', () => {
+describe('global and free-model banner settings', () => {
   after(() => {
     domWindow.close()
   })
 
-  test('requires content when enabled and previews custom colors', async () => {
+  test('shows only style controls for automatic free-model promotions', async () => {
     const container = document.createElement('div')
     const actionsContainer = document.createElement('div')
     document.body.append(container, actionsContainer)
@@ -101,6 +101,14 @@ describe('marketing banner settings', () => {
               <NoticeSection
                 defaultValues={{
                   Notice: '',
+                  GlobalBannerEnabled: false,
+                  GlobalBannerContent: '',
+                  GlobalBannerBackgroundColor: '#0EA5E9',
+                  GlobalBannerTextColor: '#082F49',
+                  GlobalBannerIcon: 'gift',
+                  GlobalBannerCountdownEnabled: false,
+                  GlobalBannerCountdownEndAt: 0,
+                  GlobalBannerLinkURL: '',
                   MarketingBannerEnabled: false,
                   MarketingBannerContent: '',
                   MarketingBannerBackgroundColor: '#A3E635',
@@ -116,24 +124,13 @@ describe('marketing banner settings', () => {
         </QueryClientProvider>
       )
     })
-
-    const bannerSwitch = container.querySelector<HTMLElement>('[role="switch"]')
-    assert.ok(bannerSwitch)
-    await act(async () => bannerSwitch.click())
-
-    const saveButton = [...actionsContainer.querySelectorAll('button')].find(
-      (button) => button.textContent === 'Save notice and banner'
-    )
-    assert.ok(saveButton)
-    await act(async () => saveButton.click())
-    assert.match(
-      container.textContent ?? '',
-      /Content is required when the marketing banner is enabled/
+    assert.match(container.textContent ?? '', /Global announcement banner/)
+    assert.match(container.textContent ?? '', /Free model banner/)
+    assert.equal(
+      container.querySelectorAll('[aria-label="Banner preview"]').length,
+      2
     )
 
-    const contentInput = container.querySelector<HTMLInputElement>(
-      'input[name="MarketingBannerContent"]'
-    )
     const backgroundInput = container.querySelector<HTMLInputElement>(
       'input[name="MarketingBannerBackgroundColor"]'
     )
@@ -143,17 +140,29 @@ describe('marketing banner settings', () => {
     const linkInput = container.querySelector<HTMLInputElement>(
       'input[name="MarketingBannerLinkURL"]'
     )
-    const couponButton = container.querySelector<HTMLElement>(
+    const freeModelHeading = [...container.querySelectorAll('h3')].find(
+      (heading) => heading.textContent === 'Free model banner'
+    )
+    const freeModelSection = freeModelHeading?.closest('section')
+    const couponButton = freeModelSection?.querySelector<HTMLElement>(
       '[aria-label="Coupon"]'
     )
-    assert.ok(contentInput)
     assert.ok(backgroundInput)
     assert.ok(textInput)
     assert.ok(linkInput)
+    assert.ok(freeModelSection)
     assert.ok(couponButton)
+    assert.equal(
+      freeModelSection.querySelector('input[name="MarketingBannerContent"]'),
+      null
+    )
+    assert.equal(freeModelSection.querySelector('[role="switch"]'), null)
+    assert.equal(
+      freeModelSection.querySelector('input[type="datetime-local"]'),
+      null
+    )
 
     await act(async () => {
-      changeInputValue(contentInput, 'Weekend bonus')
       changeInputValue(backgroundInput, '#123456')
       changeInputValue(textInput, '#FEDCBA')
       changeInputValue(linkInput, '/wallet')
@@ -161,27 +170,27 @@ describe('marketing banner settings', () => {
     })
     assert.equal(linkInput.checkValidity(), true)
 
-    const preview = container.querySelector('[aria-label="Banner preview"]')
+    const preview = freeModelSection.querySelector(
+      '[aria-label="Banner preview"]'
+    )
     assert.ok(preview)
-    assert.match(preview.textContent ?? '', /Weekend bonus/)
+    assert.match(preview.textContent ?? '', /Model A, Model B are free now/)
+    assert.match(preview.textContent ?? '', /00:01:23:45/)
     assert.match(
       preview.getAttribute('style') ?? '',
       /background-color: #123456/i
     )
     assert.match(preview.getAttribute('style') ?? '', /color: #fedcba/i)
     assert.equal(couponButton.getAttribute('aria-pressed'), 'true')
+    const iconCount = preview.querySelectorAll('svg').length
+    await act(async () => couponButton.click())
+    assert.equal(couponButton.getAttribute('aria-pressed'), 'false')
+    assert.equal(preview.querySelectorAll('svg').length, iconCount - 1)
 
-    const switches = container.querySelectorAll<HTMLElement>('[role="switch"]')
-    assert.equal(switches.length, 2)
-    await act(async () => switches[1].click())
-    const countdownInput = container.querySelector<HTMLInputElement>(
-      'input[type="datetime-local"]'
+    assert.equal(
+      container.querySelectorAll<HTMLElement>('[role="switch"]').length,
+      2
     )
-    assert.ok(countdownInput)
-    await act(async () => {
-      changeInputValue(countdownInput, '2099-01-01T00:00')
-    })
-    assert.match(preview.textContent ?? '', /\d{2,}:\d{2}:\d{2}:\d{2}/)
 
     await act(async () => root.unmount())
     container.remove()

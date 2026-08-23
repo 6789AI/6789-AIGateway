@@ -75,7 +75,7 @@ describe('global banner', () => {
     domWindow.close()
   })
 
-  test('stacks marketing and free-model countdowns as separate fixed banners', async () => {
+  test('renders one scheduled free-model banner with automatic content and countdown', async () => {
     const rootRoute = createRootRoute()
     const indexRoute = createRoute({
       getParentRoute: () => rootRoute,
@@ -85,18 +85,24 @@ describe('global banner', () => {
           <GlobalBannerFrame
             view={{
               visible: true,
-              marketingBanner: {
-                enabled: true,
-                content: 'Summer bonus is live',
+              globalBanner: {
+                enabled: false,
+                content: '',
+                background_color: '#0EA5E9',
+                text_color: '#082F49',
+                icon: 'gift',
+                countdown_enabled: false,
+                countdown_end_at: 0,
+                link_url: '/special-pricing',
+              },
+              freeModelBanner: {
                 background_color: '#123456',
                 text_color: '#FEDCBA',
                 icon: 'rocket',
-                countdown_enabled: true,
-                countdown_end_at: 2_000,
                 link_url: 'https://example.com/promotion',
               },
               models: [{ model_name: 'video-free' }],
-              marketingRemainingSeconds: 3_600,
+              globalRemainingSeconds: null,
               promotionRemainingSeconds: 90_061,
             }}
           >
@@ -124,37 +130,24 @@ describe('global banner', () => {
     })
 
     const frame = container.querySelector('[data-global-banner-visible="true"]')
-    const marketingBanner = container.querySelector(
-      'aside[data-banner-kind="marketing"]'
-    )
     const freeModelBanner = container.querySelector(
       'aside[aria-label="Limited-time free"]'
     )
     assert.ok(frame)
-    assert.equal(frame.getAttribute('data-global-banner-count'), '2')
-    assert.match(frame.getAttribute('style') ?? '', /padding-top: 5rem/i)
+    assert.equal(frame.getAttribute('data-global-banner-count'), '1')
+    assert.match(frame.getAttribute('style') ?? '', /padding-top: 2.5rem/i)
     assert.equal(
       document.documentElement.style.getPropertyValue('--global-banner-height'),
-      '5rem'
+      '2.5rem'
     )
-    assert.ok(marketingBanner)
     assert.ok(freeModelBanner)
     assert.match(
-      marketingBanner.getAttribute('style') ?? '',
+      freeModelBanner.getAttribute('style') ?? '',
       /background-color: #123456/i
     )
-    assert.match(marketingBanner.getAttribute('style') ?? '', /color: #fedcba/i)
-    assert.match(marketingBanner.textContent ?? '', /Summer bonus is live/)
-    assert.equal(
-      marketingBanner.querySelector('time')?.getAttribute('aria-label'),
-      'Promotion ends in: 00:01:00:00'
-    )
-    assert.equal(
-      marketingBanner
-        .querySelector<HTMLAnchorElement>('a')
-        ?.getAttribute('href'),
-      'https://example.com/promotion'
-    )
+    assert.match(freeModelBanner.getAttribute('style') ?? '', /color: #fedcba/i)
+    assert.match(freeModelBanner.textContent ?? '', /video-free are free now/)
+    assert.equal(freeModelBanner.querySelectorAll('svg').length, 2)
     assert.equal(
       freeModelBanner.querySelector('time')?.getAttribute('aria-label'),
       'Free period remaining: 01:01:01:01'
@@ -163,7 +156,7 @@ describe('global banner', () => {
       freeModelBanner
         .querySelector<HTMLAnchorElement>('a')
         ?.getAttribute('href'),
-      '/pricing'
+      'https://example.com/promotion'
     )
     assert.match(frame.textContent ?? '', /Route content/)
 
@@ -181,18 +174,24 @@ describe('global banner', () => {
         <GlobalBannerFrame
           view={{
             visible: false,
-            marketingBanner: {
+            globalBanner: {
               enabled: false,
               content: '',
-              background_color: '#A3E635',
-              text_color: '#1A2E05',
-              icon: 'megaphone',
+              background_color: '#0EA5E9',
+              text_color: '#082F49',
+              icon: 'gift',
               countdown_enabled: false,
               countdown_end_at: 0,
               link_url: '',
             },
+            freeModelBanner: {
+              background_color: '#A3E635',
+              text_color: '#1A2E05',
+              icon: 'megaphone',
+              link_url: '',
+            },
             models: [],
-            marketingRemainingSeconds: null,
+            globalRemainingSeconds: null,
             promotionRemainingSeconds: null,
           }}
         >

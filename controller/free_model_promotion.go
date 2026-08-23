@@ -13,19 +13,14 @@ import (
 func GetFreeModelPromotions(c *gin.Context) {
 	now := time.Now()
 	promotions := billing_setting.GetActiveFreeModelPromotions(now)
-	marketingBanner := system_setting.GetMarketingBannerSettings()
-	marketingBanner.Enabled = marketingBanner.Enabled &&
-		strings.TrimSpace(marketingBanner.Content) != "" &&
-		(!marketingBanner.CountdownEnabled || marketingBanner.CountdownEndAt > now.Unix())
-	if !marketingBanner.Enabled {
-		marketingBanner.Content = ""
-		marketingBanner.LinkURL = ""
-		marketingBanner.CountdownEnabled = false
-		marketingBanner.CountdownEndAt = 0
-	}
+	globalBanner := system_setting.GetGlobalBannerSettings()
+	globalBanner.Enabled = globalBanner.Enabled &&
+		strings.TrimSpace(globalBanner.Content) != "" &&
+		(!globalBanner.CountdownEnabled || globalBanner.CountdownEndAt > now.Unix())
+	freeModelBanner := system_setting.GetMarketingBannerSettings()
 	nextChangeAt := int64(0)
-	if marketingBanner.Enabled && marketingBanner.CountdownEnabled {
-		nextChangeAt = marketingBanner.CountdownEndAt
+	if globalBanner.Enabled && globalBanner.CountdownEnabled {
+		nextChangeAt = globalBanner.CountdownEndAt
 	}
 	for _, promotion := range promotions {
 		if promotion.EndsAt > 0 && (nextChangeAt == 0 || promotion.EndsAt < nextChangeAt) {
@@ -37,11 +32,17 @@ func GetFreeModelPromotions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"active":           len(promotions) > 0,
-			"marketing_banner": marketingBanner,
-			"server_time":      now.Unix(),
-			"next_change_at":   nextChangeAt,
-			"models":           promotions,
+			"active":        len(promotions) > 0,
+			"global_banner": globalBanner,
+			"free_model_banner": gin.H{
+				"background_color": freeModelBanner.BackgroundColor,
+				"text_color":       freeModelBanner.TextColor,
+				"icon":             freeModelBanner.Icon,
+				"link_url":         freeModelBanner.LinkURL,
+			},
+			"server_time":    now.Unix(),
+			"next_change_at": nextChangeAt,
+			"models":         promotions,
 		},
 	})
 }
