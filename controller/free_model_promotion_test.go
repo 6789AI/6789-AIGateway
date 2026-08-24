@@ -33,13 +33,13 @@ func TestGetFreeModelPromotionsReturnsPublicCountdownData(t *testing.T) {
 		"global_banner.content":                     "Service update",
 		"global_banner.background_color":            "#0EA5E9",
 		"global_banner.text_color":                  "#082F49",
-		"global_banner.icon":                        "gift",
+		"global_banner.icon":                        "📣 公告",
 		"global_banner.countdown_enabled":           "false",
 		"global_banner.countdown_end_at":            "0",
 		"global_banner.link_url":                    "/pricing",
 		"marketing_banner.background_color":         "#123456",
 		"marketing_banner.text_color":               "#FEDCBA",
-		"marketing_banner.icon":                     "rocket",
+		"marketing_banner.icon":                     "🎉 限时优惠",
 		"marketing_banner.link_url":                 "https://example.com/promotion",
 		"billing_setting.price_schedules": fmt.Sprintf(
 			`{"banner-model":[{"type":"absolute","price":0,"start_at":%d,"end_at":%d,"show_banner":true}]}`,
@@ -76,8 +76,11 @@ func TestGetFreeModelPromotionsReturnsPublicCountdownData(t *testing.T) {
 				LinkURL         string `json:"link_url"`
 			} `json:"free_model_banner"`
 			Models []struct {
-				ModelName string `json:"model_name"`
-				EndsAt    int64  `json:"ends_at"`
+				ModelName     string   `json:"model_name"`
+				PromotionType string   `json:"promotion_type"`
+				Price         *float64 `json:"price"`
+				DiscountRate  *float64 `json:"discount_rate"`
+				EndsAt        int64    `json:"ends_at"`
 			} `json:"models"`
 		} `json:"data"`
 	}
@@ -86,20 +89,68 @@ func TestGetFreeModelPromotionsReturnsPublicCountdownData(t *testing.T) {
 	require.True(t, response.Data.Active)
 	require.Len(t, response.Data.Models, 1)
 	assert.Equal(t, "banner-model", response.Data.Models[0].ModelName)
+	assert.Equal(t, "free", response.Data.Models[0].PromotionType)
 	assert.Equal(t, endAt, response.Data.Models[0].EndsAt)
 	assert.Equal(t, endAt, response.Data.NextChangeAt)
 	assert.False(t, response.Data.GlobalBanner.Enabled)
 	assert.Equal(t, "Service update", response.Data.GlobalBanner.Content)
 	assert.Equal(t, "#0EA5E9", response.Data.GlobalBanner.BackgroundColor)
 	assert.Equal(t, "#082F49", response.Data.GlobalBanner.TextColor)
-	assert.Equal(t, "gift", response.Data.GlobalBanner.Icon)
+	assert.Equal(t, "📣 公告", response.Data.GlobalBanner.Icon)
 	assert.False(t, response.Data.GlobalBanner.CountdownEnabled)
 	assert.Zero(t, response.Data.GlobalBanner.CountdownEndAt)
 	assert.Equal(t, "/pricing", response.Data.GlobalBanner.LinkURL)
 	assert.Equal(t, "#123456", response.Data.FreeModelBanner.BackgroundColor)
 	assert.Equal(t, "#FEDCBA", response.Data.FreeModelBanner.TextColor)
-	assert.Equal(t, "rocket", response.Data.FreeModelBanner.Icon)
+	assert.Equal(t, "🎉 限时优惠", response.Data.FreeModelBanner.Icon)
 	assert.Equal(t, "https://example.com/promotion", response.Data.FreeModelBanner.LinkURL)
+}
+
+func TestGetFreeModelPromotionsReturnsDiscountActivities(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	savedConfig := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		savedConfig[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig))
+	})
+
+	now := time.Now()
+	endAt := now.Add(time.Hour).Unix()
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":              `{}`,
+		"billing_setting.free_model_banner_enabled": "true",
+		"billing_setting.price_schedules": fmt.Sprintf(
+			`{"discount-model":[{"type":"absolute","adjustment_type":"discount","discount_rate":0.8,"start_at":%d,"end_at":%d,"show_banner":true}]}`,
+			now.Add(-time.Hour).Unix(), endAt,
+		),
+	}))
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	GetFreeModelPromotions(context)
+
+	var response struct {
+		Data struct {
+			Active bool `json:"active"`
+			Models []struct {
+				ModelName     string   `json:"model_name"`
+				PromotionType string   `json:"promotion_type"`
+				DiscountRate  *float64 `json:"discount_rate"`
+				EndsAt        int64    `json:"ends_at"`
+			} `json:"models"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Data.Active)
+	require.Len(t, response.Data.Models, 1)
+	assert.Equal(t, "discount-model", response.Data.Models[0].ModelName)
+	assert.Equal(t, "discount", response.Data.Models[0].PromotionType)
+	require.NotNil(t, response.Data.Models[0].DiscountRate)
+	assert.InDelta(t, 0.8, *response.Data.Models[0].DiscountRate, 1e-12)
+	assert.Equal(t, endAt, response.Data.Models[0].EndsAt)
 }
 
 func TestGetFreeModelPromotionsIgnoresLegacyMarketingCountdown(t *testing.T) {

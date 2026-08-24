@@ -95,4 +95,63 @@ describe('time-based model price validation', () => {
       'Select at least one weekday.'
     )
   })
+
+  test('accepts a token discount activity', () => {
+    assert.equal(
+      validatePriceSchedules(
+        [
+          {
+            id: 'discount',
+            type: 'absolute',
+            adjustment_type: 'discount',
+            discount_rate: 0.8,
+            start_at: 100,
+            end_at: 200,
+          },
+        ],
+        t,
+        false
+      ),
+      null
+    )
+  })
+
+  test('rejects fixed activity prices for token billing', () => {
+    assert.equal(
+      validatePriceSchedules(
+        [
+          {
+            id: 'fixed',
+            type: 'absolute',
+            price: 0,
+            start_at: 100,
+            end_at: 200,
+          },
+        ],
+        t,
+        false
+      ),
+      'Fixed activity prices are only available for per-request billing.'
+    )
+  })
+
+  test('rejects a discount rate above 100 percent', () => {
+    assert.equal(
+      validatePriceSchedules(
+        [
+          {
+            id: 'discount',
+            type: 'absolute',
+            adjustment_type: 'discount',
+            discount_rate: 1.01,
+            start_at: 100,
+            end_at: 200,
+          },
+        ],
+        t,
+        false
+      ),
+      'Discount rate must be between 0% and 100%.'
+    )
+  })
 })

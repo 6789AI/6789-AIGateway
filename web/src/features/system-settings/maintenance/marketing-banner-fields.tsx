@@ -41,7 +41,6 @@ import {
   MARKETING_BANNER_ICON_NAMES,
   MARKETING_BANNER_ICON_OPTIONS,
   MarketingBannerIcon,
-  type BannerIconName,
 } from '@/features/global-banner'
 import { getCountdownParts } from '@/features/global-banner/countdown'
 
@@ -129,8 +128,8 @@ export function BannerFields(props: BannerFieldsProps) {
   const matchedIcon = MARKETING_BANNER_ICON_NAMES.find(
     (iconName) => iconName === rawIcon
   )
-  const icon: BannerIconName =
-    rawIcon === '' ? '' : (matchedIcon ?? MARKETING_BANNER_ICON_NAMES[0])
+  const customIcon = matchedIcon ? '' : rawIcon
+  const customIconLength = [...customIcon].length
   const countdownEnabled = Boolean(watchedValues[5])
   const countdownEndAt = Number(watchedValues[6]) || 0
   const linkURL = String(watchedValues[7] ?? '')
@@ -150,15 +149,18 @@ export function BannerFields(props: BannerFieldsProps) {
   const countdownText = `${countdown.days}:${countdown.hours}:${countdown.minutes}:${countdown.seconds}`
   const sectionTitle = isGlobal
     ? t('Global announcement banner')
-    : t('Free model banner')
+    : t('Limited-time model offer')
   const sectionDescription = isGlobal
     ? t('Display a fixed announcement at the top of every page.')
     : t(
-        'Customize the icon, colors, and link used by scheduled free-model promotions. Content and countdown are generated automatically.'
+        'Customize the icon, colors, and link used by scheduled model promotions. Content and countdown are generated automatically.'
       )
   const previewContent = isGlobal
     ? content.trim() || t('Planned maintenance on Friday at 22:00 UTC...')
-    : t('{{models}} are free now', { models: 'Model A, Model B' })
+    : t('{{model}} is {{percent}}% off', {
+        model: 'Model A',
+        percent: '20',
+      })
 
   return (
     <section className={isGlobal ? 'space-y-6' : 'space-y-6 border-t pt-6'}>
@@ -224,7 +226,7 @@ export function BannerFields(props: BannerFieldsProps) {
             <FormLabel>{t('Banner icon')}</FormLabel>
             <FormControl>
               <ToggleGroup
-                value={icon ? [icon] : []}
+                value={matchedIcon ? [matchedIcon] : []}
                 onValueChange={(values) => {
                   field.onChange(values[0] ?? '')
                 }}
@@ -254,6 +256,28 @@ export function BannerFields(props: BannerFieldsProps) {
                 ))}
               </ToggleGroup>
             </FormControl>
+            <div className='relative max-w-xl'>
+              <Input
+                name={field.name}
+                ref={field.ref}
+                onBlur={field.onBlur}
+                onChange={(event) => {
+                  field.onChange([...event.target.value].slice(0, 100).join(''))
+                }}
+                value={customIcon}
+                aria-label={t('Custom characters or emoji')}
+                placeholder={t('Enter custom characters or emoji')}
+                className='pr-16'
+              />
+              <span className='text-muted-foreground pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs tabular-nums'>
+                {customIconLength}/100
+              </span>
+            </div>
+            <FormDescription>
+              {t(
+                'Custom characters replace the selected preset icon and are displayed as plain text.'
+              )}
+            </FormDescription>
             <FormMessage />
           </FormItem>
         )}
@@ -418,7 +442,7 @@ export function BannerFields(props: BannerFieldsProps) {
           }}
           aria-label={t('Banner preview')}
         >
-          <MarketingBannerIcon name={icon} className='size-4 shrink-0' />
+          <MarketingBannerIcon name={rawIcon} className='size-4 shrink-0' />
           <span className='truncate text-xs font-semibold'>
             {previewContent}
           </span>

@@ -48,10 +48,20 @@ func TestValidateMarketingBannerOption(t *testing.T) {
 			value: "",
 		},
 		{
-			name:    "rejects an unsupported icon",
+			name:  "accepts custom icon characters",
+			key:   MarketingBannerOptionPrefix + "icon",
+			value: "限时福利 🎉",
+		},
+		{
+			name:  "accepts one hundred Unicode icon characters",
+			key:   MarketingBannerOptionPrefix + "icon",
+			value: strings.Repeat("🎉", 100),
+		},
+		{
+			name:    "rejects custom icon beyond the display limit",
 			key:     MarketingBannerOptionPrefix + "icon",
-			value:   "custom-svg",
-			wantErr: "not supported",
+			value:   strings.Repeat("🎉", 101),
+			wantErr: "100 characters",
 		},
 		{
 			name:  "accepts an absolute HTTPS link",
@@ -101,7 +111,7 @@ func TestValidateMarketingBannerOption(t *testing.T) {
 }
 
 func TestValidateGlobalBannerOptionUsesSharedRules(t *testing.T) {
-	assert.NoError(t, ValidateBannerOption(GlobalBannerOptionPrefix+"icon", "gift"))
+	assert.NoError(t, ValidateBannerOption(GlobalBannerOptionPrefix+"icon", "📣 公告"))
 	assert.ErrorContains(
 		t,
 		ValidateBannerOption(GlobalBannerOptionPrefix+"link_url", "javascript:alert(1)"),

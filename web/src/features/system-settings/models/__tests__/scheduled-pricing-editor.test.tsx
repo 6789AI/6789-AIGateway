@@ -90,6 +90,7 @@ describe('scheduled pricing editor', () => {
         <I18nextProvider i18n={i18n}>
           <ScheduledPricingEditor
             schedules={initial}
+            allowFixedPrice
             onChange={(schedules) => {
               changed = schedules
             }}
@@ -148,6 +149,7 @@ describe('scheduled pricing editor', () => {
                 timezone: 'Asia/Shanghai',
               },
             ]}
+            allowFixedPrice
             onChange={() => {}}
           />
         </I18nextProvider>
@@ -189,7 +191,11 @@ describe('scheduled pricing editor', () => {
     await act(async () => {
       root.render(
         <I18nextProvider i18n={chineseI18n}>
-          <ScheduledPricingEditor schedules={[]} onChange={() => {}} />
+          <ScheduledPricingEditor
+            schedules={[]}
+            allowFixedPrice
+            onChange={() => {}}
+          />
         </I18nextProvider>
       )
     })
@@ -199,6 +205,89 @@ describe('scheduled pricing editor', () => {
         button.textContent?.includes('Add schedule')
       )
     )
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('adds a discount activity when fixed prices are unavailable', async () => {
+    let changed: PriceSchedule[] | undefined
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <ScheduledPricingEditor
+            schedules={[]}
+            allowFixedPrice={false}
+            onChange={(schedules) => {
+              changed = schedules
+            }}
+          />
+        </I18nextProvider>
+      )
+    })
+
+    const addButton = [...container.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Add schedule')
+    )
+    assert.ok(addButton)
+    await act(async () => addButton.click())
+    assert.equal(changed?.[0]?.adjustment_type, 'discount')
+    assert.equal(changed?.[0]?.discount_rate, 0)
+    assert.equal(changed?.[0]?.price, undefined)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('associates price and discount labels with their numeric inputs', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <ScheduledPricingEditor
+            schedules={[
+              {
+                id: 'fixed-price',
+                type: 'absolute',
+                adjustment_type: 'fixed_price',
+                price: 0.1,
+                start_at: 100,
+                end_at: 200,
+              },
+              {
+                id: 'discount-price',
+                type: 'absolute',
+                adjustment_type: 'discount',
+                discount_rate: 0.8,
+                start_at: 300,
+                end_at: 400,
+              },
+            ]}
+            allowFixedPrice
+            onChange={() => {}}
+          />
+        </I18nextProvider>
+      )
+    })
+
+    const labels = [...container.querySelectorAll('label')]
+    const fixedLabel = labels.find((label) =>
+      label.textContent?.includes('Activity price')
+    )
+    const discountLabel = labels.find((label) =>
+      label.textContent?.includes('Discounted price percentage')
+    )
+    assert.equal(fixedLabel?.htmlFor, 'fixed-price-activity-price')
+    assert.equal(discountLabel?.htmlFor, 'discount-price-discount-rate')
+    assert.ok(container.querySelector('#fixed-price-activity-price'))
+    assert.ok(container.querySelector('#discount-price-discount-rate'))
 
     await act(async () => root.unmount())
     container.remove()

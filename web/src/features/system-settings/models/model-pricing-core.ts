@@ -48,7 +48,9 @@ export type PricingMode =
 export type PriceSchedule = {
   id: string
   type: 'absolute' | 'weekly'
-  price: number
+  adjustment_type?: 'fixed_price' | 'discount'
+  price?: number
+  discount_rate?: number
   start_at?: number
   end_at?: number
   weekdays?: number[]
@@ -236,9 +238,10 @@ export function buildPreviewRows(
   laneEnabled: Record<LaneKey, boolean>,
   t: (key: string) => string
 ): PreviewRow[] {
+  let rows: PreviewRow[]
   if (mode === 'tiered_expr') {
     const effectiveExpr = combineBillingExpr(billingExpr, requestRuleExpr)
-    return [
+    rows = [
       { key: 'mode', label: 'BillingMode', value: 'tiered_expr' },
       {
         key: 'expr',
@@ -247,10 +250,8 @@ export function buildPreviewRows(
         multiline: true,
       },
     ]
-  }
-
-  if (mode === 'scheduled_price') {
-    return [
+  } else if (mode === 'scheduled_price') {
+    rows = [
       {
         key: 'price',
         label: t('Base price'),
@@ -262,71 +263,78 @@ export function buildPreviewRows(
         value: `${priceSchedules.length} ${t('rules')}`,
       },
     ]
-  }
-
-  if (mode === 'per-request') {
-    return [
+  } else if (mode === 'per-request') {
+    rows = [
       {
         key: 'price',
         label: 'ModelPrice',
         value: values.price || t('Empty'),
       },
     ]
+  } else {
+    rows = [
+      {
+        key: 'inputPrice',
+        label: t('Input price'),
+        value: promptPrice ? `$${promptPrice}` : t('Empty'),
+      },
+      {
+        key: 'completion',
+        label: t('Completion price'),
+        value:
+          laneEnabled.completion && lanePrices.completion
+            ? `$${lanePrices.completion}`
+            : t('Empty'),
+      },
+      {
+        key: 'cache',
+        label: t('Cache read price'),
+        value:
+          laneEnabled.cache && lanePrices.cache
+            ? `$${lanePrices.cache}`
+            : t('Empty'),
+      },
+      {
+        key: 'createCache',
+        label: t('Cache write price'),
+        value:
+          laneEnabled.createCache && lanePrices.createCache
+            ? `$${lanePrices.createCache}`
+            : t('Empty'),
+      },
+      {
+        key: 'image',
+        label: t('Image input price'),
+        value:
+          laneEnabled.image && lanePrices.image
+            ? `$${lanePrices.image}`
+            : t('Empty'),
+      },
+      {
+        key: 'audio',
+        label: t('Audio input price'),
+        value:
+          laneEnabled.audioInput && lanePrices.audioInput
+            ? `$${lanePrices.audioInput}`
+            : t('Empty'),
+      },
+      {
+        key: 'audioCompletion',
+        label: t('Audio output price'),
+        value:
+          laneEnabled.audioOutput && lanePrices.audioOutput
+            ? `$${lanePrices.audioOutput}`
+            : t('Empty'),
+      },
+    ]
   }
 
-  return [
-    {
-      key: 'inputPrice',
-      label: t('Input price'),
-      value: promptPrice ? `$${promptPrice}` : t('Empty'),
-    },
-    {
-      key: 'completion',
-      label: t('Completion price'),
-      value:
-        laneEnabled.completion && lanePrices.completion
-          ? `$${lanePrices.completion}`
-          : t('Empty'),
-    },
-    {
-      key: 'cache',
-      label: t('Cache read price'),
-      value:
-        laneEnabled.cache && lanePrices.cache
-          ? `$${lanePrices.cache}`
-          : t('Empty'),
-    },
-    {
-      key: 'createCache',
-      label: t('Cache write price'),
-      value:
-        laneEnabled.createCache && lanePrices.createCache
-          ? `$${lanePrices.createCache}`
-          : t('Empty'),
-    },
-    {
-      key: 'image',
-      label: t('Image input price'),
-      value:
-        laneEnabled.image && lanePrices.image
-          ? `$${lanePrices.image}`
-          : t('Empty'),
-    },
-    {
-      key: 'audio',
-      label: t('Audio input price'),
-      value:
-        laneEnabled.audioInput && lanePrices.audioInput
-          ? `$${lanePrices.audioInput}`
-          : t('Empty'),
-    },
-    {
-      key: 'audioCompletion',
-      label: t('Audio output price'),
-      value:
-        laneEnabled.audioOutput && lanePrices.audioOutput
-          ? `$${lanePrices.audioOutput}`
-          : t('Empty'),
-    },
-  ]
+  if (priceSchedules.length > 0 && mode !== 'scheduled_price') {
+    rows.push({
+      key: 'schedules',
+      label: t('Time-based activities'),
+      value: `${priceSchedules.length} ${t('rules')}`,
+    })
+  }
+  return rows
 }

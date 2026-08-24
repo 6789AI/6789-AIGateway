@@ -29,10 +29,10 @@ export {
 export { MarketingBannerIcon } from './marketing-banner-icon'
 export type {
   BannerConfig,
-  FreeModelPromotion,
   FreeModelBannerStyle,
   GlobalBannerData,
   GlobalBannerView,
+  ModelPromotion,
 } from './types'
 export type {
   BannerIconName,

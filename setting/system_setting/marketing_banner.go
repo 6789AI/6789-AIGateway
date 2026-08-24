@@ -16,26 +16,12 @@ const (
 	GlobalBannerOptionPrefix    = "global_banner."
 	MarketingBannerOptionPrefix = "marketing_banner."
 	maxMarketingBannerRunes     = 300
+	maxMarketingBannerIconRunes = 100
 	maxMarketingBannerLinkRunes = 2048
 	maxMarketingBannerTimestamp = 253402300799
 )
 
 var hexColorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
-var marketingBannerIcons = map[string]struct{}{
-	"bell":      {},
-	"coupon":    {},
-	"crown":     {},
-	"discount":  {},
-	"fire":      {},
-	"gift":      {},
-	"heart":     {},
-	"lightning": {},
-	"megaphone": {},
-	"party":     {},
-	"rocket":    {},
-	"sparkles":  {},
-	"star":      {},
-}
 
 type BannerSettings struct {
 	Enabled          bool   `json:"enabled"`
@@ -110,11 +96,8 @@ func ValidateBannerOption(key string, value string) error {
 			return errors.New("color must be a 6-digit hex value")
 		}
 	case "icon":
-		if value == "" {
-			return nil
-		}
-		if _, ok := marketingBannerIcons[value]; !ok {
-			return errors.New("icon is not supported")
+		if utf8.RuneCountInString(strings.TrimSpace(value)) > maxMarketingBannerIconRunes {
+			return errors.New("icon must not exceed 100 characters")
 		}
 	case "countdown_enabled":
 		if value != "true" && value != "false" {

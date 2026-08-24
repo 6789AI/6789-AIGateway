@@ -42,6 +42,13 @@ const claudeCacheCreation1hMultiplier = 6 / 3.75
 // the pre-consumed quota still reflects a plausible output cost in paid groups.
 const defaultTieredPreConsumeMaxTokens = 8192
 
+func billingActivityTime(info *relaycommon.RelayInfo) time.Time {
+	if info != nil && !info.StartTime.IsZero() {
+		return info.StartTime
+	}
+	return time.Now()
+}
+
 // HandleGroupRatio checks for "auto_group" in the context and updates the group ratio and relayInfo.UsingGroup if present
 func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hosttypes.GroupRatioInfo {
 	groupRatioInfo := hosttypes.GroupRatioInfo{
@@ -72,18 +79,14 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hostty
 }
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (hosttypes.PriceData, error) {
+	now := billingActivityTime(info)
 	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
-	if usePrice && billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeScheduled {
-		if scheduledPrice, matched := billing_setting.GetScheduledPrice(info.OriginModelName, time.Now()); matched {
-			modelPrice = scheduledPrice
-		}
-	}
 
 	groupRatioInfo := HandleGroupRatio(c, info)
 
 	// Check if this model uses tiered_expr billing
 	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeTieredExpr {
-		return modelPriceHelperTiered(c, info, promptTokens, meta, groupRatioInfo)
+		return modelPriceHelperTiered(c, info, promptTokens, meta, groupRatioInfo, now)
 	}
 
 	var preConsumedQuota int
@@ -123,6 +126,9 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		imageRatio, _ = ratio_setting.GetImageRatio(info.OriginModelName)
 		audioRatio = ratio_setting.GetAudioRatio(info.OriginModelName)
 		audioCompletionRatio = ratio_setting.GetAudioCompletionRatio(info.OriginModelName)
+		if discountRate, matched := billing_setting.GetScheduledDiscount(info.OriginModelName, now); matched {
+			modelRatio *= discountRate
+		}
 		ratio := modelRatio * groupRatioInfo.GroupRatio
 		quota, err := common.QuotaFromFloatStrict(float64(preConsumedTokens) * ratio)
 		if err != nil {
@@ -130,6 +136,9 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		}
 		preConsumedQuota = quota
 	} else {
+		if scheduledPrice, matched := billing_setting.GetScheduledPrice(info.OriginModelName, modelPrice, now); matched {
+			modelPrice = scheduledPrice
+		}
 		if meta.ImagePriceRatio != 0 {
 			modelPrice = modelPrice * meta.ImagePriceRatio
 		}
@@ -191,6 +200,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 
 // ModelPriceHelperPerCall 按次/按量计费的 PriceHelper (MJ、Task)
 func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hosttypes.PriceData, error) {
+	now := billingActivityTime(info)
 	groupRatioInfo := HandleGroupRatio(c, info)
 
 	modelPrice, success := ratio_setting.GetModelPrice(info.OriginModelName, true)
@@ -215,10 +225,12 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 			}
 		}
 	}
-	if usePrice && billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeScheduled {
-		if scheduledPrice, matched := billing_setting.GetScheduledPrice(info.OriginModelName, time.Now()); matched {
+	if usePrice {
+		if scheduledPrice, matched := billing_setting.GetScheduledPrice(info.OriginModelName, modelPrice, now); matched {
 			modelPrice = scheduledPrice
 		}
+	} else if discountRate, matched := billing_setting.GetScheduledDiscount(info.OriginModelName, now); matched {
+		modelRatio *= discountRate
 	}
 
 	var quota int
@@ -277,7 +289,7 @@ func HasModelBillingConfig(modelName string) bool {
 	return ok && strings.TrimSpace(expr) != ""
 }
 
-func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo hosttypes.GroupRatioInfo) (hosttypes.PriceData, error) {
+func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo hosttypes.GroupRatioInfo, now time.Time) (hosttypes.PriceData, error) {
 	exprStr, ok := billing_setting.GetBillingExpr(info.OriginModelName)
 	if !ok {
 		return hosttypes.PriceData{}, fmt.Errorf("model %s is configured as tiered_expr but has no billing expression", info.OriginModelName)
@@ -304,6 +316,11 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 
 	// Expression coefficients are $/1M tokens prices; convert to quota the same way per-call billing does.
 	quotaBeforeGroup := rawCost / 1_000_000 * common.QuotaPerUnit
+	var discountRate *float64
+	if rate, matched := billing_setting.GetScheduledDiscount(info.OriginModelName, now); matched {
+		discountRate = &rate
+		quotaBeforeGroup *= rate
+	}
 	preConsumedQuota, err := billingexpr.QuotaRoundStrict(quotaBeforeGroup * groupRatioInfo.GroupRatio)
 	if err != nil {
 		return hosttypes.PriceData{}, err
@@ -311,7 +328,7 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 
 	freeModel := false
 	if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
-		if groupRatioInfo.GroupRatio == 0 {
+		if groupRatioInfo.GroupRatio == 0 || (discountRate != nil && *discountRate == 0) {
 			preConsumedQuota = 0
 			freeModel = true
 		}
@@ -331,6 +348,7 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 		EstimatedTier:             trace.MatchedTier,
 		QuotaPerUnit:              common.QuotaPerUnit,
 		ExprVersion:               billingexpr.ExprVersion(exprStr),
+		DiscountRate:              discountRate,
 	}
 	info.TieredBillingSnapshot = snapshot
 	info.BillingRequestInput = &requestInput

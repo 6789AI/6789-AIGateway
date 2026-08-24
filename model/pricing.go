@@ -36,6 +36,8 @@ type Pricing struct {
 	BillingMode            string                          `json:"billing_mode,omitempty"`
 	BillingExpr            string                          `json:"billing_expr,omitempty"`
 	BaseModelPrice         *float64                        `json:"base_model_price,omitempty"`
+	BaseModelRatio         *float64                        `json:"base_model_ratio,omitempty"`
+	ActiveDiscountRate     *float64                        `json:"active_discount_rate,omitempty"`
 	PriceSchedules         []billing_setting.PriceSchedule `json:"price_schedules,omitempty"`
 	PricingVersion         string                          `json:"pricing_version,omitempty"`
 }
@@ -80,14 +82,26 @@ func GetPricing() []Pricing {
 	copy(result, pricingMap)
 	now := time.Now()
 	for index := range result {
-		if result[index].BillingMode != billing_setting.BillingModeScheduled {
+		schedules := billing_setting.GetPriceSchedules(result[index].ModelName)
+		if len(schedules) == 0 {
 			continue
 		}
-		basePrice := result[index].ModelPrice
-		result[index].BaseModelPrice = &basePrice
-		result[index].PriceSchedules = billing_setting.GetPriceSchedules(result[index].ModelName)
-		if price, matched := billing_setting.GetScheduledPrice(result[index].ModelName, now); matched {
-			result[index].ModelPrice = price
+		result[index].PriceSchedules = schedules
+		if result[index].QuotaType == 1 {
+			basePrice := result[index].ModelPrice
+			result[index].BaseModelPrice = &basePrice
+			if price, matched := billing_setting.GetScheduledPrice(result[index].ModelName, basePrice, now); matched {
+				result[index].ModelPrice = price
+			}
+			continue
+		}
+		if discountRate, matched := billing_setting.GetScheduledDiscount(result[index].ModelName, now); matched {
+			baseRatio := result[index].ModelRatio
+			result[index].BaseModelRatio = &baseRatio
+			result[index].ActiveDiscountRate = &discountRate
+			if result[index].BillingMode != billing_setting.BillingModeTieredExpr {
+				result[index].ModelRatio *= discountRate
+			}
 		}
 	}
 	return result

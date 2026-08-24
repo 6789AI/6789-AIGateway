@@ -75,7 +75,7 @@ describe('global banner', () => {
     domWindow.close()
   })
 
-  test('renders one scheduled free-model banner with automatic content and countdown', async () => {
+  test('renders scheduled free and discount promotions with automatic content and countdown', async () => {
     const rootRoute = createRootRoute()
     const indexRoute = createRoute({
       getParentRoute: () => rootRoute,
@@ -101,7 +101,14 @@ describe('global banner', () => {
                 icon: 'rocket',
                 link_url: 'https://example.com/promotion',
               },
-              models: [{ model_name: 'video-free' }],
+              models: [
+                { model_name: 'video-free', promotion_type: 'free' },
+                {
+                  model_name: 'clip-discount',
+                  promotion_type: 'discount',
+                  discount_rate: 0.8,
+                },
+              ],
               globalRemainingSeconds: null,
               promotionRemainingSeconds: 90_061,
             }}
@@ -131,7 +138,7 @@ describe('global banner', () => {
 
     const frame = container.querySelector('[data-global-banner-visible="true"]')
     const freeModelBanner = container.querySelector(
-      'aside[aria-label="Limited-time free"]'
+      'aside[aria-label="Limited-time model offer"]'
     )
     assert.ok(frame)
     assert.equal(frame.getAttribute('data-global-banner-count'), '1')
@@ -146,11 +153,12 @@ describe('global banner', () => {
       /background-color: #123456/i
     )
     assert.match(freeModelBanner.getAttribute('style') ?? '', /color: #fedcba/i)
-    assert.match(freeModelBanner.textContent ?? '', /video-free are free now/)
+    assert.match(freeModelBanner.textContent ?? '', /video-free is free now/)
+    assert.match(freeModelBanner.textContent ?? '', /clip-discount is 20% off/)
     assert.equal(freeModelBanner.querySelectorAll('svg').length, 2)
     assert.equal(
       freeModelBanner.querySelector('time')?.getAttribute('aria-label'),
-      'Free period remaining: 01:01:01:01'
+      'Offer period remaining: 01:01:01:01'
     )
     assert.equal(
       freeModelBanner
@@ -207,6 +215,56 @@ describe('global banner', () => {
     assert.equal(frame.getAttribute('data-global-banner-count'), '0')
     assert.match(frame.getAttribute('style') ?? '', /padding-top: 0rem/i)
     assert.equal(container.querySelector('aside'), null)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('renders custom Unicode characters instead of preset icons', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <GlobalBannerFrame
+            view={{
+              visible: true,
+              globalBanner: {
+                enabled: true,
+                content: 'Service update',
+                background_color: '#0EA5E9',
+                text_color: '#082F49',
+                icon: '📣 公告',
+                countdown_enabled: false,
+                countdown_end_at: 0,
+                link_url: '',
+              },
+              freeModelBanner: {
+                background_color: '#A3E635',
+                text_color: '#1A2E05',
+                icon: '🎉 限时优惠',
+                link_url: '',
+              },
+              models: [{ model_name: 'video-free', promotion_type: 'free' }],
+              globalRemainingSeconds: null,
+              promotionRemainingSeconds: null,
+            }}
+          >
+            <main>Route content</main>
+          </GlobalBannerFrame>
+        </I18nextProvider>
+      )
+    })
+
+    const customIcons = container.querySelectorAll<HTMLElement>(
+      '[data-banner-custom-icon]'
+    )
+    assert.equal(customIcons.length, 2)
+    assert.equal(customIcons[0]?.textContent, '📣 公告')
+    assert.equal(customIcons[1]?.textContent, '🎉 限时优惠')
+    assert.equal(container.querySelectorAll('aside svg').length, 1)
 
     await act(async () => root.unmount())
     container.remove()

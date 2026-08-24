@@ -45,10 +45,25 @@ describe('time-based model price snapshots', () => {
         '{"video-model":[{"id":"free-weekend","type":"weekly","price":0,"weekdays":[0,6],"start_minute":0,"end_minute":0,"timezone":"Asia/Shanghai"}]}',
     })
 
-    assert.equal(snapshot?.billingMode, 'scheduled_price')
+    assert.equal(snapshot?.billingMode, 'per-request')
     assert.equal(snapshot?.price, '0.25')
     assert.equal(snapshot?.priceSchedules?.length, 1)
     assert.equal(snapshot?.priceSchedules?.[0]?.price, 0)
+  })
+
+  test('loads discount schedules without changing token billing mode', () => {
+    const [snapshot] = buildModelSnapshots({
+      ...emptyRatios,
+      modelPrice: '{}',
+      modelRatio: '{"token-model":1}',
+      billingMode: '{}',
+      priceSchedules:
+        '{"token-model":[{"id":"discount","type":"absolute","adjustment_type":"discount","discount_rate":0.8,"start_at":100,"end_at":200}]}',
+    })
+
+    assert.equal(snapshot?.billingMode, 'per-token')
+    assert.equal(snapshot?.priceSchedules?.length, 1)
+    assert.equal(snapshot?.priceSchedules?.[0]?.discount_rate, 0.8)
   })
 
   test('schedule changes are included in the draft signature', () => {

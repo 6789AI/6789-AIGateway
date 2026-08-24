@@ -166,18 +166,41 @@ function GlobalAnnouncementBannerRow(props: GlobalBannerProps) {
   )
 }
 
-function FreeModelBannerRow(props: GlobalBannerProps) {
-  const { t } = useTranslation()
+function ModelPromotionBannerRow(props: GlobalBannerProps) {
+  const { t, i18n } = useTranslation()
   const configuredLink = safeBannerLink(props.view.freeModelBanner.link_url)
   const link = configuredLink ?? '/pricing'
-  const modelSummary = props.view.models
+  const numberFormatter = new Intl.NumberFormat(i18n.resolvedLanguage, {
+    maximumFractionDigits: 6,
+  })
+  const promotionSummary = props.view.models
     .slice(0, 3)
-    .map((model) => model.model_name)
-    .join(', ')
+    .map((promotion) => {
+      if (promotion.promotion_type === 'free') {
+        return t('{{model}} is free now', { model: promotion.model_name })
+      }
+      if (
+        promotion.promotion_type === 'discount' &&
+        promotion.discount_rate !== undefined
+      ) {
+        const percent = numberFormatter.format(
+          Math.max(0, (1 - promotion.discount_rate) * 100)
+        )
+        return t('{{model}} is {{percent}}% off', {
+          model: promotion.model_name,
+          percent,
+        })
+      }
+      return t('{{model}} is ${{price}} per request', {
+        model: promotion.model_name,
+        price: numberFormatter.format(promotion.price ?? 0),
+      })
+    })
+    .join(' · ')
   const hiddenModelCount = Math.max(0, props.view.models.length - 3)
-  const desktopModelSummary = hiddenModelCount
-    ? `${modelSummary} +${hiddenModelCount}`
-    : modelSummary
+  const visibleSummary = hiddenModelCount
+    ? `${promotionSummary} +${hiddenModelCount}`
+    : promotionSummary
 
   return (
     <aside
@@ -192,28 +215,26 @@ function FreeModelBannerRow(props: GlobalBannerProps) {
           fallbackTextColor
         ),
       }}
-      aria-label={t('Limited-time free')}
-      data-banner-kind='free-models'
+      aria-label={t('Limited-time model offer')}
+      data-banner-kind='model-promotions'
     >
       <div className='mx-auto flex h-full w-full max-w-7xl min-w-0 items-center justify-center gap-2 px-2 sm:px-4'>
         <MarketingBannerIcon
           name={props.view.freeModelBanner.icon}
           className='size-4 shrink-0'
         />
-        <span className='hidden min-w-0 truncate text-xs font-semibold sm:inline'>
-          {t('{{models}} are free now', {
-            models: desktopModelSummary,
-          })}
+        <span className='min-w-0 truncate text-xs font-semibold'>
+          {visibleSummary}
         </span>
 
         {props.view.promotionRemainingSeconds !== null ? (
           <Countdown
             remainingSeconds={props.view.promotionRemainingSeconds}
-            label={t('Free period remaining')}
+            label={t('Offer period remaining')}
           />
         ) : (
           <span className='bg-background/90 text-foreground shrink-0 rounded px-2 py-1 text-xs font-semibold'>
-            {t('Free now')}
+            {t('Active now')}
           </span>
         )}
 
@@ -242,7 +263,9 @@ export function GlobalBanner(props: GlobalBannerProps) {
       {props.view.globalBanner.enabled && (
         <GlobalAnnouncementBannerRow view={props.view} />
       )}
-      {props.view.models.length > 0 && <FreeModelBannerRow view={props.view} />}
+      {props.view.models.length > 0 && (
+        <ModelPromotionBannerRow view={props.view} />
+      )}
     </div>
   )
 }

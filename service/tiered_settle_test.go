@@ -407,6 +407,33 @@ func TestPrepareTieredBillingForSelectedGroupStartsBillingAfterFreeGroup(t *test
 	assert.Equal(t, 400_000, userQuota)
 }
 
+func TestPrepareTieredBillingForSelectedGroupKeepsFreeDiscountWithoutBilling(t *testing.T) {
+	const expr = `tier("base", p)`
+	discountRate := 0.0
+	relayInfo := &relaycommon.RelayInfo{
+		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+			BillingMode:               "tiered_expr",
+			ExprString:                expr,
+			ExprHash:                  billingexpr.ExprHashString(expr),
+			GroupRatio:                0.10,
+			EstimatedQuotaBeforeGroup: 0,
+			EstimatedQuotaAfterGroup:  0,
+			QuotaPerUnit:              testQuotaPerUnit,
+			DiscountRate:              &discountRate,
+		},
+		PriceData: types.PriceData{
+			FreeModel:      true,
+			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 0.20},
+		},
+	}
+
+	require.Nil(t, PrepareTieredBillingForSelectedGroup(nil, relayInfo))
+	assert.Nil(t, relayInfo.Billing)
+	assert.True(t, relayInfo.PriceData.FreeModel)
+	assert.Zero(t, relayInfo.FinalPreConsumedQuota)
+	assert.Equal(t, 0.20, relayInfo.TieredBillingSnapshot.GroupRatio)
+}
+
 func TestPrepareTieredBillingForSelectedGroupPaidToFreeKeepsFreeModelFalse(t *testing.T) {
 	const expr = `tier("base", p)`
 	billing := &recordingBillingSettler{preConsumedQuota: 50_000}

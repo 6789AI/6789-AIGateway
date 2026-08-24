@@ -64,6 +64,77 @@ func TestScheduledPriceAppliesFreeActivityToRequestAndTaskBilling(t *testing.T) 
 	require.Zero(t, taskPrice.Quota)
 }
 
+func TestScheduledDiscountAppliesAcrossBillingModes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	savedConfig := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		savedConfig[key] = value
+		return nil
+	}))
+	savedPrices := ratio_setting.ModelPrice2JSONString()
+	savedRatios := ratio_setting.ModelRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(savedPrices))
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(savedRatios))
+	})
+
+	now := time.Now().Unix()
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode": `{"expr-discount":"tiered_expr"}`,
+		"billing_setting.billing_expr": `{"expr-discount":"tier(\"base\", p * 2)"}`,
+		"billing_setting.price_schedules": fmt.Sprintf(
+			`{"fixed-discount":[{"type":"absolute","adjustment_type":"discount","discount_rate":0.4,"start_at":%d,"end_at":%d}],"token-discount":[{"type":"absolute","adjustment_type":"discount","discount_rate":0.5,"start_at":%d,"end_at":%d}],"expr-discount":[{"type":"absolute","adjustment_type":"discount","discount_rate":0.5,"start_at":%d,"end_at":%d}]}`,
+			now-60, now+60, now-60, now+60, now-60, now+60,
+		),
+		"group_ratio_setting.group_ratio": `{"default":1}`,
+	}))
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"fixed-discount":0.25}`))
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"token-discount":2}`))
+
+	newContext := func(modelName string) (*gin.Context, *relaycommon.RelayInfo) {
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		ctx.Set("group", "default")
+		return ctx, &relaycommon.RelayInfo{
+			OriginModelName: modelName,
+			UserGroup:       "default",
+			UsingGroup:      "default",
+			BillingRequestInput: &billingexpr.RequestInput{
+				Body: []byte(`{}`),
+			},
+		}
+	}
+
+	ctx, info := newContext("fixed-discount")
+	fixedPrice, err := ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{})
+	require.NoError(t, err)
+	require.InDelta(t, 0.1, fixedPrice.ModelPrice, 1e-12)
+	require.Equal(t, 50000, fixedPrice.QuotaToPreConsume)
+
+	ctx, info = newContext("token-discount")
+	tokenPrice, err := ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{})
+	require.NoError(t, err)
+	require.InDelta(t, 1, tokenPrice.ModelRatio, 1e-12)
+
+	ctx, info = newContext("token-discount")
+	taskPrice, err := ModelPriceHelperPerCall(ctx, info)
+	require.NoError(t, err)
+	require.InDelta(t, 1, taskPrice.ModelRatio, 1e-12)
+	require.Equal(t, 250000, taskPrice.Quota)
+
+	ctx, info = newContext("expr-discount")
+	exprPrice, err := ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{})
+	require.NoError(t, err)
+	require.Equal(t, 500, exprPrice.QuotaToPreConsume)
+	require.NotNil(t, info.TieredBillingSnapshot)
+	require.NotNil(t, info.TieredBillingSnapshot.DiscountRate)
+	require.InDelta(t, 0.5, *info.TieredBillingSnapshot.DiscountRate, 1e-12)
+	settled, err := billingexpr.ComputeTieredQuota(info.TieredBillingSnapshot, billingexpr.TokenParams{P: 1000, Len: 1000})
+	require.NoError(t, err)
+	require.Equal(t, 500, settled.ActualQuotaAfterGroup)
+}
+
 func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

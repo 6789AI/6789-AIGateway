@@ -18,22 +18,38 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { HugeiconsIcon } from '@hugeicons/react'
 
-import {
-  MARKETING_BANNER_ICON_OPTIONS,
-  type BannerIconName,
-} from './marketing-banner-icons'
+import { cn } from '@/lib/utils'
+
+import { MARKETING_BANNER_ICON_OPTIONS } from './marketing-banner-icons'
 
 type MarketingBannerIconProps = {
-  name: BannerIconName
+  name: string
   className?: string
+  customClassName?: string
 }
 
 export function MarketingBannerIcon(props: MarketingBannerIconProps) {
-  if (!props.name) return null
+  const name = props.name.trim()
+  if (!name) return null
 
-  const option =
-    MARKETING_BANNER_ICON_OPTIONS.find((item) => item.value === props.name) ??
-    MARKETING_BANNER_ICON_OPTIONS[0]
+  const option = MARKETING_BANNER_ICON_OPTIONS.find(
+    (item) => item.value === name
+  )
+
+  if (!option) {
+    return (
+      <span
+        className={cn(
+          'max-w-24 shrink-0 truncate whitespace-nowrap text-sm leading-none font-semibold sm:max-w-40',
+          props.customClassName
+        )}
+        aria-hidden='true'
+        data-banner-custom-icon
+      >
+        {name}
+      </span>
+    )
+  }
 
   return (
     <HugeiconsIcon

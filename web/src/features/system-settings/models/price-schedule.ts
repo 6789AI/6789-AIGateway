@@ -20,14 +20,29 @@ import type { PriceSchedule } from './model-pricing-core'
 
 export function validatePriceSchedules(
   schedules: PriceSchedule[],
-  t: (key: string) => string
+  t: (key: string) => string,
+  allowFixedPrice = true
 ) {
   if (schedules.length === 0) return t('Add at least one price schedule.')
   if (schedules.length > 64) return t('A model can have at most 64 schedules.')
 
   for (const schedule of schedules) {
-    if (!Number.isFinite(schedule.price) || schedule.price < 0) {
-      return t('Activity price must be zero or greater.')
+    const adjustmentType = schedule.adjustment_type ?? 'fixed_price'
+    if (adjustmentType === 'fixed_price') {
+      if (!allowFixedPrice) {
+        return t(
+          'Fixed activity prices are only available for per-request billing.'
+        )
+      }
+      if (!Number.isFinite(schedule.price) || (schedule.price ?? -1) < 0) {
+        return t('Activity price must be zero or greater.')
+      }
+    } else if (
+      !Number.isFinite(schedule.discount_rate) ||
+      (schedule.discount_rate ?? -1) < 0 ||
+      (schedule.discount_rate ?? 2) > 1
+    ) {
+      return t('Discount rate must be between 0% and 100%.')
     }
     if (schedule.type === 'absolute') {
       if (

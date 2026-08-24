@@ -85,7 +85,7 @@ const ratioToPrice = (ratio?: string, denominator?: string) => {
 
 export const getModeLabel = (mode?: string) => {
   if (mode === 'per-request') return 'Per-request'
-  if (mode === 'scheduled_price') return 'Time-based'
+  if (mode === 'scheduled_price') return 'Per-request'
   if (mode === 'tiered_expr') return 'Expression'
   return 'Per-token'
 }
@@ -114,33 +114,38 @@ export const getPriceSummary = (
   row: ModelPricingSnapshot,
   t: (key: string) => string
 ) => {
+  let summary: string
   if (row.billingMode === 'tiered_expr') {
-    return getExpressionSummary(row, t)
-  }
-  if (row.billingMode === 'scheduled_price') {
-    return row.price
-      ? `$${row.price} / ${t('request')} · ${row.priceSchedules?.length ?? 0} ${t('rules')}`
-      : t('Unset price')
-  }
-  if (row.billingMode === 'per-request') {
-    return row.price ? `$${row.price} / ${t('request')}` : t('Unset price')
+    summary = getExpressionSummary(row, t)
+  } else if (
+    row.billingMode === 'scheduled_price' ||
+    row.billingMode === 'per-request'
+  ) {
+    summary = row.price ? `$${row.price} / ${t('request')}` : t('Unset price')
+  } else {
+    const inputPrice = ratioToPrice(row.ratio)
+    if (!inputPrice) {
+      summary = t('Unset price')
+    } else {
+      const extraCount = [
+        row.completionRatio,
+        row.cacheRatio,
+        row.createCacheRatio,
+        row.imageRatio,
+        row.audioRatio,
+        row.audioCompletionRatio,
+      ].filter(hasPricingValue).length
+      summary =
+        extraCount > 0
+          ? `${t('Input')} $${inputPrice} · ${extraCount} ${t('extras')}`
+          : `${t('Input')} $${inputPrice}`
+    }
   }
 
-  const inputPrice = ratioToPrice(row.ratio)
-  if (!inputPrice) return t('Unset price')
-
-  const extraCount = [
-    row.completionRatio,
-    row.cacheRatio,
-    row.createCacheRatio,
-    row.imageRatio,
-    row.audioRatio,
-    row.audioCompletionRatio,
-  ].filter(hasPricingValue).length
-
-  return extraCount > 0
-    ? `${t('Input')} $${inputPrice} · ${extraCount} ${t('extras')}`
-    : `${t('Input')} $${inputPrice}`
+  const activityCount = row.priceSchedules?.length ?? 0
+  return activityCount > 0
+    ? `${summary} · ${activityCount} ${t('activities')}`
+    : summary
 }
 
 export const getPriceDetail = (
@@ -276,6 +281,12 @@ export const buildModelSnapshots = ({
         imageRatio: image,
         audioRatio: audio,
         audioCompletionRatio: audioCompletion,
+        priceSchedules: (priceSchedulesMap[name] || []).map(
+          (schedule, index) => ({
+            ...schedule,
+            id: schedule.id || `${name}-${index}`,
+          })
+        ),
         hasConflict: false,
       }
     }
@@ -291,7 +302,7 @@ export const buildModelSnapshots = ({
         imageRatio: image,
         audioRatio: audio,
         audioCompletionRatio: audioCompletion,
-        billingMode: 'scheduled_price',
+        billingMode: 'per-request',
         priceSchedules: (priceSchedulesMap[name] || []).map(
           (schedule, index) => ({
             ...schedule,
@@ -313,6 +324,12 @@ export const buildModelSnapshots = ({
       audioRatio: audio,
       audioCompletionRatio: audioCompletion,
       billingMode: price !== '' ? 'per-request' : 'per-token',
+      priceSchedules: (priceSchedulesMap[name] || []).map(
+        (schedule, index) => ({
+          ...schedule,
+          id: schedule.id || `${name}-${index}`,
+        })
+      ),
       hasConflict:
         price !== '' &&
         (ratio !== '' ||

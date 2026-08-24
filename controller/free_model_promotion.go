@@ -12,7 +12,7 @@ import (
 
 func GetFreeModelPromotions(c *gin.Context) {
 	now := time.Now()
-	promotions := billing_setting.GetActiveFreeModelPromotions(now)
+	promotions := billing_setting.GetActiveModelPromotions(now)
 	globalBanner := system_setting.GetGlobalBannerSettings()
 	globalBanner.Enabled = globalBanner.Enabled &&
 		strings.TrimSpace(globalBanner.Content) != "" &&

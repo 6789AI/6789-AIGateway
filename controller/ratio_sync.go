@@ -397,6 +397,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 				BillingMode          string                          `json:"billing_mode"`
 				BillingExpr          string                          `json:"billing_expr"`
 				BaseModelPrice       *float64                        `json:"base_model_price"`
+				BaseModelRatio       *float64                        `json:"base_model_ratio"`
 				PriceSchedules       []billing_setting.PriceSchedule `json:"price_schedules"`
 			}
 			if err := common.Unmarshal(body.Data, &pricingItems); err != nil {
@@ -426,6 +427,8 @@ func FetchUpstreamRatios(c *gin.Context) {
 					billingExprMap[item.ModelName] = item.BillingExpr
 				} else if item.BillingMode == billing_setting.BillingModeScheduled && len(item.PriceSchedules) > 0 {
 					billingModeMap[item.ModelName] = billing_setting.BillingModeScheduled
+				}
+				if len(item.PriceSchedules) > 0 {
 					priceSchedulesMap[item.ModelName] = item.PriceSchedules
 				}
 				if item.QuotaType == 1 {
@@ -435,7 +438,11 @@ func FetchUpstreamRatios(c *gin.Context) {
 					}
 					modelPriceMap[item.ModelName] = modelPrice
 				} else {
-					modelRatioMap[item.ModelName] = item.ModelRatio
+					modelRatio := item.ModelRatio
+					if item.BaseModelRatio != nil {
+						modelRatio = *item.BaseModelRatio
+					}
+					modelRatioMap[item.ModelName] = modelRatio
 					// completionRatio 可能为 0，此时也直接赋值，保持与上游一致
 					completionRatioMap[item.ModelName] = item.CompletionRatio
 				}

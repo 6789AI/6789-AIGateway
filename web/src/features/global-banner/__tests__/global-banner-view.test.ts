@@ -76,8 +76,13 @@ describe('global banner view', () => {
         },
         server_time: 1_000,
         models: [
-          { model_name: 'expired', ends_at: 1_001 },
-          { model_name: 'active', ends_at: 1_010 },
+          { model_name: 'expired', promotion_type: 'free', ends_at: 1_001 },
+          {
+            model_name: 'active',
+            promotion_type: 'discount',
+            discount_rate: 0.8,
+            ends_at: 1_010,
+          },
         ],
       },
       10_000,
@@ -86,7 +91,14 @@ describe('global banner view', () => {
 
     assert.equal(view.visible, true)
     assert.equal(view.globalBanner.background_color, '#0EA5E9')
-    assert.deepEqual(view.models, [{ model_name: 'active', ends_at: 1_010 }])
+    assert.deepEqual(view.models, [
+      {
+        model_name: 'active',
+        promotion_type: 'discount',
+        discount_rate: 0.8,
+        ends_at: 1_010,
+      },
+    ])
     assert.equal(view.promotionRemainingSeconds, 8)
   })
 })

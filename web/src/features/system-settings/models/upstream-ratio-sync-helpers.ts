@@ -126,12 +126,6 @@ export function getPreferredSyncField(
   ) {
     return 'billing_expr'
   }
-  if (
-    ratioType !== 'price_schedules' &&
-    isSelectableUpstreamValue(schedulesValue)
-  ) {
-    return 'price_schedules'
-  }
   if (ratioType !== 'billing_expr' && isSelectableUpstreamValue(exprValue)) {
     return 'billing_expr'
   }
@@ -167,17 +161,27 @@ export function getAlignedRatioTypes(
   return ordered.filter((ratioType) => visible.has(ratioType))
 }
 
+export function isDiscountOnlyPriceSchedules(
+  value: RatioSyncValue | 'same' | null | undefined
+): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every((schedule) => schedule.adjustment_type === 'discount')
+  )
+}
+
 export function getBillingCategory(
-  ratioType: string
-): 'price' | 'ratio' | 'tiered' {
+  ratioType: string,
+  value?: RatioSyncValue
+): 'price' | 'ratio' | 'tiered' | 'activity' {
   if (ratioType === 'model_price') return 'price'
-  if (
-    ratioType === 'billing_mode' ||
-    ratioType === 'billing_expr' ||
-    ratioType === 'price_schedules'
-  ) {
-    return 'tiered'
+  if (ratioType === 'price_schedules') {
+    return isDiscountOnlyPriceSchedules(value) ? 'activity' : 'price'
   }
+  if (ratioType === 'billing_mode') {
+    return value === 'scheduled_price' ? 'price' : 'tiered'
+  }
+  if (ratioType === 'billing_expr') return 'tiered'
   return 'ratio'
 }
 
@@ -281,7 +285,7 @@ function applyResolutionSelectionToDraft(
 
   const finalType = preferredType
   const finalValue = preferredValue as RatioSyncValue
-  const category = getBillingCategory(finalType)
+  const category = getBillingCategory(finalType, finalValue)
   const newModelRes = getDraftModelResolution(
     drafts,
     resolutions,
@@ -289,10 +293,11 @@ function applyResolutionSelectionToDraft(
   )
 
   Object.keys(newModelRes).forEach((rt) => {
+    const existingCategory = getBillingCategory(rt, newModelRes[rt])
     if (
-      category !== 'tiered' &&
-      getBillingCategory(rt) !== 'tiered' &&
-      getBillingCategory(rt) !== category
+      category !== 'activity' &&
+      existingCategory !== 'activity' &&
+      existingCategory !== category
     ) {
       delete newModelRes[rt]
     }
@@ -305,23 +310,39 @@ function applyResolutionSelectionToDraft(
     const exprVal = modelDiffs.billing_expr?.upstreams?.[selection.sourceName]
     const schedulesVal =
       modelDiffs.price_schedules?.upstreams?.[selection.sourceName]
-    const basePriceVal =
-      modelDiffs.model_price?.upstreams?.[selection.sourceName]
     if (modeVal !== undefined && modeVal !== null && modeVal !== 'same') {
       newModelRes['billing_mode'] = modeVal
     } else if (finalType === 'billing_expr') {
       newModelRes['billing_mode'] = 'tiered_expr'
-    } else if (finalType === 'price_schedules') {
-      newModelRes['billing_mode'] = 'scheduled_price'
     }
     if (exprVal !== undefined && exprVal !== null && exprVal !== 'same') {
       newModelRes['billing_expr'] = exprVal
     }
-    if (isSelectableUpstreamValue(schedulesVal)) {
+    if (
+      isSelectableUpstreamValue(schedulesVal) &&
+      isDiscountOnlyPriceSchedules(schedulesVal)
+    ) {
       newModelRes['price_schedules'] = schedulesVal
     }
-    if (isSelectableUpstreamValue(basePriceVal)) {
-      newModelRes['model_price'] = basePriceVal
+  }
+
+  if (finalType === 'price_schedules' && modelDiffs) {
+    const modeVal = modelDiffs.billing_mode?.upstreams?.[selection.sourceName]
+    const basePriceVal =
+      modelDiffs.model_price?.upstreams?.[selection.sourceName]
+    const hasPrimaryBillingSelection = Object.entries(newModelRes).some(
+      ([ratioType, value]) =>
+        ratioType !== 'price_schedules' &&
+        getBillingCategory(ratioType, value) !== 'activity'
+    )
+    if (
+      modeVal === 'scheduled_price' &&
+      (category === 'price' || !hasPrimaryBillingSelection)
+    ) {
+      newModelRes['billing_mode'] = modeVal
+      if (isSelectableUpstreamValue(basePriceVal)) {
+        newModelRes['model_price'] = basePriceVal
+      }
     }
   }
 }
@@ -357,14 +378,18 @@ export function getEffectiveResolutionSelections(
 
   selections.forEach((selection) => {
     const resolved = resolveResolutionSelection(differences, selection)
-    const category = getBillingCategory(resolved.ratioType)
+    const category = getBillingCategory(resolved.ratioType, resolved.value)
 
-    if (category !== 'tiered') {
+    if (category !== 'activity') {
       for (const [key, existing] of effectiveByKey) {
+        const existingCategory = getBillingCategory(
+          existing.ratioType,
+          existing.value
+        )
         if (
           existing.model === resolved.model &&
-          getBillingCategory(existing.ratioType) !== 'tiered' &&
-          getBillingCategory(existing.ratioType) !== category
+          existingCategory !== 'activity' &&
+          existingCategory !== category
         ) {
           effectiveByKey.delete(key)
         }
@@ -446,8 +471,10 @@ export function applyResolutionRemovalPlan(
       delete draft[ratioType]
       if (ratioType === 'billing_expr') delete draft['billing_mode']
       if (ratioType === 'price_schedules') {
-        delete draft['billing_mode']
-        delete draft['model_price']
+        if (draft['billing_mode'] === 'scheduled_price') {
+          delete draft['billing_mode']
+          delete draft['model_price']
+        }
       }
       if (ratioType === 'billing_mode') {
         delete draft['billing_expr']

@@ -289,6 +289,10 @@ func UpdateOption(c *gin.Context) {
 		system_setting.MarketingBannerOptionPrefix + "countdown_enabled",
 		system_setting.MarketingBannerOptionPrefix + "countdown_end_at",
 		system_setting.MarketingBannerOptionPrefix + "link_url":
+		if option.Key == system_setting.GlobalBannerOptionPrefix+"icon" ||
+			option.Key == system_setting.MarketingBannerOptionPrefix+"icon" {
+			option.Value = strings.TrimSpace(option.Value.(string))
+		}
 		err = system_setting.ValidateBannerOption(option.Key, option.Value.(string))
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{

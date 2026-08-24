@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/samber/lo"
 )
 
@@ -25,25 +26,35 @@ const (
 
 	PriceScheduleAbsolute = "absolute"
 	PriceScheduleWeekly   = "weekly"
+	PriceAdjustmentFixed  = "fixed_price"
+	PriceAdjustmentRate   = "discount"
+	PromotionTypeFree     = "free"
+	PromotionTypeDiscount = "discount"
+	PromotionTypeFixed    = "fixed_price"
 	maxSchedulesPerModel  = 64
 )
 
 type PriceSchedule struct {
-	ID          string   `json:"id,omitempty"`
-	Type        string   `json:"type"`
-	Price       *float64 `json:"price"`
-	StartAt     int64    `json:"start_at,omitempty"`
-	EndAt       int64    `json:"end_at,omitempty"`
-	Weekdays    []int    `json:"weekdays,omitempty"`
-	StartMinute int      `json:"start_minute,omitempty"`
-	EndMinute   int      `json:"end_minute,omitempty"`
-	Timezone    string   `json:"timezone,omitempty"`
-	ShowBanner  *bool    `json:"show_banner,omitempty"`
+	ID             string   `json:"id,omitempty"`
+	Type           string   `json:"type"`
+	AdjustmentType string   `json:"adjustment_type,omitempty"`
+	Price          *float64 `json:"price,omitempty"`
+	DiscountRate   *float64 `json:"discount_rate,omitempty"`
+	StartAt        int64    `json:"start_at,omitempty"`
+	EndAt          int64    `json:"end_at,omitempty"`
+	Weekdays       []int    `json:"weekdays,omitempty"`
+	StartMinute    int      `json:"start_minute,omitempty"`
+	EndMinute      int      `json:"end_minute,omitempty"`
+	Timezone       string   `json:"timezone,omitempty"`
+	ShowBanner     *bool    `json:"show_banner,omitempty"`
 }
 
-type FreeModelPromotion struct {
-	ModelName string `json:"model_name"`
-	EndsAt    int64  `json:"ends_at,omitempty"`
+type ModelPromotion struct {
+	ModelName     string   `json:"model_name"`
+	PromotionType string   `json:"promotion_type"`
+	Price         *float64 `json:"price,omitempty"`
+	DiscountRate  *float64 `json:"discount_rate,omitempty"`
+	EndsAt        int64    `json:"ends_at,omitempty"`
 }
 
 // BillingSetting is managed by config.GlobalConfig.Register.
@@ -157,11 +168,23 @@ func ValidatePriceSchedulesJSON(value string) error {
 }
 
 func validatePriceSchedule(rule PriceSchedule) error {
-	if rule.Price == nil {
-		return fmt.Errorf("price is required")
-	}
-	if *rule.Price < 0 || math.IsNaN(*rule.Price) || math.IsInf(*rule.Price, 0) {
-		return fmt.Errorf("price must be a finite number greater than or equal to zero")
+	switch priceScheduleAdjustmentType(rule) {
+	case PriceAdjustmentFixed:
+		if rule.Price == nil {
+			return fmt.Errorf("price is required")
+		}
+		if *rule.Price < 0 || math.IsNaN(*rule.Price) || math.IsInf(*rule.Price, 0) {
+			return fmt.Errorf("price must be a finite number greater than or equal to zero")
+		}
+	case PriceAdjustmentRate:
+		if rule.DiscountRate == nil {
+			return fmt.Errorf("discount rate is required")
+		}
+		if *rule.DiscountRate < 0 || *rule.DiscountRate > 1 || math.IsNaN(*rule.DiscountRate) || math.IsInf(*rule.DiscountRate, 0) {
+			return fmt.Errorf("discount rate must be a finite number between zero and one")
+		}
+	default:
+		return fmt.Errorf("unknown adjustment type %q", rule.AdjustmentType)
 	}
 
 	switch rule.Type {
@@ -196,6 +219,13 @@ func validatePriceSchedule(rule PriceSchedule) error {
 		return fmt.Errorf("unknown schedule type %q", rule.Type)
 	}
 	return nil
+}
+
+func priceScheduleAdjustmentType(rule PriceSchedule) string {
+	if rule.AdjustmentType == "" {
+		return PriceAdjustmentFixed
+	}
+	return rule.AdjustmentType
 }
 
 func loadPriceScheduleLocation(name string) (*time.Location, error) {
@@ -262,60 +292,183 @@ func priceScheduleActiveUntil(rule PriceSchedule, now time.Time) (int64, bool) {
 	return 0, false
 }
 
-// GetScheduledPrice returns the lowest active promotional price. The base
-// price remains stored separately and is restored automatically outside rules.
-func GetScheduledPrice(model string, now time.Time) (float64, bool) {
+// GetScheduledPrice returns the lowest active price after applying fixed-price
+// and percentage-discount rules to the supplied base price.
+func GetScheduledPrice(model string, basePrice float64, now time.Time) (float64, bool) {
 	rules := billingSetting.PriceSchedules[model]
 	var effective float64
 	matched := false
 	for _, rule := range rules {
-		if rule.Price == nil || *rule.Price < 0 || math.IsNaN(*rule.Price) || math.IsInf(*rule.Price, 0) {
+		if _, active := priceScheduleActiveUntil(rule, now); !active {
 			continue
 		}
-		if _, active := priceScheduleActiveUntil(rule, now); active && (!matched || *rule.Price < effective) {
-			effective = *rule.Price
+
+		var candidate float64
+		switch priceScheduleAdjustmentType(rule) {
+		case PriceAdjustmentFixed:
+			if rule.Price == nil || *rule.Price < 0 || math.IsNaN(*rule.Price) || math.IsInf(*rule.Price, 0) {
+				continue
+			}
+			candidate = *rule.Price
+		case PriceAdjustmentRate:
+			if rule.DiscountRate == nil || *rule.DiscountRate < 0 || *rule.DiscountRate > 1 || math.IsNaN(*rule.DiscountRate) || math.IsInf(*rule.DiscountRate, 0) {
+				continue
+			}
+			candidate = basePrice * *rule.DiscountRate
+		default:
+			continue
+		}
+
+		if !matched || candidate < effective {
+			effective = candidate
 			matched = true
 		}
 	}
 	return effective, matched
 }
 
-func GetActiveFreeModelPromotions(now time.Time) []FreeModelPromotion {
+// GetScheduledDiscount returns the lowest active discount rate for token and
+// expression billing. Fixed-price rules are intentionally ignored.
+func GetScheduledDiscount(model string, now time.Time) (float64, bool) {
+	rules := billingSetting.PriceSchedules[model]
+	var effective float64
+	matched := false
+	for _, rule := range rules {
+		if priceScheduleAdjustmentType(rule) != PriceAdjustmentRate || rule.DiscountRate == nil {
+			continue
+		}
+		rate := *rule.DiscountRate
+		if rate < 0 || rate > 1 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+			continue
+		}
+		if _, active := priceScheduleActiveUntil(rule, now); active && (!matched || rate < effective) {
+			effective = rate
+			matched = true
+		}
+	}
+	return effective, matched
+}
+
+func promotionFromRule(model string, rule PriceSchedule, endsAt int64) (ModelPromotion, bool) {
+	promotion := ModelPromotion{ModelName: model, EndsAt: endsAt}
+	switch priceScheduleAdjustmentType(rule) {
+	case PriceAdjustmentFixed:
+		if rule.Price == nil || *rule.Price < 0 || math.IsNaN(*rule.Price) || math.IsInf(*rule.Price, 0) {
+			return ModelPromotion{}, false
+		}
+		price := *rule.Price
+		promotion.Price = &price
+		if price == 0 {
+			promotion.PromotionType = PromotionTypeFree
+		} else {
+			promotion.PromotionType = PromotionTypeFixed
+		}
+	case PriceAdjustmentRate:
+		if rule.DiscountRate == nil || *rule.DiscountRate < 0 || *rule.DiscountRate > 1 || math.IsNaN(*rule.DiscountRate) || math.IsInf(*rule.DiscountRate, 0) {
+			return ModelPromotion{}, false
+		}
+		rate := *rule.DiscountRate
+		promotion.DiscountRate = &rate
+		if rate == 0 {
+			promotion.PromotionType = PromotionTypeFree
+		} else {
+			promotion.PromotionType = PromotionTypeDiscount
+		}
+	default:
+		return ModelPromotion{}, false
+	}
+	return promotion, true
+}
+
+func promotionRank(promotion ModelPromotion, basePrice float64, hasBasePrice bool) (int, float64) {
+	switch promotion.PromotionType {
+	case PromotionTypeFree:
+		return 0, 0
+	case PromotionTypeDiscount:
+		if promotion.DiscountRate != nil {
+			if hasBasePrice {
+				return 1, basePrice * *promotion.DiscountRate
+			}
+			return 1, *promotion.DiscountRate
+		}
+	case PromotionTypeFixed:
+		if promotion.Price != nil {
+			if hasBasePrice {
+				return 1, *promotion.Price
+			}
+			return 2, *promotion.Price
+		}
+	}
+	return 3, math.MaxFloat64
+}
+
+func promotionBetter(candidate, current ModelPromotion, basePrice float64, hasBasePrice bool) bool {
+	candidateRank, candidateValue := promotionRank(candidate, basePrice, hasBasePrice)
+	currentRank, currentValue := promotionRank(current, basePrice, hasBasePrice)
+	return candidateRank < currentRank || (candidateRank == currentRank && candidateValue < currentValue)
+}
+
+func samePromotion(candidate, current ModelPromotion) bool {
+	if candidate.PromotionType != current.PromotionType {
+		return candidate.PromotionType == PromotionTypeFree && current.PromotionType == PromotionTypeFree
+	}
+	switch candidate.PromotionType {
+	case PromotionTypeFree:
+		return true
+	case PromotionTypeDiscount:
+		return candidate.DiscountRate != nil && current.DiscountRate != nil &&
+			*candidate.DiscountRate == *current.DiscountRate
+	case PromotionTypeFixed:
+		return candidate.Price != nil && current.Price != nil && *candidate.Price == *current.Price
+	default:
+		return false
+	}
+}
+
+func GetActiveModelPromotions(now time.Time) []ModelPromotion {
 	if !billingSetting.FreeModelBannerEnabled {
 		return nil
 	}
 
-	promotions := make([]FreeModelPromotion, 0)
+	promotions := make([]ModelPromotion, 0)
 	for model, rules := range billingSetting.PriceSchedules {
-		if GetBillingMode(model) != BillingModeScheduled {
-			continue
-		}
-
-		active := false
-		activeIndefinitely := false
-		var endsAt int64
+		var selected ModelPromotion
+		matched := false
+		selectedVisible := false
+		basePrice, hasBasePrice := ratio_setting.GetModelPrice(model, false)
 		for _, rule := range rules {
-			if rule.Price == nil || *rule.Price != 0 || (rule.ShowBanner != nil && !*rule.ShowBanner) {
+			if priceScheduleAdjustmentType(rule) == PriceAdjustmentFixed && GetBillingMode(model) != BillingModeScheduled {
 				continue
 			}
 			ruleEndsAt, ruleActive := priceScheduleActiveUntil(rule, now)
 			if !ruleActive {
 				continue
 			}
-			active = true
-			if ruleEndsAt == 0 {
-				activeIndefinitely = true
+			candidate, ok := promotionFromRule(model, rule, ruleEndsAt)
+			if !ok {
 				continue
 			}
-			if ruleEndsAt > endsAt {
-				endsAt = ruleEndsAt
+			visible := rule.ShowBanner == nil || *rule.ShowBanner
+			if !matched || promotionBetter(candidate, selected, basePrice, hasBasePrice) {
+				selected = candidate
+				matched = true
+				selectedVisible = visible
+				continue
+			}
+			if !samePromotion(candidate, selected) || !visible {
+				continue
+			}
+			if !selectedVisible {
+				selected.EndsAt = candidate.EndsAt
+				selectedVisible = true
+				continue
+			}
+			if selected.EndsAt != 0 && (candidate.EndsAt == 0 || candidate.EndsAt > selected.EndsAt) {
+				selected.EndsAt = candidate.EndsAt
 			}
 		}
-		if active {
-			if activeIndefinitely {
-				endsAt = 0
-			}
-			promotions = append(promotions, FreeModelPromotion{ModelName: model, EndsAt: endsAt})
+		if matched && selectedVisible {
+			promotions = append(promotions, selected)
 		}
 	}
 
@@ -323,6 +476,14 @@ func GetActiveFreeModelPromotions(now time.Time) []FreeModelPromotion {
 		return promotions[i].ModelName < promotions[j].ModelName
 	})
 	return promotions
+}
+
+// GetActiveFreeModelPromotions is kept for callers that only need the legacy
+// free subset. New banner consumers should use GetActiveModelPromotions.
+func GetActiveFreeModelPromotions(now time.Time) []ModelPromotion {
+	return lo.Filter(GetActiveModelPromotions(now), func(promotion ModelPromotion, _ int) bool {
+		return promotion.PromotionType == PromotionTypeFree
+	})
 }
 
 // ---------------------------------------------------------------------------

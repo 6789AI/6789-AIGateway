@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -86,13 +87,33 @@ func TestGetScheduledPrice(t *testing.T) {
 			wantPrice: 0.1,
 			wantMatch: true,
 		},
+		{
+			name: "discount applies to the base price",
+			rules: []PriceSchedule{{
+				Type: PriceScheduleAbsolute, AdjustmentType: PriceAdjustmentRate,
+				DiscountRate: pricePointer(0.8), StartAt: 100, EndAt: 200,
+			}},
+			now:       time.Unix(150, 0),
+			wantPrice: 0.8,
+			wantMatch: true,
+		},
+		{
+			name: "overlapping fixed and discount activities use lowest effective price",
+			rules: []PriceSchedule{
+				{Type: PriceScheduleAbsolute, Price: pricePointer(0.7), StartAt: 100, EndAt: 200},
+				{Type: PriceScheduleAbsolute, AdjustmentType: PriceAdjustmentRate, DiscountRate: pricePointer(0.5), StartAt: 100, EndAt: 200},
+			},
+			now:       time.Unix(150, 0),
+			wantPrice: 0.5,
+			wantMatch: true,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			billingSetting.PriceSchedules = map[string][]PriceSchedule{"model": test.rules}
 
-			price, matched := GetScheduledPrice("model", test.now)
+			price, matched := GetScheduledPrice("model", 1, test.now)
 
 			assert.Equal(t, test.wantMatch, matched)
 			assert.Equal(t, test.wantPrice, price)
@@ -109,6 +130,10 @@ func TestValidatePriceSchedulesJSON(t *testing.T) {
 		{
 			name:  "accepts free absolute and weekly prices",
 			value: `{"model":[{"type":"absolute","price":0,"start_at":100,"end_at":200},{"type":"weekly","price":0,"weekdays":[1,5],"start_minute":1320,"end_minute":120,"timezone":"UTC"}]}`,
+		},
+		{
+			name:  "accepts discount activities",
+			value: `{"model":[{"type":"absolute","adjustment_type":"discount","discount_rate":0.8,"start_at":100,"end_at":200}]}`,
 		},
 		{
 			name:    "rejects missing price",
@@ -130,6 +155,16 @@ func TestValidatePriceSchedulesJSON(t *testing.T) {
 			value:   `{"model":[{"type":"weekly","price":1,"weekdays":[1],"start_minute":0,"end_minute":1,"timezone":"Mars/Olympus"}]}`,
 			wantErr: "invalid timezone",
 		},
+		{
+			name:    "rejects discount above one",
+			value:   `{"model":[{"type":"absolute","adjustment_type":"discount","discount_rate":1.1,"start_at":100,"end_at":200}]}`,
+			wantErr: "between zero and one",
+		},
+		{
+			name:    "rejects unknown adjustment type",
+			value:   `{"model":[{"type":"absolute","adjustment_type":"surcharge","price":1,"start_at":100,"end_at":200}]}`,
+			wantErr: "unknown adjustment type",
+		},
 	}
 
 	for _, test := range tests {
@@ -142,6 +177,24 @@ func TestValidatePriceSchedulesJSON(t *testing.T) {
 			require.ErrorContains(t, err, test.wantErr)
 		})
 	}
+}
+
+func TestGetScheduledDiscount(t *testing.T) {
+	original := billingSetting.PriceSchedules
+	t.Cleanup(func() {
+		billingSetting.PriceSchedules = original
+	})
+
+	billingSetting.PriceSchedules = map[string][]PriceSchedule{"model": {
+		{Type: PriceScheduleAbsolute, AdjustmentType: PriceAdjustmentRate, DiscountRate: pricePointer(0.8), StartAt: 100, EndAt: 200},
+		{Type: PriceScheduleAbsolute, AdjustmentType: PriceAdjustmentRate, DiscountRate: pricePointer(0.5), StartAt: 100, EndAt: 200},
+		{Type: PriceScheduleAbsolute, Price: pricePointer(0), StartAt: 100, EndAt: 200},
+	}}
+
+	rate, matched := GetScheduledDiscount("model", time.Unix(150, 0))
+
+	require.True(t, matched)
+	assert.Equal(t, 0.5, rate)
 }
 
 func TestGetActiveFreeModelPromotions(t *testing.T) {
@@ -219,6 +272,103 @@ func TestWeeklyAllDayPromotionEndsAfterConsecutiveSelectedDays(t *testing.T) {
 
 	require.Len(t, promotions, 1)
 	assert.Equal(t, time.Date(2026, time.August, 26, 0, 0, 0, 0, time.UTC).Unix(), promotions[0].EndsAt)
+}
+
+func TestGetActiveModelPromotionsIncludesDiscounts(t *testing.T) {
+	originalModes := billingSetting.BillingMode
+	originalSchedules := billingSetting.PriceSchedules
+	originalEnabled := billingSetting.FreeModelBannerEnabled
+	t.Cleanup(func() {
+		billingSetting.BillingMode = originalModes
+		billingSetting.PriceSchedules = originalSchedules
+		billingSetting.FreeModelBannerEnabled = originalEnabled
+	})
+
+	now := time.Unix(150, 0)
+	billingSetting.BillingMode = map[string]string{
+		"discount-model": BillingModeRatio,
+		"fixed-model":    BillingModeScheduled,
+	}
+	billingSetting.PriceSchedules = map[string][]PriceSchedule{
+		"discount-model": {{
+			Type: PriceScheduleAbsolute, AdjustmentType: PriceAdjustmentRate,
+			DiscountRate: pricePointer(0.8), StartAt: 100, EndAt: 200,
+		}},
+		"fixed-model": {{
+			Type: PriceScheduleAbsolute, AdjustmentType: PriceAdjustmentFixed,
+			Price: pricePointer(0.25), StartAt: 100, EndAt: 200,
+		}},
+	}
+	billingSetting.FreeModelBannerEnabled = true
+
+	promotions := GetActiveModelPromotions(now)
+
+	require.Len(t, promotions, 2)
+	assert.Equal(t, PromotionTypeDiscount, promotions[0].PromotionType)
+	assert.Equal(t, 0.8, *promotions[0].DiscountRate)
+	assert.Equal(t, PromotionTypeFixed, promotions[1].PromotionType)
+	assert.Equal(t, 0.25, *promotions[1].Price)
+}
+
+func TestGetActiveModelPromotionsUsesLowestEffectivePerRequestPrice(t *testing.T) {
+	originalModes := billingSetting.BillingMode
+	originalSchedules := billingSetting.PriceSchedules
+	originalEnabled := billingSetting.FreeModelBannerEnabled
+	originalPrices := ratio_setting.ModelPrice2JSONString()
+	t.Cleanup(func() {
+		billingSetting.BillingMode = originalModes
+		billingSetting.PriceSchedules = originalSchedules
+		billingSetting.FreeModelBannerEnabled = originalEnabled
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(originalPrices))
+	})
+
+	now := time.Unix(150, 0)
+	billingSetting.BillingMode = map[string]string{"model": BillingModeScheduled}
+	billingSetting.PriceSchedules = map[string][]PriceSchedule{"model": {
+		{Type: PriceScheduleAbsolute, AdjustmentType: PriceAdjustmentRate, DiscountRate: pricePointer(0.5), StartAt: 100, EndAt: 200},
+		{Type: PriceScheduleAbsolute, AdjustmentType: PriceAdjustmentFixed, Price: pricePointer(0.1), StartAt: 100, EndAt: 200},
+	}}
+	billingSetting.FreeModelBannerEnabled = true
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"model":1}`))
+
+	promotions := GetActiveModelPromotions(now)
+
+	require.Len(t, promotions, 1)
+	assert.Equal(t, PromotionTypeFixed, promotions[0].PromotionType)
+	require.NotNil(t, promotions[0].Price)
+	assert.InDelta(t, 0.1, *promotions[0].Price, 1e-12)
+}
+
+func TestGetActiveModelPromotionsPreservesIndefiniteDuplicate(t *testing.T) {
+	originalModes := billingSetting.BillingMode
+	originalSchedules := billingSetting.PriceSchedules
+	originalEnabled := billingSetting.FreeModelBannerEnabled
+	t.Cleanup(func() {
+		billingSetting.BillingMode = originalModes
+		billingSetting.PriceSchedules = originalSchedules
+		billingSetting.FreeModelBannerEnabled = originalEnabled
+	})
+
+	now := time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)
+	billingSetting.BillingMode = map[string]string{"model": BillingModeRatio}
+	billingSetting.PriceSchedules = map[string][]PriceSchedule{"model": {
+		{
+			Type: PriceScheduleWeekly, AdjustmentType: PriceAdjustmentRate,
+			DiscountRate: pricePointer(0.5), Weekdays: []int{0, 1, 2, 3, 4, 5, 6},
+			StartMinute: 0, EndMinute: 0, Timezone: "UTC",
+		},
+		{
+			Type: PriceScheduleAbsolute, AdjustmentType: PriceAdjustmentRate,
+			DiscountRate: pricePointer(0.5), StartAt: now.Add(-time.Hour).Unix(), EndAt: now.Add(time.Hour).Unix(),
+		},
+	}}
+	billingSetting.FreeModelBannerEnabled = true
+
+	promotions := GetActiveModelPromotions(now)
+
+	require.Len(t, promotions, 1)
+	assert.Equal(t, PromotionTypeDiscount, promotions[0].PromotionType)
+	assert.Zero(t, promotions[0].EndsAt)
 }
 
 func TestGetPricingSyncDataIncludesPriceSchedules(t *testing.T) {

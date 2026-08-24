@@ -16,8 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { BannerIconName } from '@/features/global-banner'
-
 export type SystemOption = {
   key: string
   value: string
@@ -114,7 +112,7 @@ export type SiteSettings = {
   'global_banner.content': string
   'global_banner.background_color': string
   'global_banner.text_color': string
-  'global_banner.icon': BannerIconName
+  'global_banner.icon': string
   'global_banner.countdown_enabled': boolean
   'global_banner.countdown_end_at': number
   'global_banner.link_url': string
@@ -122,7 +120,7 @@ export type SiteSettings = {
   'marketing_banner.content': string
   'marketing_banner.background_color': string
   'marketing_banner.text_color': string
-  'marketing_banner.icon': BannerIconName
+  'marketing_banner.icon': string
   'marketing_banner.countdown_enabled': boolean
   'marketing_banner.countdown_end_at': number
   'marketing_banner.link_url': string

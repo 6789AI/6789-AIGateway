@@ -125,7 +125,7 @@ describe('global and free-model banner settings', () => {
       )
     })
     assert.match(container.textContent ?? '', /Global announcement banner/)
-    assert.match(container.textContent ?? '', /Free model banner/)
+    assert.match(container.textContent ?? '', /Limited-time model offer/)
     assert.equal(
       container.querySelectorAll('[aria-label="Banner preview"]').length,
       2
@@ -141,7 +141,7 @@ describe('global and free-model banner settings', () => {
       'input[name="MarketingBannerLinkURL"]'
     )
     const freeModelHeading = [...container.querySelectorAll('h3')].find(
-      (heading) => heading.textContent === 'Free model banner'
+      (heading) => heading.textContent === 'Limited-time model offer'
     )
     const freeModelSection = freeModelHeading?.closest('section')
     const couponButton = freeModelSection?.querySelector<HTMLElement>(
@@ -152,6 +152,10 @@ describe('global and free-model banner settings', () => {
     assert.ok(linkInput)
     assert.ok(freeModelSection)
     assert.ok(couponButton)
+    const customIconInputs = container.querySelectorAll<HTMLInputElement>(
+      'input[aria-label="Custom characters or emoji"]'
+    )
+    assert.equal(customIconInputs.length, 2)
     assert.equal(
       freeModelSection.querySelector('input[name="MarketingBannerContent"]'),
       null
@@ -174,7 +178,7 @@ describe('global and free-model banner settings', () => {
       '[aria-label="Banner preview"]'
     )
     assert.ok(preview)
-    assert.match(preview.textContent ?? '', /Model A, Model B are free now/)
+    assert.match(preview.textContent ?? '', /Model A is 20% off/)
     assert.match(preview.textContent ?? '', /00:01:23:45/)
     assert.match(
       preview.getAttribute('style') ?? '',
@@ -186,6 +190,33 @@ describe('global and free-model banner settings', () => {
     await act(async () => couponButton.click())
     assert.equal(couponButton.getAttribute('aria-pressed'), 'false')
     assert.equal(preview.querySelectorAll('svg').length, iconCount - 1)
+
+    await act(async () => {
+      changeInputValue(customIconInputs[1], '🎉 限时优惠')
+    })
+    assert.equal(couponButton.getAttribute('aria-pressed'), 'false')
+    assert.match(preview.textContent ?? '', /🎉 限时优惠/)
+    assert.equal(
+      preview.querySelector('[data-banner-custom-icon]')?.textContent,
+      '🎉 限时优惠'
+    )
+
+    await act(async () => {
+      changeInputValue(customIconInputs[0], '📣 公告')
+      changeInputValue(customIconInputs[1], '🎉'.repeat(101))
+    })
+    assert.equal(
+      [...customIconInputs[1].value].length,
+      100,
+      'emoji must be counted by Unicode code point'
+    )
+    const previews = container.querySelectorAll<HTMLElement>(
+      '[aria-label="Banner preview"]'
+    )
+    assert.equal(
+      previews[0]?.querySelector('[data-banner-custom-icon]')?.textContent,
+      '📣 公告'
+    )
 
     assert.equal(
       container.querySelectorAll<HTMLElement>('[role="switch"]').length,

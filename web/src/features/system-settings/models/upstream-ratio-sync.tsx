@@ -57,6 +57,7 @@ import {
   applyResolutionSelection,
   applyResolutionSelections,
   deleteResolutionField,
+  isDiscountOnlyPriceSchedules,
   syncValuesEqual,
   type ResolutionRemovalPlan,
   type ResolutionSelection,
@@ -366,13 +367,8 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         const hasRatio = selectedTypes.some((rt) =>
           RATIO_SYNC_FIELDS.includes(rt as RatioType)
         )
-
-        if (selectedTypes.includes('price_schedules')) {
-          delete finalRatios['billing_setting.billing_expr'][model]
-        }
-        if (selectedTypes.includes('billing_expr')) {
-          delete finalRatios['billing_setting.price_schedules'][model]
-        }
+        const hasTiered =
+          'billing_expr' in ratios || ratios.billing_mode === 'tiered_expr'
 
         if (hasPrice) {
           delete finalRatios.ModelRatio[model]
@@ -382,9 +378,33 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
           delete finalRatios.ImageRatio[model]
           delete finalRatios.AudioRatio[model]
           delete finalRatios.AudioCompletionRatio[model]
+          if (
+            finalRatios['billing_setting.billing_mode'][model] === 'tiered_expr'
+          ) {
+            delete finalRatios['billing_setting.billing_mode'][model]
+            delete finalRatios['billing_setting.billing_expr'][model]
+          }
         }
-        if (hasRatio) {
+        if (hasRatio || hasTiered) {
           delete finalRatios.ModelPrice[model]
+          delete finalRatios['billing_setting.billing_mode'][model]
+          delete finalRatios['billing_setting.billing_expr'][model]
+          if (
+            !isDiscountOnlyPriceSchedules(
+              finalRatios['billing_setting.price_schedules'][model]
+            )
+          ) {
+            delete finalRatios['billing_setting.price_schedules'][model]
+          }
+        }
+        if (hasTiered) {
+          delete finalRatios.ModelRatio[model]
+          delete finalRatios.CompletionRatio[model]
+          delete finalRatios.CacheRatio[model]
+          delete finalRatios.CreateCacheRatio[model]
+          delete finalRatios.ImageRatio[model]
+          delete finalRatios.AudioRatio[model]
+          delete finalRatios.AudioCompletionRatio[model]
         }
 
         Object.entries(ratios).forEach(([ratioType, value]) => {
@@ -436,22 +456,16 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
     Object.entries(resolutions).forEach(([model, ratios]) => {
       const localCat = getLocalBillingCategory(model, currentRatios)
       const selectedTypes = Object.keys(ratios)
-      let newCat: 'price' | 'ratio' | 'tiered'
-      if (
-        'price_schedules' in ratios ||
-        'billing_expr' in ratios ||
-        'billing_mode' in ratios
-      ) {
+      let newCat: 'price' | 'ratio' | 'tiered' | null = null
+      if ('billing_expr' in ratios || ratios.billing_mode === 'tiered_expr') {
         newCat = 'tiered'
       } else if ('model_price' in ratios) {
         newCat = 'price'
       } else if (RATIO_SYNC_FIELDS.some((rt) => selectedTypes.includes(rt))) {
         newCat = 'ratio'
-      } else {
-        newCat = 'tiered'
       }
 
-      if (localCat && newCat !== 'tiered' && localCat !== newCat) {
+      if (localCat && newCat && newCat !== 'tiered' && localCat !== newCat) {
         const currentDesc =
           localCat === 'price'
             ? `${fixedPriceLabel}: ${currentRatios.ModelPrice[model]}`

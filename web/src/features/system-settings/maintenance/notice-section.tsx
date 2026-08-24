@@ -23,10 +23,6 @@ import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
 
 import { Form } from '@/components/ui/form'
-import {
-  MARKETING_BANNER_ICON_NAMES,
-  type BannerIconName,
-} from '@/features/global-banner'
 
 import { SettingsForm } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
@@ -42,7 +38,7 @@ export type NoticeFormValues = {
   GlobalBannerContent: string
   GlobalBannerBackgroundColor: string
   GlobalBannerTextColor: string
-  GlobalBannerIcon: BannerIconName
+  GlobalBannerIcon: string
   GlobalBannerCountdownEnabled: boolean
   GlobalBannerCountdownEndAt: number
   GlobalBannerLinkURL: string
@@ -50,7 +46,7 @@ export type NoticeFormValues = {
   MarketingBannerContent: string
   MarketingBannerBackgroundColor: string
   MarketingBannerTextColor: string
-  MarketingBannerIcon: BannerIconName
+  MarketingBannerIcon: string
   MarketingBannerCountdownEnabled: boolean
   MarketingBannerCountdownEndAt: number
   MarketingBannerLinkURL: string
@@ -76,10 +72,12 @@ export function NoticeSection(props: NoticeSectionProps) {
           GlobalBannerTextColor: z
             .string()
             .regex(hexColorPattern, t('Colors must use a 6-digit hex value')),
-          GlobalBannerIcon: z.union([
-            z.enum(MARKETING_BANNER_ICON_NAMES),
-            z.literal(''),
-          ]),
+          GlobalBannerIcon: z
+            .string()
+            .refine(
+              (value) => [...value.trim()].length <= 100,
+              t('Custom banner characters must not exceed 100 characters')
+            ),
           GlobalBannerCountdownEnabled: z.boolean(),
           GlobalBannerCountdownEndAt: z.number().int().nonnegative(),
           GlobalBannerLinkURL: z.string().trim().max(2048),
@@ -91,10 +89,12 @@ export function NoticeSection(props: NoticeSectionProps) {
           MarketingBannerTextColor: z
             .string()
             .regex(hexColorPattern, t('Colors must use a 6-digit hex value')),
-          MarketingBannerIcon: z.union([
-            z.enum(MARKETING_BANNER_ICON_NAMES),
-            z.literal(''),
-          ]),
+          MarketingBannerIcon: z
+            .string()
+            .refine(
+              (value) => [...value.trim()].length <= 100,
+              t('Custom banner characters must not exceed 100 characters')
+            ),
           MarketingBannerCountdownEnabled: z.boolean(),
           MarketingBannerCountdownEndAt: z.number().int().nonnegative(),
           MarketingBannerLinkURL: z.string().trim().max(2048),
@@ -207,7 +207,7 @@ export function NoticeSection(props: NoticeSectionProps) {
       },
       {
         key: 'global_banner.icon',
-        value: values.GlobalBannerIcon,
+        value: values.GlobalBannerIcon.trim(),
         previous: props.defaultValues.GlobalBannerIcon,
       },
       {
@@ -242,7 +242,7 @@ export function NoticeSection(props: NoticeSectionProps) {
       },
       {
         key: 'marketing_banner.icon',
-        value: values.MarketingBannerIcon,
+        value: values.MarketingBannerIcon.trim(),
         previous: props.defaultValues.MarketingBannerIcon,
       },
       {

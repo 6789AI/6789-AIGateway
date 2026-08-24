@@ -22,8 +22,10 @@ import { describe, test } from 'node:test'
 import type { DifferencesMap } from '../../types'
 import {
   applyResolutionSelection,
+  applyResolutionSelections,
   deleteResolutionField,
   formatSyncValue,
+  getEffectiveResolutionSelections,
   getVisibleRatioTypesForSource,
 } from '../upstream-ratio-sync-helpers'
 
@@ -85,6 +87,161 @@ describe('upstream scheduled pricing sync', () => {
     assert.deepEqual(
       deleteResolutionField(resolutions, 'video-model', 'price_schedules'),
       {}
+    )
+  })
+
+  test('token discount schedules stay independent from token ratios', () => {
+    const sourceName = 'member-node'
+    const schedules = [
+      {
+        id: 'discount-hours',
+        type: 'absolute',
+        adjustment_type: 'discount',
+        discount_rate: 0.8,
+        start_at: 100,
+        end_at: 200,
+      },
+    ]
+    const differences: DifferencesMap = {
+      'token-model': {
+        model_ratio: {
+          current: 1,
+          upstreams: { [sourceName]: 2 },
+          confidence: { [sourceName]: true },
+        },
+        price_schedules: {
+          current: null,
+          upstreams: { [sourceName]: schedules },
+          confidence: { [sourceName]: true },
+        },
+      },
+    }
+
+    assert.deepEqual(
+      getVisibleRatioTypesForSource(
+        differences['token-model'] ?? {},
+        sourceName
+      ),
+      ['model_ratio', 'price_schedules']
+    )
+    assert.deepEqual(
+      applyResolutionSelections({}, differences, [
+        {
+          model: 'token-model',
+          ratioType: 'model_ratio',
+          value: 2,
+          sourceName,
+        },
+        {
+          model: 'token-model',
+          ratioType: 'price_schedules',
+          value: schedules,
+          sourceName,
+        },
+      ]),
+      {
+        'token-model': {
+          model_ratio: 2,
+          price_schedules: schedules,
+        },
+      }
+    )
+    assert.deepEqual(
+      getEffectiveResolutionSelections(differences, [
+        {
+          model: 'token-model',
+          ratioType: 'price_schedules',
+          value: schedules,
+          sourceName,
+        },
+        {
+          model: 'token-model',
+          ratioType: 'model_ratio',
+          value: 2,
+          sourceName,
+        },
+      ]).map(({ ratioType }) => ratioType),
+      ['price_schedules', 'model_ratio']
+    )
+    assert.deepEqual(
+      applyResolutionSelection(
+        { 'token-model': { model_ratio: 1 } },
+        differences,
+        {
+          model: 'token-model',
+          ratioType: 'price_schedules',
+          value: schedules,
+          sourceName,
+        }
+      ),
+      {
+        'token-model': {
+          model_ratio: 1,
+          price_schedules: schedules,
+        },
+      }
+    )
+  })
+
+  test('selecting a token ratio removes a fixed-price activity from another source', () => {
+    const fixedSource = 'fixed-price-node'
+    const ratioSource = 'token-ratio-node'
+    const schedules = [
+      {
+        id: 'legacy-fixed-hours',
+        type: 'absolute',
+        price: 0.1,
+        start_at: 100,
+        end_at: 200,
+      },
+    ]
+    const differences: DifferencesMap = {
+      'mixed-model': {
+        model_ratio: {
+          current: null,
+          upstreams: { [ratioSource]: 2 },
+          confidence: { [ratioSource]: true },
+        },
+        billing_mode: {
+          current: null,
+          upstreams: { [fixedSource]: 'scheduled_price' },
+          confidence: { [fixedSource]: true },
+        },
+        model_price: {
+          current: null,
+          upstreams: { [fixedSource]: 0.5 },
+          confidence: { [fixedSource]: true },
+        },
+        price_schedules: {
+          current: null,
+          upstreams: { [fixedSource]: schedules },
+          confidence: { [fixedSource]: true },
+        },
+      },
+    }
+    const selections = [
+      {
+        model: 'mixed-model',
+        ratioType: 'price_schedules' as const,
+        value: schedules,
+        sourceName: fixedSource,
+      },
+      {
+        model: 'mixed-model',
+        ratioType: 'model_ratio' as const,
+        value: 2,
+        sourceName: ratioSource,
+      },
+    ]
+
+    assert.deepEqual(applyResolutionSelections({}, differences, selections), {
+      'mixed-model': { model_ratio: 2 },
+    })
+    assert.deepEqual(
+      getEffectiveResolutionSelections(differences, selections).map(
+        ({ ratioType }) => ratioType
+      ),
+      ['model_ratio']
     )
   })
 })

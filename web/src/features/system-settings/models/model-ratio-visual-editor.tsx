@@ -281,7 +281,6 @@ const ModelRatioVisualEditorComponent = forwardRef<
         (acc, model) => {
           const mode =
             model.billingMode === 'per-request' ||
-            model.billingMode === 'scheduled_price' ||
             model.billingMode === 'tiered_expr'
               ? model.billingMode
               : 'per-token'
@@ -291,12 +290,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
         {
           'per-token': 0,
           'per-request': 0,
-          scheduled_price: 0,
           tiered_expr: 0,
-        } as Record<
-          'per-token' | 'per-request' | 'scheduled_price' | 'tiered_expr',
-          number
-        >
+        } as Record<'per-token' | 'per-request' | 'tiered_expr', number>
       ),
     [models]
   )
@@ -308,7 +303,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       if (editableModel.billingMode === 'tiered_expr') {
         editBillingMode = 'tiered_expr'
       } else if (editableModel.billingMode === 'scheduled_price') {
-        editBillingMode = 'scheduled_price'
+        editBillingMode = 'per-request'
       } else if (editableModel.price && editableModel.price !== '') {
         editBillingMode = 'per-request'
       }
@@ -595,11 +590,10 @@ const ModelRatioVisualEditorComponent = forwardRef<
           setIfPresent(imageMap, name, data.imageRatio)
           setIfPresent(audioMap, name, data.audioRatio)
           setIfPresent(audioCompletionMap, name, data.audioCompletionRatio)
-        } else if (data.billingMode === 'scheduled_price') {
-          billingModeMap[name] = 'scheduled_price'
-          priceSchedulesMap[name] = data.priceSchedules || []
-          setIfPresent(priceMap, name, data.price)
-        } else if (data.price && data.price !== '') {
+        } else if (data.billingMode === 'per-request') {
+          if (data.priceSchedules?.length) {
+            billingModeMap[name] = 'scheduled_price'
+          }
           setIfPresent(priceMap, name, data.price)
         } else {
           setIfPresent(ratioMap, name, data.ratio)
@@ -609,6 +603,10 @@ const ModelRatioVisualEditorComponent = forwardRef<
           setIfPresent(imageMap, name, data.imageRatio)
           setIfPresent(audioMap, name, data.audioRatio)
           setIfPresent(audioCompletionMap, name, data.audioCompletionRatio)
+        }
+
+        if (data.priceSchedules?.length) {
+          priceSchedulesMap[name] = data.priceSchedules
         }
       })
 
@@ -736,11 +734,6 @@ const ModelRatioVisualEditorComponent = forwardRef<
                     label: t('Per-request'),
                     value: 'per-request',
                     count: modeCounts['per-request'],
-                  },
-                  {
-                    label: t('Time-based'),
-                    value: 'scheduled_price',
-                    count: modeCounts.scheduled_price,
                   },
                   {
                     label: t('Expression'),

@@ -135,10 +135,13 @@ func PrepareTieredBillingForSelectedGroup(c *gin.Context, relayInfo *relaycommon
 	if snap == nil {
 		return nil
 	}
-	if snap.GroupRatio == 0 {
+	freeDiscount := relayInfo.PriceData.FreeModel &&
+		snap.DiscountRate != nil && *snap.DiscountRate == 0
+	if snap.GroupRatio == 0 || freeDiscount {
 		// Paid-to-free keeps FreeModel as-is: FreeModel means "pre-consume was
 		// skipped", which is not true once a session exists, and settlement
-		// already yields 0 for a zero group ratio.
+		// already yields 0 for a zero group ratio. A frozen 100% discount stays
+		// free even when routing refreshes a non-zero group ratio.
 		return nil
 	}
 

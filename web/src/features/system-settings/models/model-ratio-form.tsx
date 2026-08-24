@@ -326,11 +326,11 @@ export const ModelRatioForm = memo(function ModelRatioForm({
                     <SettingsSwitchItem>
                       <SettingsSwitchContent>
                         <FormLabel>
-                          {t('Homepage free-period banner')}
+                          {t('Limited-time model activity banner')}
                         </FormLabel>
                         <FormDescription>
                           {t(
-                            'Show a countdown banner on the homepage when promoted schedules are free.'
+                            'Show a countdown banner on every page while scheduled model promotions are active.'
                           )}
                         </FormDescription>
                       </SettingsSwitchContent>
@@ -389,10 +389,12 @@ export const ModelRatioForm = memo(function ModelRatioForm({
                 render={({ field }) => (
                   <SettingsSwitchItem>
                     <SettingsSwitchContent>
-                      <FormLabel>{t('Homepage free-period banner')}</FormLabel>
+                      <FormLabel>
+                        {t('Limited-time model activity banner')}
+                      </FormLabel>
                       <FormDescription>
                         {t(
-                          'Show a countdown banner on the homepage when promoted schedules are free.'
+                          'Show a countdown banner on every page while scheduled model promotions are active.'
                         )}
                       </FormDescription>
                     </SettingsSwitchContent>

@@ -35,6 +35,7 @@ import { Button } from '@/components/ui/button'
 import {
   Field,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
 } from '@/components/ui/field'
@@ -159,6 +160,9 @@ export const ModelPricingEditorPanel = forwardRef<
   const [billingExpr, setBillingExpr] = useState('')
   const [requestRuleExpr, setRequestRuleExpr] = useState('')
   const [priceSchedules, setPriceSchedules] = useState<PriceSchedule[]>([])
+  const [scheduleValidationError, setScheduleValidationError] = useState<
+    string | null
+  >(null)
   const [editorReloadToken, setEditorReloadToken] = useState(0)
   const isEditMode = !!editData
 
@@ -193,11 +197,10 @@ export const ModelPricingEditorPanel = forwardRef<
         audioCompletionRatio: editData.audioCompletionRatio || '',
       })
       let nextMode: PricingMode = 'per-token'
-      if (
-        editData.billingMode === 'tiered_expr' ||
-        editData.billingMode === 'scheduled_price'
-      ) {
-        nextMode = editData.billingMode
+      if (editData.billingMode === 'tiered_expr') {
+        nextMode = 'tiered_expr'
+      } else if (editData.billingMode === 'scheduled_price') {
+        nextMode = 'per-request'
       } else if (editData.price) {
         nextMode = 'per-request'
       }
@@ -226,6 +229,7 @@ export const ModelPricingEditorPanel = forwardRef<
     setPromptPrice(nextLaneState.promptPrice)
     setLanePrices(nextLaneState.prices)
     setLaneEnabled(nextLaneState.enabled)
+    setScheduleValidationError(null)
     setEditorReloadToken((token) => token + 1)
   }, [editData, form])
 
@@ -344,10 +348,19 @@ export const ModelPricingEditorPanel = forwardRef<
   const handleModeChange = (value: string) => {
     const nextMode = value as PricingMode
     setPricingMode(nextMode)
+    setScheduleValidationError(null)
     if (nextMode === 'tiered_expr' && !billingExpr) {
       setBillingExpr('tier("base", p * 0 + c * 0)')
     }
   }
+
+  const handlePriceSchedulesChange = useCallback(
+    (schedules: PriceSchedule[]) => {
+      setPriceSchedules(schedules)
+      setScheduleValidationError(null)
+    },
+    []
+  )
 
   const watchedValues = form.watch()
   const previewRows = useMemo(
@@ -422,7 +435,7 @@ export const ModelPricingEditorPanel = forwardRef<
   }, [editData, laneEnabled, lanePrices, pricingMode, promptPrice, t])
 
   const validatePricingValues = useCallback(() => {
-    if (pricingMode === 'scheduled_price') {
+    if (pricingMode === 'per-request') {
       const basePrice = toNumberOrNull(form.getValues('price'))
       if (basePrice === null || basePrice < 0) {
         form.setError('price', {
@@ -430,11 +443,19 @@ export const ModelPricingEditorPanel = forwardRef<
         })
         return false
       }
-      const scheduleError = validatePriceSchedules(priceSchedules, t)
-      if (scheduleError) {
-        form.setError('price', { message: scheduleError })
-        return false
-      }
+    }
+
+    const scheduleError =
+      priceSchedules.length > 0
+        ? validatePriceSchedules(
+            priceSchedules,
+            t,
+            pricingMode === 'per-request'
+          )
+        : null
+    setScheduleValidationError(scheduleError)
+    if (scheduleError) {
+      return false
     }
 
     if (
@@ -491,7 +512,7 @@ export const ModelPricingEditorPanel = forwardRef<
         data.billingExpr = billingExpr
         data.requestRuleExpr = requestRuleExpr
       }
-      if (pricingMode === 'scheduled_price') {
+      if (priceSchedules.length > 0) {
         data.priceSchedules = priceSchedules
       }
 
@@ -581,15 +602,12 @@ export const ModelPricingEditorPanel = forwardRef<
                   onValueChange={handleModeChange}
                   className='gap-4'
                 >
-                  <TabsList className='grid h-auto w-full grid-cols-2 sm:grid-cols-4'>
+                  <TabsList className='grid h-auto w-full grid-cols-3'>
                     <TabsTrigger value='per-token'>
                       {t('Per-token')}
                     </TabsTrigger>
                     <TabsTrigger value='per-request'>
                       {t('Per-request')}
-                    </TabsTrigger>
-                    <TabsTrigger value='scheduled_price'>
-                      {t('Time-based')}
                     </TabsTrigger>
                     <TabsTrigger value='tiered_expr'>
                       {t('Expression')}
@@ -679,59 +697,6 @@ export const ModelPricingEditorPanel = forwardRef<
                     </FieldGroup>
                   </TabsContent>
 
-                  <TabsContent value='scheduled_price' className='pt-0'>
-                    <FieldGroup className='gap-5'>
-                      <Alert>
-                        <AlertTriangle data-icon='inline-start' />
-                        <AlertDescription>
-                          {t(
-                            'The base price applies outside scheduled periods. When schedules overlap, the lowest activity price is used.'
-                          )}
-                        </AlertDescription>
-                      </Alert>
-                      <FormField
-                        control={form.control}
-                        name='price'
-                        render={({ field }) => (
-                          <FormItem className='contents'>
-                            <Field>
-                              <FieldLabel>{t('Base price')}</FieldLabel>
-                              <FormControl>
-                                <InputGroup>
-                                  <InputGroupAddon>$</InputGroupAddon>
-                                  <InputGroupInput
-                                    inputMode='decimal'
-                                    placeholder='0.01'
-                                    {...field}
-                                    onChange={(event) => {
-                                      const value = event.target.value
-                                      if (numericDraftRegex.test(value)) {
-                                        field.onChange(value)
-                                      }
-                                    }}
-                                  />
-                                  <InputGroupAddon align='inline-end'>
-                                    {t('per request')}
-                                  </InputGroupAddon>
-                                </InputGroup>
-                              </FormControl>
-                              <FieldDescription>
-                                {t(
-                                  'This price resumes automatically when no schedule is active.'
-                                )}
-                              </FieldDescription>
-                              <FormMessage />
-                            </Field>
-                          </FormItem>
-                        )}
-                      />
-                      <ScheduledPricingEditor
-                        schedules={priceSchedules}
-                        onChange={setPriceSchedules}
-                      />
-                    </FieldGroup>
-                  </TabsContent>
-
                   <TabsContent value='tiered_expr' className='pt-0'>
                     <FieldGroup className='gap-5'>
                       <TieredPricingEditor
@@ -745,6 +710,37 @@ export const ModelPricingEditorPanel = forwardRef<
                     </FieldGroup>
                   </TabsContent>
                 </Tabs>
+
+                <div className='border-t pt-5'>
+                  <Field
+                    data-invalid={scheduleValidationError ? true : undefined}
+                  >
+                    <div>
+                      <FieldLabel>{t('Time-based activities')}</FieldLabel>
+                      <FieldDescription>
+                        {t(
+                          'Schedule free periods or discounts without changing the base billing mode.'
+                        )}
+                      </FieldDescription>
+                    </div>
+                    {priceSchedules.length > 0 && (
+                      <Alert>
+                        <AlertTriangle data-icon='inline-start' />
+                        <AlertDescription>
+                          {t(
+                            'When activities overlap, the lowest effective price is used. The matched activity is fixed for the entire request.'
+                          )}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    <ScheduledPricingEditor
+                      schedules={priceSchedules}
+                      onChange={handlePriceSchedulesChange}
+                      allowFixedPrice={pricingMode === 'per-request'}
+                    />
+                    <FieldError>{scheduleValidationError}</FieldError>
+                  </Field>
+                </div>
               </FieldGroup>
 
               <aside className='bg-muted/20 sticky top-0 rounded-lg border'>

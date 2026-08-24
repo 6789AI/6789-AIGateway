@@ -2,13 +2,13 @@
 
 ## Design Philosophy
 
-**One expression, one truth.** A single expression string completely defines a model's billing logic — pricing, tier conditions, cache/image/audio differentiation, time-based discounts, request-aware multipliers — all in one line. No scattered configuration, no implicit rules, no magic numbers.
+**One expression, one base-price truth.** A single expression string completely defines a model's base billing logic — pricing, tier conditions, cache/image/audio differentiation, expression-native time conditions, request-aware multipliers — all in one line. No scattered provider-pricing configuration, no implicit rules, no magic numbers.
 
-The expression is the billing contract between the administrator and the system. What you write is what gets executed. The system's job is to evaluate it faithfully, not to interpret it.
+The expression is the base billing contract between the administrator and the system. What you write is what gets executed. The system's job is to evaluate it faithfully, not to interpret it. A separately configured scheduled model promotion may apply a validated discount to the resulting charge. Promotions are not part of provider pricing: they are a common post-price campaign layer shared by per-request, ratio, and expression billing, and the matched discount is frozen in the request billing snapshot.
 
 ### Core Principles
 
-1. **Expression is self-contained** — The expression string alone determines billing. No external ratio tables, no implicit completion multipliers, no hidden conversion factors. Given the same token counts and request context, the same expression always produces the same cost.
+1. **Expression is self-contained** — The expression string alone determines the base charge. No external provider ratio tables, no implicit completion multipliers, no hidden conversion factors. Given the same token counts and request context, the same expression always produces the same base cost. Scheduled campaign discounts, when configured, are explicit post-price adjustments and must never alter token normalization or expression evaluation.
 
 2. **Variables are opt-in** — `p` (prompt) and `c` (completion) are the base. Cache (`cr`, `cc`, `cc1h`), image (`img`), and audio (`ai`, `ao`) variables are optional. If omitted, those tokens are included in `p`/`c` and priced at their rate. The system automatically detects which variables the expression uses (via AST introspection) and adjusts token normalization accordingly.
 
@@ -159,7 +159,8 @@ When a request arrives and the model uses `tiered_expr` billing:
 2. Builds `RequestInput` (headers + body) for `param()` / `header()` functions
 3. Runs expression with estimated tokens: `RunExprWithRequest(expr, {P, C}, requestInput)`
 4. Converts output to quota: `rawCost / 1,000,000 * QuotaPerUnit`
-5. Creates `BillingSnapshot` and stores it on `RelayInfo`. Expression and request state stay frozen for settlement. An auto-group retry refreshes group-dependent fields from the selected group before the next upstream attempt. If a free initial group skipped pre-consume and the retry selects a paid group, the billing session is created before that attempt. If an existing session moves to a more expensive group, its reservation is raised to that group's estimate before sending; cheaper groups are refunded only after actual usage is settled.
+5. Resolves any active scheduled discount at the request start time and applies it to the quota. Fixed activity prices are not valid for expression billing.
+6. Creates `BillingSnapshot` and stores it on `RelayInfo`, including the matched discount rate when one exists. Expression, request, and promotion state stay frozen for settlement. An auto-group retry refreshes group-dependent fields from the selected group before the next upstream attempt. If a free initial group skipped pre-consume and the retry selects a paid group, the billing session is created before that attempt. If an existing session moves to a more expensive group, its reservation is raised to that group's estimate before sending; cheaper groups are refunded only after actual usage is settled.
 
 ### 4. Settlement (Actual Billing)
 
@@ -175,7 +176,7 @@ After the upstream response returns with actual token usage:
 2. `TryTieredSettle(relayInfo, params)`:
    - Uses the captured `BillingSnapshot`, whose group-dependent fields have been refreshed from the final selected group
    - Re-runs the expression with actual token counts
-   - Converts via `quotaConversion()` (version-dispatched)
+   - Converts via `quotaConversion()` (version-dispatched), then applies the discount rate captured at request start
    - Returns actual quota
 
 ### 5. Log Display

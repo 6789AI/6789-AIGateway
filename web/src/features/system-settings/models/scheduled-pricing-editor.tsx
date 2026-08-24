@@ -95,7 +95,7 @@ const parseTime = (value: string) => {
   return hour * 60 + minute
 }
 
-const createSchedule = (): PriceSchedule => {
+const createSchedule = (allowFixedPrice: boolean): PriceSchedule => {
   const now = new Date()
   now.setSeconds(0, 0)
   const end = new Date(now)
@@ -105,7 +105,9 @@ const createSchedule = (): PriceSchedule => {
       globalThis.crypto?.randomUUID?.() ??
       `schedule-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     type: 'absolute',
-    price: 0,
+    adjustment_type: allowFixedPrice ? 'fixed_price' : 'discount',
+    price: allowFixedPrice ? 0 : undefined,
+    discount_rate: allowFixedPrice ? undefined : 0,
     show_banner: true,
     start_at: Math.floor(now.getTime() / 1000),
     end_at: Math.floor(end.getTime() / 1000),
@@ -115,12 +117,10 @@ const createSchedule = (): PriceSchedule => {
 type ScheduledPricingEditorProps = {
   schedules: PriceSchedule[]
   onChange: (schedules: PriceSchedule[]) => void
+  allowFixedPrice: boolean
 }
 
-export function ScheduledPricingEditor({
-  schedules,
-  onChange,
-}: ScheduledPricingEditorProps) {
+export function ScheduledPricingEditor(props: ScheduledPricingEditorProps) {
   const { t, i18n } = useTranslation()
   const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const timezones = useMemo(
@@ -138,15 +138,18 @@ export function ScheduledPricingEditor({
   }, [i18n.language, i18n.resolvedLanguage])
 
   const updateSchedule = (index: number, next: PriceSchedule) => {
-    onChange(schedules.map((schedule, i) => (i === index ? next : schedule)))
+    props.onChange(
+      props.schedules.map((schedule, i) => (i === index ? next : schedule))
+    )
   }
 
   return (
     <FieldGroup className='gap-4'>
-      {schedules.map((schedule, index) => {
+      {props.schedules.map((schedule, index) => {
         const availableTimezones = schedule.timezone
           ? [...new Set([schedule.timezone, ...timezones])]
           : timezones
+        const adjustmentType = schedule.adjustment_type ?? 'fixed_price'
         return (
           <div key={schedule.id} className='rounded-lg border p-4'>
             <div className='mb-4 flex items-center justify-between gap-3'>
@@ -160,7 +163,7 @@ export function ScheduledPricingEditor({
                 aria-label={t('Delete schedule')}
                 title={t('Delete schedule')}
                 onClick={() =>
-                  onChange(schedules.filter((_, i) => i !== index))
+                  props.onChange(props.schedules.filter((_, i) => i !== index))
                 }
               >
                 <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
@@ -169,19 +172,87 @@ export function ScheduledPricingEditor({
 
             <FieldGroup className='gap-4'>
               <Field>
+                <FieldLabel>{t('Activity pricing')}</FieldLabel>
+                <ToggleGroup
+                  value={[adjustmentType]}
+                  onValueChange={(values) => {
+                    const nextType = values.find(
+                      (value) => value !== adjustmentType
+                    )
+                    if (nextType === 'fixed_price' && props.allowFixedPrice) {
+                      updateSchedule(index, {
+                        ...schedule,
+                        adjustment_type: 'fixed_price',
+                        price: schedule.price ?? 0,
+                        discount_rate: undefined,
+                      })
+                    } else if (nextType === 'discount') {
+                      updateSchedule(index, {
+                        ...schedule,
+                        adjustment_type: 'discount',
+                        price: undefined,
+                        discount_rate: schedule.discount_rate ?? 0.8,
+                      })
+                    }
+                  }}
+                  variant='outline'
+                  className='w-full'
+                >
+                  <ToggleGroupItem
+                    value='fixed_price'
+                    disabled={!props.allowFixedPrice}
+                    className='flex-1'
+                  >
+                    {t('Fixed activity price')}
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value='discount' className='flex-1'>
+                    {t('Percentage discount')}
+                  </ToggleGroupItem>
+                </ToggleGroup>
+                {!props.allowFixedPrice && adjustmentType === 'fixed_price' && (
+                  <FieldDescription className='text-destructive'>
+                    {t(
+                      'Fixed activity prices are only available for per-request billing.'
+                    )}
+                  </FieldDescription>
+                )}
+              </Field>
+
+              <Field>
                 <FieldLabel>{t('Schedule type')}</FieldLabel>
                 <ToggleGroup
                   value={[schedule.type]}
                   onValueChange={(values) => {
                     const type = values.find((value) => value !== schedule.type)
                     if (type === 'absolute') {
-                      const fresh = createSchedule()
-                      updateSchedule(index, { ...fresh, id: schedule.id })
+                      const fresh = createSchedule(props.allowFixedPrice)
+                      updateSchedule(index, {
+                        ...fresh,
+                        id: schedule.id,
+                        adjustment_type: adjustmentType,
+                        price:
+                          adjustmentType === 'fixed_price'
+                            ? (schedule.price ?? 0)
+                            : undefined,
+                        discount_rate:
+                          adjustmentType === 'discount'
+                            ? (schedule.discount_rate ?? 0)
+                            : undefined,
+                        show_banner: schedule.show_banner !== false,
+                      })
                     } else if (type === 'weekly') {
                       updateSchedule(index, {
                         id: schedule.id,
                         type: 'weekly',
-                        price: schedule.price,
+                        adjustment_type: adjustmentType,
+                        price:
+                          adjustmentType === 'fixed_price'
+                            ? (schedule.price ?? 0)
+                            : undefined,
+                        discount_rate:
+                          adjustmentType === 'discount'
+                            ? (schedule.discount_rate ?? 0)
+                            : undefined,
                         show_banner: schedule.show_banner !== false,
                         weekdays: [1, 2, 3, 4, 5],
                         start_minute: 0,
@@ -212,40 +283,72 @@ export function ScheduledPricingEditor({
                 </ToggleGroup>
               </Field>
 
-              <Field>
-                <FieldLabel>{t('Activity price')}</FieldLabel>
-                <InputGroup>
-                  <InputGroupAddon>$</InputGroupAddon>
-                  <InputGroupInput
-                    type='number'
-                    inputMode='decimal'
-                    min='0'
-                    step='any'
-                    value={schedule.price}
-                    onChange={(event) =>
-                      updateSchedule(index, {
-                        ...schedule,
-                        price: Number(event.target.value),
-                      })
-                    }
-                  />
-                  <InputGroupAddon align='inline-end'>
-                    {t('per request')}
-                  </InputGroupAddon>
-                </InputGroup>
-                <FieldDescription>
-                  {t('Set the activity price to 0 for free usage.')}
-                </FieldDescription>
-              </Field>
+              {adjustmentType === 'fixed_price' ? (
+                <Field>
+                  <FieldLabel htmlFor={`${schedule.id}-activity-price`}>
+                    {t('Activity price')}
+                  </FieldLabel>
+                  <InputGroup>
+                    <InputGroupAddon>$</InputGroupAddon>
+                    <InputGroupInput
+                      id={`${schedule.id}-activity-price`}
+                      type='number'
+                      inputMode='decimal'
+                      min='0'
+                      step='any'
+                      value={schedule.price ?? 0}
+                      onChange={(event) =>
+                        updateSchedule(index, {
+                          ...schedule,
+                          price: Number(event.target.value),
+                        })
+                      }
+                    />
+                    <InputGroupAddon align='inline-end'>
+                      {t('per request')}
+                    </InputGroupAddon>
+                  </InputGroup>
+                  <FieldDescription>
+                    {t('Set the activity price to 0 for free usage.')}
+                  </FieldDescription>
+                </Field>
+              ) : (
+                <Field>
+                  <FieldLabel htmlFor={`${schedule.id}-discount-rate`}>
+                    {t('Discounted price percentage')}
+                  </FieldLabel>
+                  <InputGroup>
+                    <InputGroupInput
+                      id={`${schedule.id}-discount-rate`}
+                      type='number'
+                      inputMode='decimal'
+                      min='0'
+                      max='100'
+                      step='any'
+                      value={(schedule.discount_rate ?? 0) * 100}
+                      onChange={(event) =>
+                        updateSchedule(index, {
+                          ...schedule,
+                          discount_rate: Number(event.target.value) / 100,
+                        })
+                      }
+                    />
+                    <InputGroupAddon align='inline-end'>%</InputGroupAddon>
+                  </InputGroup>
+                  <FieldDescription>
+                    {t('Enter 80 for 20% off. Set it to 0 for free usage.')}
+                  </FieldDescription>
+                </Field>
+              )}
 
               <Field orientation='horizontal'>
                 <FieldContent>
                   <FieldLabel htmlFor={`${schedule.id}-show-banner`}>
-                    {t('Show in homepage free banner')}
+                    {t('Show in model activity banner')}
                   </FieldLabel>
                   <FieldDescription>
                     {t(
-                      'Display this model in the homepage countdown banner while this schedule is free.'
+                      'Display this activity in the global model promotion banner while it is active.'
                     )}
                   </FieldDescription>
                 </FieldContent>
@@ -403,7 +506,12 @@ export function ScheduledPricingEditor({
       <Button
         type='button'
         variant='outline'
-        onClick={() => onChange([...schedules, createSchedule()])}
+        onClick={() =>
+          props.onChange([
+            ...props.schedules,
+            createSchedule(props.allowFixedPrice),
+          ])
+        }
       >
         <HugeiconsIcon
           icon={Add01Icon}
