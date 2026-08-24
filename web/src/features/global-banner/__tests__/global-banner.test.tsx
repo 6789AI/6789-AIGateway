@@ -65,6 +65,18 @@ await i18n.use(initReactI18next).init({
   resources: { en: { translation: {} } },
 })
 
+const zhCNI18n = createInstance()
+await zhCNI18n.use(initReactI18next).init({
+  lng: 'zhCN',
+  resources: {
+    zhCN: {
+      translation: {
+        '{{model}} is {{percent}}% off': '{{model}} 限时优惠 {{percent}}%',
+      },
+    },
+  },
+})
+
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
 }
@@ -265,6 +277,58 @@ describe('global banner', () => {
     assert.equal(customIcons[0]?.textContent, '📣 公告')
     assert.equal(customIcons[1]?.textContent, '🎉 限时优惠')
     assert.equal(container.querySelectorAll('aside svg').length, 1)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('renders discount promotions for the zhCN interface locale', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={zhCNI18n}>
+          <GlobalBannerFrame
+            view={{
+              visible: true,
+              globalBanner: {
+                enabled: false,
+                content: '',
+                background_color: '#0EA5E9',
+                text_color: '#082F49',
+                icon: '',
+                countdown_enabled: false,
+                countdown_end_at: 0,
+                link_url: '',
+              },
+              freeModelBanner: {
+                background_color: '#A3E635',
+                text_color: '#1A2E05',
+                icon: '🎉 限时优惠',
+                link_url: '',
+              },
+              models: [
+                {
+                  model_name: 'nano-banana-2',
+                  promotion_type: 'discount',
+                  discount_rate: 0.8,
+                },
+              ],
+              globalRemainingSeconds: null,
+              promotionRemainingSeconds: 60,
+            }}
+          >
+            <main>Route content</main>
+          </GlobalBannerFrame>
+        </I18nextProvider>
+      )
+    })
+
+    assert.match(container.textContent ?? '', /nano-banana-2/)
+    assert.match(container.textContent ?? '', /20%/)
+    assert.match(container.textContent ?? '', /🎉 限时优惠/)
 
     await act(async () => root.unmount())
     container.remove()

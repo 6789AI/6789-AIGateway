@@ -21,6 +21,8 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { toIntlLocale } from '@/i18n/languages'
+
 import { getCountdownParts } from './countdown'
 import { MarketingBannerIcon } from './marketing-banner-icon'
 import type { BannerConfig, GlobalBannerView } from './types'
@@ -170,9 +172,10 @@ function ModelPromotionBannerRow(props: GlobalBannerProps) {
   const { t, i18n } = useTranslation()
   const configuredLink = safeBannerLink(props.view.freeModelBanner.link_url)
   const link = configuredLink ?? '/pricing'
-  const numberFormatter = new Intl.NumberFormat(i18n.resolvedLanguage, {
-    maximumFractionDigits: 6,
-  })
+  const numberFormatter = new Intl.NumberFormat(
+    toIntlLocale(i18n.resolvedLanguage || i18n.language),
+    { maximumFractionDigits: 6 }
+  )
   const promotionSummary = props.view.models
     .slice(0, 3)
     .map((promotion) => {
