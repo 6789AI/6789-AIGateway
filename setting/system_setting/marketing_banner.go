@@ -17,6 +17,7 @@ const (
 	MarketingBannerOptionPrefix = "marketing_banner."
 	maxMarketingBannerRunes     = 300
 	maxMarketingBannerIconRunes = 100
+	maxBannerButtonTextRunes    = 50
 	maxMarketingBannerLinkRunes = 2048
 	maxMarketingBannerTimestamp = 253402300799
 )
@@ -32,6 +33,8 @@ type BannerSettings struct {
 	CountdownEnabled bool   `json:"countdown_enabled"`
 	CountdownEndAt   int64  `json:"countdown_end_at"`
 	LinkURL          string `json:"link_url"`
+	ButtonText       string `json:"button_text"`
+	ButtonColor      string `json:"button_color"`
 }
 
 var defaultGlobalBannerSettings = BannerSettings{
@@ -43,6 +46,8 @@ var defaultGlobalBannerSettings = BannerSettings{
 	CountdownEnabled: false,
 	CountdownEndAt:   0,
 	LinkURL:          "/pricing",
+	ButtonText:       "",
+	ButtonColor:      "#FFFFFF",
 }
 
 var defaultMarketingBannerSettings = BannerSettings{
@@ -54,6 +59,8 @@ var defaultMarketingBannerSettings = BannerSettings{
 	CountdownEnabled: false,
 	CountdownEndAt:   0,
 	LinkURL:          "",
+	ButtonText:       "",
+	ButtonColor:      "#FFFFFF",
 }
 
 func init() {
@@ -91,7 +98,11 @@ func ValidateBannerOption(key string, value string) error {
 		if utf8.RuneCountInString(strings.TrimSpace(value)) > maxMarketingBannerRunes {
 			return errors.New("content must not exceed 300 characters")
 		}
-	case "background_color", "text_color":
+	case "button_text":
+		if utf8.RuneCountInString(strings.TrimSpace(value)) > maxBannerButtonTextRunes {
+			return errors.New("button_text must not exceed 50 characters")
+		}
+	case "background_color", "text_color", "button_color":
 		if !hexColorPattern.MatchString(value) {
 			return errors.New("color must be a 6-digit hex value")
 		}

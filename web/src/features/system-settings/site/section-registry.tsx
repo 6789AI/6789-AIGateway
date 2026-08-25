@@ -68,6 +68,8 @@ const SITE_SECTIONS = [
           GlobalBannerCountdownEndAt:
             settings['global_banner.countdown_end_at'],
           GlobalBannerLinkURL: settings['global_banner.link_url'],
+          GlobalBannerButtonText: settings['global_banner.button_text'],
+          GlobalBannerButtonColor: settings['global_banner.button_color'],
           MarketingBannerEnabled: settings['marketing_banner.enabled'],
           MarketingBannerContent: settings['marketing_banner.content'],
           MarketingBannerBackgroundColor:
@@ -79,6 +81,8 @@ const SITE_SECTIONS = [
           MarketingBannerCountdownEndAt:
             settings['marketing_banner.countdown_end_at'],
           MarketingBannerLinkURL: settings['marketing_banner.link_url'],
+          MarketingBannerButtonText: settings['marketing_banner.button_text'],
+          MarketingBannerButtonColor: settings['marketing_banner.button_color'],
         }}
       />
     ),

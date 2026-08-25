@@ -40,7 +40,7 @@ export function MarketingBannerIcon(props: MarketingBannerIconProps) {
     return (
       <span
         className={cn(
-          'max-w-24 shrink-0 truncate whitespace-nowrap text-sm leading-none font-semibold sm:max-w-40',
+          'max-w-24 shrink-0 truncate whitespace-nowrap text-sm leading-5 font-semibold sm:max-w-40',
           props.customClassName
         )}
         aria-hidden='true'

@@ -33,11 +33,18 @@ export type BannerConfig = {
   countdown_enabled: boolean
   countdown_end_at: number
   link_url: string
+  button_text: string
+  button_color: string
 }
 
 export type FreeModelBannerStyle = Pick<
   BannerConfig,
-  'background_color' | 'text_color' | 'icon' | 'link_url'
+  | 'background_color'
+  | 'text_color'
+  | 'icon'
+  | 'link_url'
+  | 'button_text'
+  | 'button_color'
 >
 
 export type GlobalBannerData = {

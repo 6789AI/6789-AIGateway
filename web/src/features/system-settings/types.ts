@@ -116,6 +116,8 @@ export type SiteSettings = {
   'global_banner.countdown_enabled': boolean
   'global_banner.countdown_end_at': number
   'global_banner.link_url': string
+  'global_banner.button_text': string
+  'global_banner.button_color': string
   'marketing_banner.enabled': boolean
   'marketing_banner.content': string
   'marketing_banner.background_color': string
@@ -124,6 +126,8 @@ export type SiteSettings = {
   'marketing_banner.countdown_enabled': boolean
   'marketing_banner.countdown_end_at': number
   'marketing_banner.link_url': string
+  'marketing_banner.button_text': string
+  'marketing_banner.button_color': string
   SystemName: string
   Logo: string
   Footer: string

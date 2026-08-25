@@ -35,12 +35,16 @@ describe('global banner view', () => {
           countdown_enabled: false,
           countdown_end_at: 0,
           link_url: '/pricing',
+          button_text: '',
+          button_color: '#FFFFFF',
         },
         free_model_banner: {
           background_color: '#112233',
           text_color: '#FFFFFF',
           icon: 'gift',
           link_url: '/wallet',
+          button_text: 'Open wallet',
+          button_color: '#123456',
         },
         server_time: 1_000,
         models: [],
@@ -51,6 +55,7 @@ describe('global banner view', () => {
 
     assert.equal(view.visible, false)
     assert.equal(view.freeModelBanner.link_url, '/wallet')
+    assert.equal(view.freeModelBanner.button_text, 'Open wallet')
     assert.deepEqual(view.models, [])
   })
 
@@ -67,12 +72,16 @@ describe('global banner view', () => {
           countdown_enabled: false,
           countdown_end_at: 0,
           link_url: '/pricing',
+          button_text: '',
+          button_color: '#FFFFFF',
         },
         free_model_banner: {
           background_color: '#A3E635',
           text_color: '#1A2E05',
           icon: 'megaphone',
           link_url: '',
+          button_text: '',
+          button_color: '#FFFFFF',
         },
         server_time: 1_000,
         models: [

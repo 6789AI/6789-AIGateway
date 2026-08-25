@@ -16,13 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ArrowRight01Icon } from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { buttonVariants } from '@/components/ui/button'
 import { toIntlLocale } from '@/i18n/languages'
 
+import { getReadableTextColor, safeHexColor } from './banner-colors'
 import { getCountdownParts } from './countdown'
 import { MarketingBannerIcon } from './marketing-banner-icon'
 import type { BannerConfig, GlobalBannerView } from './types'
@@ -31,6 +31,7 @@ import { useGlobalBanner } from './use-global-banner'
 const bannerRowHeightRem = 2.5
 const fallbackBackgroundColor = '#A3E635'
 const fallbackTextColor = '#1A2E05'
+const fallbackButtonColor = '#FFFFFF'
 
 type GlobalBannerProps = {
   view: GlobalBannerView
@@ -70,10 +71,6 @@ function Countdown(props: { remainingSeconds: number; label: string }) {
   )
 }
 
-function safeHexColor(value: string, fallback: string): string {
-  return /^#[0-9a-fA-F]{6}$/.test(value) ? value : fallback
-}
-
 function safeBannerLink(value: string): string | null {
   const trimmed = value.trim()
   if (/^\/(?!\/)/.test(trimmed)) return trimmed
@@ -94,34 +91,15 @@ type ConfiguredBannerRowProps = {
   ariaLabel: string
   countdownLabel: string
   openLabel: string
+  defaultButtonText: string
 }
 
 function ConfiguredBannerRow(props: ConfiguredBannerRowProps) {
   const link = safeBannerLink(props.config.link_url)
-  const content = (
-    <div className='mx-auto flex h-full w-full max-w-7xl min-w-0 items-center justify-center gap-2 px-2 sm:px-4'>
-      <MarketingBannerIcon
-        name={props.config.icon}
-        className='size-4 shrink-0'
-      />
-      <span className='min-w-0 truncate text-xs font-semibold'>
-        {props.config.content}
-      </span>
-      {props.remainingSeconds !== null && (
-        <Countdown
-          remainingSeconds={props.remainingSeconds}
-          label={props.countdownLabel}
-        />
-      )}
-      {link && (
-        <HugeiconsIcon
-          icon={ArrowRight01Icon}
-          strokeWidth={2}
-          className='size-4 shrink-0'
-          aria-hidden='true'
-        />
-      )}
-    </div>
+  const buttonText = props.config.button_text.trim() || props.defaultButtonText
+  const buttonColor = safeHexColor(
+    props.config.button_color,
+    fallbackButtonColor
   )
 
   return (
@@ -137,19 +115,39 @@ function ConfiguredBannerRow(props: ConfiguredBannerRowProps) {
       aria-label={props.ariaLabel}
       data-banner-kind={props.kind}
     >
-      {link ? (
-        <a
-          href={link}
-          target={link.startsWith('/') ? undefined : '_blank'}
-          rel='noreferrer'
-          className='h-full w-full outline-none focus-visible:ring-2 focus-visible:ring-current focus-visible:ring-inset'
-          aria-label={`${props.openLabel}: ${props.config.content}`}
-        >
-          {content}
-        </a>
-      ) : (
-        content
-      )}
+      <div className='mx-auto flex h-full w-full max-w-7xl min-w-0 items-center justify-center gap-2 px-2 sm:px-4'>
+        <MarketingBannerIcon
+          name={props.config.icon}
+          className='size-4 shrink-0'
+        />
+        <span className='min-w-0 truncate text-xs font-semibold'>
+          {props.config.content}
+        </span>
+        {props.remainingSeconds !== null && (
+          <Countdown
+            remainingSeconds={props.remainingSeconds}
+            label={props.countdownLabel}
+          />
+        )}
+        {link && (
+          <a
+            href={link}
+            target={link.startsWith('/') ? undefined : '_blank'}
+            rel='noreferrer'
+            aria-label={`${props.openLabel}: ${props.config.content}`}
+            className={buttonVariants({
+              size: 'xs',
+              className: 'max-w-20 px-2 hover:opacity-90 sm:max-w-36',
+            })}
+            style={{
+              backgroundColor: buttonColor,
+              color: getReadableTextColor(buttonColor),
+            }}
+          >
+            <span className='truncate'>{buttonText}</span>
+          </a>
+        )}
+      </div>
     </aside>
   )
 }
@@ -164,6 +162,7 @@ function GlobalAnnouncementBannerRow(props: GlobalBannerProps) {
       ariaLabel={t('Global announcement banner')}
       countdownLabel={t('Announcement ends in')}
       openLabel={t('Open announcement')}
+      defaultButtonText={t('Click to view')}
     />
   )
 }
@@ -172,6 +171,12 @@ function ModelPromotionBannerRow(props: GlobalBannerProps) {
   const { t, i18n } = useTranslation()
   const configuredLink = safeBannerLink(props.view.freeModelBanner.link_url)
   const link = configuredLink ?? '/pricing'
+  const buttonText =
+    props.view.freeModelBanner.button_text.trim() || t('Click to view')
+  const buttonColor = safeHexColor(
+    props.view.freeModelBanner.button_color,
+    fallbackButtonColor
+  )
   const numberFormatter = new Intl.NumberFormat(
     toIntlLocale(i18n.resolvedLanguage || i18n.language),
     { maximumFractionDigits: 6 }
@@ -245,15 +250,17 @@ function ModelPromotionBannerRow(props: GlobalBannerProps) {
           href={link}
           target={link.startsWith('/') ? undefined : '_blank'}
           rel='noreferrer'
-          className='inline-flex size-7 shrink-0 items-center justify-center rounded outline-none hover:bg-black/10 focus-visible:ring-2 focus-visible:ring-current'
-          aria-label={t('View models')}
-          title={t('View models')}
+          aria-label={buttonText}
+          className={buttonVariants({
+            size: 'xs',
+            className: 'max-w-20 px-2 hover:opacity-90 sm:max-w-36',
+          })}
+          style={{
+            backgroundColor: buttonColor,
+            color: getReadableTextColor(buttonColor),
+          }}
         >
-          <HugeiconsIcon
-            icon={ArrowRight01Icon}
-            strokeWidth={2}
-            aria-hidden='true'
-          />
+          <span className='truncate'>{buttonText}</span>
         </a>
       </div>
     </aside>

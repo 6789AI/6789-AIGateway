@@ -37,10 +37,14 @@ func TestGetFreeModelPromotionsReturnsPublicCountdownData(t *testing.T) {
 		"global_banner.countdown_enabled":           "false",
 		"global_banner.countdown_end_at":            "0",
 		"global_banner.link_url":                    "/pricing",
+		"global_banner.button_text":                 "Learn more",
+		"global_banner.button_color":                "#FFFFFF",
 		"marketing_banner.background_color":         "#123456",
 		"marketing_banner.text_color":               "#FEDCBA",
 		"marketing_banner.icon":                     "🎉 限时优惠",
 		"marketing_banner.link_url":                 "https://example.com/promotion",
+		"marketing_banner.button_text":              "View offer",
+		"marketing_banner.button_color":             "#ABCDEF",
 		"billing_setting.price_schedules": fmt.Sprintf(
 			`{"banner-model":[{"type":"absolute","price":0,"start_at":%d,"end_at":%d,"show_banner":true}]}`,
 			now.Add(-time.Hour).Unix(), endAt,
@@ -68,12 +72,16 @@ func TestGetFreeModelPromotionsReturnsPublicCountdownData(t *testing.T) {
 				CountdownEnabled bool   `json:"countdown_enabled"`
 				CountdownEndAt   int64  `json:"countdown_end_at"`
 				LinkURL          string `json:"link_url"`
+				ButtonText       string `json:"button_text"`
+				ButtonColor      string `json:"button_color"`
 			} `json:"global_banner"`
 			FreeModelBanner struct {
 				BackgroundColor string `json:"background_color"`
 				TextColor       string `json:"text_color"`
 				Icon            string `json:"icon"`
 				LinkURL         string `json:"link_url"`
+				ButtonText      string `json:"button_text"`
+				ButtonColor     string `json:"button_color"`
 			} `json:"free_model_banner"`
 			Models []struct {
 				ModelName     string   `json:"model_name"`
@@ -100,10 +108,14 @@ func TestGetFreeModelPromotionsReturnsPublicCountdownData(t *testing.T) {
 	assert.False(t, response.Data.GlobalBanner.CountdownEnabled)
 	assert.Zero(t, response.Data.GlobalBanner.CountdownEndAt)
 	assert.Equal(t, "/pricing", response.Data.GlobalBanner.LinkURL)
+	assert.Equal(t, "Learn more", response.Data.GlobalBanner.ButtonText)
+	assert.Equal(t, "#FFFFFF", response.Data.GlobalBanner.ButtonColor)
 	assert.Equal(t, "#123456", response.Data.FreeModelBanner.BackgroundColor)
 	assert.Equal(t, "#FEDCBA", response.Data.FreeModelBanner.TextColor)
 	assert.Equal(t, "🎉 限时优惠", response.Data.FreeModelBanner.Icon)
 	assert.Equal(t, "https://example.com/promotion", response.Data.FreeModelBanner.LinkURL)
+	assert.Equal(t, "View offer", response.Data.FreeModelBanner.ButtonText)
+	assert.Equal(t, "#ABCDEF", response.Data.FreeModelBanner.ButtonColor)
 }
 
 func TestGetFreeModelPromotionsReturnsDiscountActivities(t *testing.T) {

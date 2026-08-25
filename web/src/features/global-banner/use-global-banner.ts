@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { getGlobalBanner } from './api'
 import type {
@@ -25,9 +25,17 @@ import type {
   FreeModelBannerStyle,
   GlobalBannerData,
   GlobalBannerView,
+  ModelPromotion,
 } from './types'
 
 const BANNER_REFRESH_INTERVAL = 15_000
+const globalBannerQueryOptions = {
+  queryKey: ['global-banner'] as const,
+  queryFn: getGlobalBanner,
+  staleTime: BANNER_REFRESH_INTERVAL,
+  refetchInterval: BANNER_REFRESH_INTERVAL,
+  refetchIntervalInBackground: false,
+}
 const defaultGlobalBanner: BannerConfig = {
   enabled: false,
   content: '',
@@ -37,6 +45,8 @@ const defaultGlobalBanner: BannerConfig = {
   countdown_enabled: false,
   countdown_end_at: 0,
   link_url: '/pricing',
+  button_text: '',
+  button_color: '#FFFFFF',
 }
 
 const defaultFreeModelBanner: FreeModelBannerStyle = {
@@ -44,6 +54,8 @@ const defaultFreeModelBanner: FreeModelBannerStyle = {
   text_color: '#1A2E05',
   icon: 'megaphone',
   link_url: '',
+  button_text: '',
+  button_color: '#FFFFFF',
 }
 
 const inactiveBannerView: GlobalBannerView = {
@@ -72,13 +84,19 @@ export function getGlobalBannerView(
     .filter((endsAt): endsAt is number => !!endsAt && endsAt > serverTime)
   const nextChangeAt =
     finiteEndTimes.length > 0 ? Math.min(...finiteEndTimes) : null
-  const globalBanner = data.global_banner ?? defaultGlobalBanner
+  const globalBanner = {
+    ...defaultGlobalBanner,
+    ...data.global_banner,
+  }
   const globalVisible =
     globalBanner.enabled &&
     globalBanner.content.trim().length > 0 &&
     (!globalBanner.countdown_enabled ||
       globalBanner.countdown_end_at > serverTime)
-  const freeModelBanner = data.free_model_banner ?? defaultFreeModelBanner
+  const freeModelBanner = {
+    ...defaultFreeModelBanner,
+    ...data.free_model_banner,
+  }
 
   return {
     visible: globalVisible || models.length > 0,
@@ -101,13 +119,7 @@ export function getGlobalBannerView(
 
 export function useGlobalBanner(): GlobalBannerView {
   const [now, setNow] = useState(() => Date.now())
-  const query = useQuery({
-    queryKey: ['global-banner'],
-    queryFn: getGlobalBanner,
-    staleTime: BANNER_REFRESH_INTERVAL,
-    refetchInterval: BANNER_REFRESH_INTERVAL,
-    refetchIntervalInBackground: false,
-  })
+  const query = useQuery(globalBannerQueryOptions)
 
   const data = query.data?.success ? query.data.data : undefined
   const hasLiveCountdown =
@@ -125,4 +137,14 @@ export function useGlobalBanner(): GlobalBannerView {
   }, [hasLiveCountdown, query.dataUpdatedAt])
 
   return getGlobalBannerView(data, query.dataUpdatedAt, now)
+}
+
+export function useActiveModelPromotions(): ModelPromotion[] {
+  const query = useQuery(globalBannerQueryOptions)
+  const data = query.data?.success ? query.data.data : undefined
+
+  return useMemo(
+    () => getGlobalBannerView(data, query.dataUpdatedAt, Date.now()).models,
+    [data, query.dataUpdatedAt]
+  )
 }

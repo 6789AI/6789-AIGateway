@@ -106,12 +106,16 @@ describe('global banner', () => {
                 countdown_enabled: false,
                 countdown_end_at: 0,
                 link_url: '/special-pricing',
+                button_text: 'Learn more',
+                button_color: '#FFFFFF',
               },
               freeModelBanner: {
                 background_color: '#123456',
                 text_color: '#FEDCBA',
                 icon: 'rocket',
                 link_url: 'https://example.com/promotion',
+                button_text: 'View offer',
+                button_color: '#123456',
               },
               models: [
                 { model_name: 'video-free', promotion_type: 'free' },
@@ -167,17 +171,26 @@ describe('global banner', () => {
     assert.match(freeModelBanner.getAttribute('style') ?? '', /color: #fedcba/i)
     assert.match(freeModelBanner.textContent ?? '', /video-free is free now/)
     assert.match(freeModelBanner.textContent ?? '', /clip-discount is 20% off/)
-    assert.equal(freeModelBanner.querySelectorAll('svg').length, 2)
+    assert.equal(freeModelBanner.querySelectorAll('svg').length, 1)
     assert.equal(
       freeModelBanner.querySelector('time')?.getAttribute('aria-label'),
       'Offer period remaining: 01:01:01:01'
     )
+    const actionLink = freeModelBanner.querySelector<HTMLAnchorElement>('a')
     assert.equal(
-      freeModelBanner
-        .querySelector<HTMLAnchorElement>('a')
-        ?.getAttribute('href'),
+      actionLink?.getAttribute('href'),
       'https://example.com/promotion'
     )
+    assert.equal(actionLink?.textContent, 'View offer')
+    assert.ok(actionLink?.classList.contains('h-6'))
+    assert.ok(actionLink?.classList.contains('max-w-20'))
+    assert.ok(actionLink?.classList.contains('px-2'))
+    assert.ok(actionLink?.querySelector('span')?.classList.contains('truncate'))
+    assert.match(
+      actionLink?.getAttribute('style') ?? '',
+      /background-color: #123456/i
+    )
+    assert.match(actionLink?.getAttribute('style') ?? '', /color: #ffffff/i)
     assert.match(frame.textContent ?? '', /Route content/)
 
     await act(async () => root.unmount())
@@ -203,12 +216,16 @@ describe('global banner', () => {
               countdown_enabled: false,
               countdown_end_at: 0,
               link_url: '',
+              button_text: '',
+              button_color: '#FFFFFF',
             },
             freeModelBanner: {
               background_color: '#A3E635',
               text_color: '#1A2E05',
               icon: 'megaphone',
               link_url: '',
+              button_text: '',
+              button_color: '#FFFFFF',
             },
             models: [],
             globalRemainingSeconds: null,
@@ -252,12 +269,16 @@ describe('global banner', () => {
                 countdown_enabled: false,
                 countdown_end_at: 0,
                 link_url: '',
+                button_text: '',
+                button_color: '#FFFFFF',
               },
               freeModelBanner: {
                 background_color: '#A3E635',
                 text_color: '#1A2E05',
                 icon: '🎉 限时优惠',
                 link_url: '',
+                button_text: '',
+                button_color: '#FFFFFF',
               },
               models: [{ model_name: 'video-free', promotion_type: 'free' }],
               globalRemainingSeconds: null,
@@ -276,7 +297,11 @@ describe('global banner', () => {
     assert.equal(customIcons.length, 2)
     assert.equal(customIcons[0]?.textContent, '📣 公告')
     assert.equal(customIcons[1]?.textContent, '🎉 限时优惠')
-    assert.equal(container.querySelectorAll('aside svg').length, 1)
+    assert.ok(customIcons[0]?.classList.contains('leading-5'))
+    assert.ok(!customIcons[0]?.classList.contains('leading-none'))
+    assert.ok(customIcons[1]?.classList.contains('leading-5'))
+    assert.ok(!customIcons[1]?.classList.contains('leading-none'))
+    assert.equal(container.querySelectorAll('aside svg').length, 0)
 
     await act(async () => root.unmount())
     container.remove()
@@ -302,12 +327,16 @@ describe('global banner', () => {
                 countdown_enabled: false,
                 countdown_end_at: 0,
                 link_url: '',
+                button_text: '',
+                button_color: '#FFFFFF',
               },
               freeModelBanner: {
                 background_color: '#A3E635',
                 text_color: '#1A2E05',
                 icon: '🎉 限时优惠',
                 link_url: '',
+                button_text: '',
+                button_color: '#FFFFFF',
               },
               models: [
                 {

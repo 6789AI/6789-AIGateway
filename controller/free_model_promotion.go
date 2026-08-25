@@ -39,6 +39,8 @@ func GetFreeModelPromotions(c *gin.Context) {
 				"text_color":       freeModelBanner.TextColor,
 				"icon":             freeModelBanner.Icon,
 				"link_url":         freeModelBanner.LinkURL,
+				"button_text":      freeModelBanner.ButtonText,
+				"button_color":     freeModelBanner.ButtonColor,
 			},
 			"server_time":    now.Unix(),
 			"next_change_at": nextChangeAt,

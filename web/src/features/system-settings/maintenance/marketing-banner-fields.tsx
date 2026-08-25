@@ -16,11 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ArrowRight01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useWatch, type FieldPath, type UseFormReturn } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
+import { Button } from '@/components/ui/button'
 import {
   FormControl,
   FormDescription,
@@ -41,6 +41,8 @@ import {
   MARKETING_BANNER_ICON_NAMES,
   MARKETING_BANNER_ICON_OPTIONS,
   MarketingBannerIcon,
+  getReadableTextColor,
+  safeHexColor,
 } from '@/features/global-banner'
 import { getCountdownParts } from '@/features/global-banner/countdown'
 
@@ -61,6 +63,8 @@ type BannerFieldNames = {
   countdownEnabled: FieldPath<NoticeFormValues>
   countdownEndAt: FieldPath<NoticeFormValues>
   linkURL: FieldPath<NoticeFormValues>
+  buttonText: FieldPath<NoticeFormValues>
+  buttonColor: FieldPath<NoticeFormValues>
 }
 
 const globalBannerFields = {
@@ -72,6 +76,8 @@ const globalBannerFields = {
   countdownEnabled: 'GlobalBannerCountdownEnabled',
   countdownEndAt: 'GlobalBannerCountdownEndAt',
   linkURL: 'GlobalBannerLinkURL',
+  buttonText: 'GlobalBannerButtonText',
+  buttonColor: 'GlobalBannerButtonColor',
 } as const satisfies BannerFieldNames
 
 const marketingBannerFields = {
@@ -83,6 +89,8 @@ const marketingBannerFields = {
   countdownEnabled: 'MarketingBannerCountdownEnabled',
   countdownEndAt: 'MarketingBannerCountdownEndAt',
   linkURL: 'MarketingBannerLinkURL',
+  buttonText: 'MarketingBannerButtonText',
+  buttonColor: 'MarketingBannerButtonColor',
 } as const satisfies BannerFieldNames
 
 function formatDateTimeLocal(timestamp: number): string {
@@ -115,6 +123,8 @@ export function BannerFields(props: BannerFieldsProps) {
       fields.backgroundColor,
       fields.textColor,
       fields.icon,
+      fields.buttonText,
+      fields.buttonColor,
       fields.countdownEnabled,
       fields.countdownEndAt,
       fields.linkURL,
@@ -130,17 +140,21 @@ export function BannerFields(props: BannerFieldsProps) {
   )
   const customIcon = matchedIcon ? '' : rawIcon
   const customIconLength = [...customIcon].length
-  const countdownEnabled = Boolean(watchedValues[5])
-  const countdownEndAt = Number(watchedValues[6]) || 0
-  const linkURL = String(watchedValues[7] ?? '')
+  const buttonText = String(watchedValues[5] ?? '')
+  const buttonColor = String(watchedValues[6] ?? '')
+  const countdownEnabled = Boolean(watchedValues[7])
+  const countdownEndAt = Number(watchedValues[8]) || 0
+  const linkURL = String(watchedValues[9] ?? '')
   const fallbackBackgroundColor = isGlobal ? '#0EA5E9' : '#A3E635'
   const fallbackTextColor = isGlobal ? '#082F49' : '#1A2E05'
+  const fallbackButtonColor = '#FFFFFF'
   const previewBackgroundColor = hexColorPattern.test(backgroundColor)
     ? backgroundColor
     : fallbackBackgroundColor
   const previewTextColor = hexColorPattern.test(textColor)
     ? textColor
     : fallbackTextColor
+  const previewButtonColor = safeHexColor(buttonColor, fallbackButtonColor)
   const remainingSeconds = Math.max(
     0,
     Math.ceil(countdownEndAt - Date.now() / 1000)
@@ -350,12 +364,74 @@ export function BannerFields(props: BannerFieldsProps) {
               />
             </FormControl>
             <FormDescription>
-              {t('Leave blank to disable banner navigation.')}
+              {isGlobal
+                ? t('Leave blank to disable banner navigation.')
+                : t('Leave blank to open Model Square.')}
             </FormDescription>
             <FormMessage />
           </FormItem>
         )}
       />
+
+      <div className='grid gap-4 sm:grid-cols-2'>
+        <FormField
+          control={props.form.control}
+          name={fields.buttonText}
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>{t('Button text')}</FormLabel>
+              <FormControl>
+                <Input
+                  name={field.name}
+                  ref={field.ref}
+                  onBlur={field.onBlur}
+                  onChange={field.onChange}
+                  value={String(field.value ?? '')}
+                  maxLength={50}
+                  placeholder={t('Click to view')}
+                />
+              </FormControl>
+              <FormDescription>
+                {t('Leave blank to use the default button text.')}
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={props.form.control}
+          name={fields.buttonColor}
+          render={({ field }) => {
+            const value = String(field.value ?? '')
+            return (
+              <FormItem>
+                <FormLabel>{t('Button color')}</FormLabel>
+                <div className='flex items-center gap-2'>
+                  <input
+                    type='color'
+                    value={safeHexColor(value, fallbackButtonColor)}
+                    onChange={(event) => field.onChange(event.target.value)}
+                    className='border-input h-8 w-10 shrink-0 cursor-pointer rounded-md border bg-transparent p-0.5'
+                    aria-label={t('Button color')}
+                  />
+                  <FormControl>
+                    <Input
+                      name={field.name}
+                      ref={field.ref}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                      value={value}
+                      maxLength={7}
+                    />
+                  </FormControl>
+                </div>
+                <FormMessage />
+              </FormItem>
+            )
+          }}
+        />
+      </div>
 
       <div className='grid gap-4 sm:grid-cols-2'>
         <FormField
@@ -451,13 +527,20 @@ export function BannerFields(props: BannerFieldsProps) {
               {isGlobal ? countdownText : '00:01:23:45'}
             </span>
           )}
-          {linkURL.trim() && (
-            <HugeiconsIcon
-              icon={ArrowRight01Icon}
-              strokeWidth={2}
-              className='size-4 shrink-0'
-              aria-hidden='true'
-            />
+          {(!isGlobal || linkURL.trim()) && (
+            <Button
+              type='button'
+              size='xs'
+              className='max-w-20 px-2 sm:max-w-36'
+              style={{
+                backgroundColor: previewButtonColor,
+                color: getReadableTextColor(previewButtonColor),
+              }}
+            >
+              <span className='truncate'>
+                {buttonText.trim() || t('Click to view')}
+              </span>
+            </Button>
           )}
         </div>
       </div>

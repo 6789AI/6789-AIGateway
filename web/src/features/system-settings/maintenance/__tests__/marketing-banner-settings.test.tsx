@@ -109,6 +109,8 @@ describe('global and free-model banner settings', () => {
                   GlobalBannerCountdownEnabled: false,
                   GlobalBannerCountdownEndAt: 0,
                   GlobalBannerLinkURL: '',
+                  GlobalBannerButtonText: '',
+                  GlobalBannerButtonColor: '#FFFFFF',
                   MarketingBannerEnabled: false,
                   MarketingBannerContent: '',
                   MarketingBannerBackgroundColor: '#A3E635',
@@ -117,6 +119,8 @@ describe('global and free-model banner settings', () => {
                   MarketingBannerCountdownEnabled: false,
                   MarketingBannerCountdownEndAt: 0,
                   MarketingBannerLinkURL: '',
+                  MarketingBannerButtonText: '',
+                  MarketingBannerButtonColor: '#FFFFFF',
                 }}
               />
             </SettingsPageProvider>
@@ -140,6 +144,12 @@ describe('global and free-model banner settings', () => {
     const linkInput = container.querySelector<HTMLInputElement>(
       'input[name="MarketingBannerLinkURL"]'
     )
+    const buttonTextInput = container.querySelector<HTMLInputElement>(
+      'input[name="MarketingBannerButtonText"]'
+    )
+    const buttonColorInput = container.querySelector<HTMLInputElement>(
+      'input[name="MarketingBannerButtonColor"]'
+    )
     const freeModelHeading = [...container.querySelectorAll('h3')].find(
       (heading) => heading.textContent === 'Limited-time model offer'
     )
@@ -150,8 +160,20 @@ describe('global and free-model banner settings', () => {
     assert.ok(backgroundInput)
     assert.ok(textInput)
     assert.ok(linkInput)
+    assert.ok(buttonTextInput)
+    assert.ok(buttonColorInput)
     assert.ok(freeModelSection)
     assert.ok(couponButton)
+    const preview = freeModelSection.querySelector(
+      '[aria-label="Banner preview"]'
+    )
+    const defaultPreviewButton =
+      preview?.querySelector<HTMLButtonElement>('button')
+    assert.ok(preview)
+    assert.equal(defaultPreviewButton?.textContent, 'Click to view')
+    assert.ok(defaultPreviewButton?.classList.contains('h-6'))
+    assert.ok(defaultPreviewButton?.classList.contains('max-w-20'))
+    assert.ok(defaultPreviewButton?.classList.contains('px-2'))
     const customIconInputs = container.querySelectorAll<HTMLInputElement>(
       'input[aria-label="Custom characters or emoji"]'
     )
@@ -170,14 +192,12 @@ describe('global and free-model banner settings', () => {
       changeInputValue(backgroundInput, '#123456')
       changeInputValue(textInput, '#FEDCBA')
       changeInputValue(linkInput, '/wallet')
+      changeInputValue(buttonTextInput, 'Explore deals')
+      changeInputValue(buttonColorInput, '#112233')
       couponButton.click()
     })
     assert.equal(linkInput.checkValidity(), true)
 
-    const preview = freeModelSection.querySelector(
-      '[aria-label="Banner preview"]'
-    )
-    assert.ok(preview)
     assert.match(preview.textContent ?? '', /Model A is 20% off/)
     assert.match(preview.textContent ?? '', /00:01:23:45/)
     assert.match(
@@ -185,6 +205,13 @@ describe('global and free-model banner settings', () => {
       /background-color: #123456/i
     )
     assert.match(preview.getAttribute('style') ?? '', /color: #fedcba/i)
+    const previewButton = preview.querySelector<HTMLButtonElement>('button')
+    assert.equal(previewButton?.textContent, 'Explore deals')
+    assert.match(
+      previewButton?.getAttribute('style') ?? '',
+      /background-color: #112233/i
+    )
+    assert.match(previewButton?.getAttribute('style') ?? '', /color: #ffffff/i)
     assert.equal(couponButton.getAttribute('aria-pressed'), 'true')
     const iconCount = preview.querySelectorAll('svg').length
     await act(async () => couponButton.click())

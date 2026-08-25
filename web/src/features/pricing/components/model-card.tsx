@@ -20,7 +20,10 @@ import { ChevronRight, Copy } from 'lucide-react'
 import { memo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Badge } from '@/components/ui/badge'
+import type { ModelPromotion } from '@/features/global-banner'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { toIntlLocale } from '@/i18n/languages'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
@@ -45,10 +48,11 @@ export interface ModelCardProps {
   showRechargePrice?: boolean
   selectedGroup?: string
   perf?: ModelPerfBadgeData
+  promotion?: ModelPromotion
 }
 
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { copyToClipboard } = useCopyToClipboard()
   const tokenUnit = props.tokenUnit ?? DEFAULT_TOKEN_UNIT
   const priceRate = props.priceRate ?? 1
@@ -78,6 +82,24 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         ),
       })
     : null
+
+  let promotionLabel: string | null = null
+  if (props.promotion?.promotion_type === 'free') {
+    promotionLabel = t('Free offer')
+  } else if (props.promotion?.promotion_type === 'discount') {
+    const discountRate = props.promotion.discount_rate
+    if (discountRate !== undefined && Number.isFinite(discountRate)) {
+      const percent = new Intl.NumberFormat(
+        toIntlLocale(i18n.resolvedLanguage || i18n.language),
+        { maximumFractionDigits: 6 }
+      ).format(Math.min(100, Math.max(0, (1 - discountRate) * 100)))
+      promotionLabel = t('{{percent}}% off', { percent })
+    } else {
+      promotionLabel = t('Discount')
+    }
+  } else if (props.promotion?.promotion_type === 'fixed_price') {
+    promotionLabel = t('Special price')
+  }
 
   const primaryGroup = groups[0]
   const bottomTags = [...endpoints.slice(0, 2), ...tags.slice(0, 2)]
@@ -197,9 +219,24 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     <div
       className={cn(
         'group relative flex flex-col rounded-xl border p-3 transition-colors sm:p-5',
-        'hover:bg-muted/20'
+        promotionLabel
+          ? 'border-promotion/60 bg-promotion/10 hover:bg-promotion/15'
+          : 'hover:bg-muted/20'
       )}
+      data-model-card
+      data-model-promotion={
+        promotionLabel ? props.promotion?.promotion_type : undefined
+      }
     >
+      {promotionLabel && (
+        <Badge
+          className='border-promotion/70 bg-promotion text-promotion-foreground absolute start-4 top-0 -translate-y-1/2 rounded-md shadow-xs'
+          data-model-promotion-badge
+        >
+          {promotionLabel}
+        </Badge>
+      )}
+
       {/* Header: icon + name + price + actions */}
       <div className='flex items-start justify-between gap-2.5 sm:gap-3'>
         <div className='flex min-w-0 items-start gap-2.5 sm:gap-3'>

@@ -16,30 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export {
-  GlobalBanner,
-  GlobalBannerFrame,
-  GlobalBannerHost,
-} from './global-banner'
-export {
-  getGlobalBannerView,
-  useActiveModelPromotions,
-  useGlobalBanner,
-} from './use-global-banner'
-export {
-  MARKETING_BANNER_ICON_NAMES,
-  MARKETING_BANNER_ICON_OPTIONS,
-} from './marketing-banner-icons'
-export { MarketingBannerIcon } from './marketing-banner-icon'
-export { getReadableTextColor, safeHexColor } from './banner-colors'
-export type {
-  BannerConfig,
-  FreeModelBannerStyle,
-  GlobalBannerData,
-  GlobalBannerView,
-  ModelPromotion,
-} from './types'
-export type {
-  BannerIconName,
-  MarketingBannerIconName,
-} from './marketing-banner-icons'
+import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
+
+import { getReadableTextColor } from '../banner-colors'
+
+describe('banner button text color', () => {
+  test('chooses the higher-contrast text color for common campaign colors', () => {
+    assert.equal(getReadableTextColor('#FF0000'), '#000000')
+    assert.equal(getReadableTextColor('#A3E635'), '#000000')
+    assert.equal(getReadableTextColor('#123456'), '#FFFFFF')
+  })
+})

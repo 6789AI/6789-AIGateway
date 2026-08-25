@@ -20,6 +20,11 @@ func TestValidateMarketingBannerOption(t *testing.T) {
 			value: "#A3E635",
 		},
 		{
+			name:  "accepts a six digit hex button color",
+			key:   MarketingBannerOptionPrefix + "button_color",
+			value: "#123456",
+		},
+		{
 			name:    "rejects arbitrary CSS colors",
 			key:     MarketingBannerOptionPrefix + "text_color",
 			value:   "var(--foreground)",
@@ -36,6 +41,17 @@ func TestValidateMarketingBannerOption(t *testing.T) {
 			key:     MarketingBannerOptionPrefix + "content",
 			value:   strings.Repeat("界", 301),
 			wantErr: "300 characters",
+		},
+		{
+			name:  "accepts custom button text",
+			key:   MarketingBannerOptionPrefix + "button_text",
+			value: "点击查看",
+		},
+		{
+			name:    "rejects button text beyond the display limit",
+			key:     MarketingBannerOptionPrefix + "button_text",
+			value:   strings.Repeat("界", 51),
+			wantErr: "50 characters",
 		},
 		{
 			name:  "accepts a supported icon",

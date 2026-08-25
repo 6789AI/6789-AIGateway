@@ -42,6 +42,8 @@ export type NoticeFormValues = {
   GlobalBannerCountdownEnabled: boolean
   GlobalBannerCountdownEndAt: number
   GlobalBannerLinkURL: string
+  GlobalBannerButtonText: string
+  GlobalBannerButtonColor: string
   MarketingBannerEnabled: boolean
   MarketingBannerContent: string
   MarketingBannerBackgroundColor: string
@@ -50,6 +52,8 @@ export type NoticeFormValues = {
   MarketingBannerCountdownEnabled: boolean
   MarketingBannerCountdownEndAt: number
   MarketingBannerLinkURL: string
+  MarketingBannerButtonText: string
+  MarketingBannerButtonColor: string
 }
 
 type NoticeSectionProps = {
@@ -81,6 +85,10 @@ export function NoticeSection(props: NoticeSectionProps) {
           GlobalBannerCountdownEnabled: z.boolean(),
           GlobalBannerCountdownEndAt: z.number().int().nonnegative(),
           GlobalBannerLinkURL: z.string().trim().max(2048),
+          GlobalBannerButtonText: z.string().trim().max(50),
+          GlobalBannerButtonColor: z
+            .string()
+            .regex(hexColorPattern, t('Colors must use a 6-digit hex value')),
           MarketingBannerEnabled: z.boolean(),
           MarketingBannerContent: z.string().max(300),
           MarketingBannerBackgroundColor: z
@@ -98,6 +106,10 @@ export function NoticeSection(props: NoticeSectionProps) {
           MarketingBannerCountdownEnabled: z.boolean(),
           MarketingBannerCountdownEndAt: z.number().int().nonnegative(),
           MarketingBannerLinkURL: z.string().trim().max(2048),
+          MarketingBannerButtonText: z.string().trim().max(50),
+          MarketingBannerButtonColor: z
+            .string()
+            .regex(hexColorPattern, t('Colors must use a 6-digit hex value')),
         })
         .superRefine((values, context) => {
           if (
@@ -221,6 +233,16 @@ export function NoticeSection(props: NoticeSectionProps) {
         previous: props.defaultValues.GlobalBannerLinkURL,
       },
       {
+        key: 'global_banner.button_text',
+        value: values.GlobalBannerButtonText.trim(),
+        previous: props.defaultValues.GlobalBannerButtonText,
+      },
+      {
+        key: 'global_banner.button_color',
+        value: values.GlobalBannerButtonColor.toUpperCase(),
+        previous: props.defaultValues.GlobalBannerButtonColor,
+      },
+      {
         key: 'global_banner.countdown_enabled',
         value: values.GlobalBannerCountdownEnabled,
         previous: props.defaultValues.GlobalBannerCountdownEnabled,
@@ -249,6 +271,16 @@ export function NoticeSection(props: NoticeSectionProps) {
         key: 'marketing_banner.link_url',
         value: values.MarketingBannerLinkURL.trim(),
         previous: props.defaultValues.MarketingBannerLinkURL,
+      },
+      {
+        key: 'marketing_banner.button_text',
+        value: values.MarketingBannerButtonText.trim(),
+        previous: props.defaultValues.MarketingBannerButtonText,
+      },
+      {
+        key: 'marketing_banner.button_color',
+        value: values.MarketingBannerButtonColor.toUpperCase(),
+        previous: props.defaultValues.MarketingBannerButtonColor,
       },
     ]
 
