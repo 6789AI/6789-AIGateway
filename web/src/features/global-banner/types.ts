@@ -53,7 +53,7 @@ export type GlobalBannerData = {
   free_model_banner: FreeModelBannerStyle
   server_time: number
   next_change_at?: number
-  models: ModelPromotion[]
+  models?: ModelPromotion[] | null
 }
 
 export type GlobalBannerResponse = {

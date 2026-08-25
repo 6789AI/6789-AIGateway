@@ -165,6 +165,37 @@ func TestGetFreeModelPromotionsReturnsDiscountActivities(t *testing.T) {
 	assert.Equal(t, endAt, response.Data.Models[0].EndsAt)
 }
 
+func TestGetFreeModelPromotionsReturnsEmptyModelArrayWhenBannerDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	savedConfig := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		savedConfig[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig))
+	})
+
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.free_model_banner_enabled": "false",
+	}))
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	GetFreeModelPromotions(context)
+
+	var response struct {
+		Data struct {
+			Active bool       `json:"active"`
+			Models []struct{} `json:"models"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.False(t, response.Data.Active)
+	assert.NotNil(t, response.Data.Models)
+	assert.Empty(t, response.Data.Models)
+}
+
 func TestGetFreeModelPromotionsIgnoresLegacyMarketingCountdown(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	savedConfig := map[string]string{}

@@ -59,6 +59,29 @@ describe('global banner view', () => {
     assert.deepEqual(view.models, [])
   })
 
+  test('treats null promotion data as an empty list', () => {
+    const view = getGlobalBannerView(
+      {
+        active: false,
+        free_model_banner: {
+          background_color: '#A3E635',
+          text_color: '#1A2E05',
+          icon: 'megaphone',
+          link_url: '',
+          button_text: '',
+          button_color: '#FFFFFF',
+        },
+        server_time: 1_000,
+        models: null,
+      },
+      10_000,
+      10_000
+    )
+
+    assert.equal(view.visible, false)
+    assert.deepEqual(view.models, [])
+  })
+
   test('filters expired promotions using elapsed server time', () => {
     const view = getGlobalBannerView(
       {

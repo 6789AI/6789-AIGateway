@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { getGlobalBanner } from './api'
 import type {
@@ -76,7 +76,7 @@ export function getGlobalBannerView(
 
   const elapsedSeconds = Math.max(0, now - dataUpdatedAt) / 1000
   const serverTime = data.server_time + elapsedSeconds
-  const models = data.models.filter(
+  const models = (data.models ?? []).filter(
     (model) => !model.ends_at || model.ends_at > serverTime
   )
   const finiteEndTimes = models
@@ -123,13 +123,12 @@ export function useGlobalBanner(): GlobalBannerView {
 
   const data = query.data?.success ? query.data.data : undefined
   const hasLiveCountdown =
-    data?.models.some((model) => !!model.ends_at) ||
+    data?.models?.some((model) => !!model.ends_at) ||
     (data?.global_banner?.enabled &&
       data.global_banner.countdown_enabled &&
       data.global_banner.countdown_end_at > 0)
 
   useEffect(() => {
-    setNow(Date.now())
     if (!hasLiveCountdown) return
 
     const intervalId = window.setInterval(() => setNow(Date.now()), 1000)
@@ -140,11 +139,5 @@ export function useGlobalBanner(): GlobalBannerView {
 }
 
 export function useActiveModelPromotions(): ModelPromotion[] {
-  const query = useQuery(globalBannerQueryOptions)
-  const data = query.data?.success ? query.data.data : undefined
-
-  return useMemo(
-    () => getGlobalBannerView(data, query.dataUpdatedAt, Date.now()).models,
-    [data, query.dataUpdatedAt]
-  )
+  return useGlobalBanner().models
 }

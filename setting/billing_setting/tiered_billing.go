@@ -426,11 +426,11 @@ func samePromotion(candidate, current ModelPromotion) bool {
 }
 
 func GetActiveModelPromotions(now time.Time) []ModelPromotion {
+	promotions := make([]ModelPromotion, 0)
 	if !billingSetting.FreeModelBannerEnabled {
-		return nil
+		return promotions
 	}
 
-	promotions := make([]ModelPromotion, 0)
 	for model, rules := range billingSetting.PriceSchedules {
 		var selected ModelPromotion
 		matched := false
