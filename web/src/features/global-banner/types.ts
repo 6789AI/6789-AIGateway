@@ -54,6 +54,7 @@ export type GlobalBannerData = {
   server_time: number
   next_change_at?: number
   models?: ModelPromotion[] | null
+  active_models?: ModelPromotion[] | null
 }
 
 export type GlobalBannerResponse = {
@@ -66,6 +67,7 @@ export type GlobalBannerView = {
   globalBanner: BannerConfig
   freeModelBanner: FreeModelBannerStyle
   models: ModelPromotion[]
+  activeModels: ModelPromotion[]
   globalRemainingSeconds: number | null
   promotionRemainingSeconds: number | null
 }

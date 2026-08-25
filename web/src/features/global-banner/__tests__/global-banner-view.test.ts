@@ -57,6 +57,7 @@ describe('global banner view', () => {
     assert.equal(view.freeModelBanner.link_url, '/wallet')
     assert.equal(view.freeModelBanner.button_text, 'Open wallet')
     assert.deepEqual(view.models, [])
+    assert.deepEqual(view.activeModels, [])
   })
 
   test('treats null promotion data as an empty list', () => {
@@ -80,6 +81,38 @@ describe('global banner view', () => {
 
     assert.equal(view.visible, false)
     assert.deepEqual(view.models, [])
+    assert.deepEqual(view.activeModels, [])
+  })
+
+  test('keeps active pricing promotions available when their banner is disabled', () => {
+    const promotion = {
+      model_name: 'discount-model',
+      promotion_type: 'discount' as const,
+      discount_rate: 0.8,
+      ends_at: 1_010,
+    }
+    const view = getGlobalBannerView(
+      {
+        active: false,
+        free_model_banner: {
+          background_color: '#A3E635',
+          text_color: '#1A2E05',
+          icon: 'megaphone',
+          link_url: '',
+          button_text: '',
+          button_color: '#FFFFFF',
+        },
+        server_time: 1_000,
+        models: [],
+        active_models: [promotion],
+      },
+      10_000,
+      10_000
+    )
+
+    assert.equal(view.visible, false)
+    assert.deepEqual(view.models, [])
+    assert.deepEqual(view.activeModels, [promotion])
   })
 
   test('filters expired promotions using elapsed server time', () => {
@@ -131,6 +164,7 @@ describe('global banner view', () => {
         ends_at: 1_010,
       },
     ])
+    assert.deepEqual(view.activeModels, view.models)
     assert.equal(view.promotionRemainingSeconds, 8)
   })
 })

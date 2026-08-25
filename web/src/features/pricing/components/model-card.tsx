@@ -21,7 +21,6 @@ import { memo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
-import type { ModelPromotion } from '@/features/global-banner'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { toIntlLocale } from '@/i18n/languages'
 import { getLobeIcon } from '@/lib/lobe-icon'
@@ -48,7 +47,6 @@ export interface ModelCardProps {
   showRechargePrice?: boolean
   selectedGroup?: string
   perf?: ModelPerfBadgeData
-  promotion?: ModelPromotion
 }
 
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
@@ -82,12 +80,13 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         ),
       })
     : null
+  const promotion = props.model.active_promotion
 
   let promotionLabel: string | null = null
-  if (props.promotion?.promotion_type === 'free') {
+  if (promotion?.promotion_type === 'free') {
     promotionLabel = t('Free offer')
-  } else if (props.promotion?.promotion_type === 'discount') {
-    const discountRate = props.promotion.discount_rate
+  } else if (promotion?.promotion_type === 'discount') {
+    const discountRate = promotion.discount_rate
     if (discountRate !== undefined && Number.isFinite(discountRate)) {
       const percent = new Intl.NumberFormat(
         toIntlLocale(i18n.resolvedLanguage || i18n.language),
@@ -97,7 +96,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     } else {
       promotionLabel = t('Discount')
     }
-  } else if (props.promotion?.promotion_type === 'fixed_price') {
+  } else if (promotion?.promotion_type === 'fixed_price') {
     promotionLabel = t('Special price')
   }
 
@@ -225,7 +224,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       )}
       data-model-card
       data-model-promotion={
-        promotionLabel ? props.promotion?.promotion_type : undefined
+        promotionLabel ? promotion?.promotion_type : undefined
       }
     >
       {promotionLabel && (

@@ -310,6 +310,37 @@ func TestGetActiveModelPromotionsIncludesDiscounts(t *testing.T) {
 	assert.Equal(t, 0.25, *promotions[1].Price)
 }
 
+func TestActiveModelPromotionsAreIndependentOfBannerVisibility(t *testing.T) {
+	originalModes := billingSetting.BillingMode
+	originalSchedules := billingSetting.PriceSchedules
+	originalEnabled := billingSetting.FreeModelBannerEnabled
+	t.Cleanup(func() {
+		billingSetting.BillingMode = originalModes
+		billingSetting.PriceSchedules = originalSchedules
+		billingSetting.FreeModelBannerEnabled = originalEnabled
+	})
+
+	now := time.Unix(150, 0)
+	billingSetting.BillingMode = map[string]string{"discount-model": BillingModeRatio}
+	billingSetting.PriceSchedules = map[string][]PriceSchedule{
+		"discount-model": {{
+			Type: PriceScheduleAbsolute, AdjustmentType: PriceAdjustmentRate,
+			DiscountRate: pricePointer(0.8), ShowBanner: boolPointer(false),
+			StartAt: 100, EndAt: 200,
+		}},
+	}
+	billingSetting.FreeModelBannerEnabled = false
+
+	promotions := GetActiveModelPromotions(now)
+
+	require.Len(t, promotions, 1)
+	assert.Equal(t, "discount-model", promotions[0].ModelName)
+	assert.Empty(t, GetActiveBannerModelPromotions(now))
+
+	billingSetting.FreeModelBannerEnabled = true
+	assert.Empty(t, GetActiveBannerModelPromotions(now))
+}
+
 func TestGetActiveModelPromotionsUsesLowestEffectivePerRequestPrice(t *testing.T) {
 	originalModes := billingSetting.BillingMode
 	originalSchedules := billingSetting.PriceSchedules

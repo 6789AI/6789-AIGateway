@@ -90,13 +90,18 @@ func TestGetFreeModelPromotionsReturnsPublicCountdownData(t *testing.T) {
 				DiscountRate  *float64 `json:"discount_rate"`
 				EndsAt        int64    `json:"ends_at"`
 			} `json:"models"`
+			ActiveModels []struct {
+				ModelName string `json:"model_name"`
+			} `json:"active_models"`
 		} `json:"data"`
 	}
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	require.True(t, response.Success)
 	require.True(t, response.Data.Active)
 	require.Len(t, response.Data.Models, 1)
+	require.Len(t, response.Data.ActiveModels, 1)
 	assert.Equal(t, "banner-model", response.Data.Models[0].ModelName)
+	assert.Equal(t, "banner-model", response.Data.ActiveModels[0].ModelName)
 	assert.Equal(t, "free", response.Data.Models[0].PromotionType)
 	assert.Equal(t, endAt, response.Data.Models[0].EndsAt)
 	assert.Equal(t, endAt, response.Data.NextChangeAt)
@@ -165,7 +170,7 @@ func TestGetFreeModelPromotionsReturnsDiscountActivities(t *testing.T) {
 	assert.Equal(t, endAt, response.Data.Models[0].EndsAt)
 }
 
-func TestGetFreeModelPromotionsReturnsEmptyModelArrayWhenBannerDisabled(t *testing.T) {
+func TestGetFreeModelPromotionsReturnsActivitiesForCardsWhenBannerDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	savedConfig := map[string]string{}
 	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
@@ -176,8 +181,13 @@ func TestGetFreeModelPromotionsReturnsEmptyModelArrayWhenBannerDisabled(t *testi
 		require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig))
 	})
 
+	now := time.Now()
 	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
 		"billing_setting.free_model_banner_enabled": "false",
+		"billing_setting.price_schedules": fmt.Sprintf(
+			`{"discount-model":[{"type":"absolute","adjustment_type":"discount","discount_rate":0.8,"start_at":%d,"end_at":%d,"show_banner":true}]}`,
+			now.Add(-time.Hour).Unix(), now.Add(time.Hour).Unix(),
+		),
 	}))
 
 	recorder := httptest.NewRecorder()
@@ -186,14 +196,20 @@ func TestGetFreeModelPromotionsReturnsEmptyModelArrayWhenBannerDisabled(t *testi
 
 	var response struct {
 		Data struct {
-			Active bool       `json:"active"`
-			Models []struct{} `json:"models"`
+			Active       bool       `json:"active"`
+			Models       []struct{} `json:"models"`
+			ActiveModels []struct {
+				ModelName string `json:"model_name"`
+			} `json:"active_models"`
 		} `json:"data"`
 	}
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	assert.False(t, response.Data.Active)
 	assert.NotNil(t, response.Data.Models)
 	assert.Empty(t, response.Data.Models)
+	assert.NotNil(t, response.Data.ActiveModels)
+	require.Len(t, response.Data.ActiveModels, 1)
+	assert.Equal(t, "discount-model", response.Data.ActiveModels[0].ModelName)
 }
 
 func TestGetFreeModelPromotionsIgnoresLegacyMarketingCountdown(t *testing.T) {

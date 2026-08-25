@@ -63,6 +63,7 @@ const inactiveBannerView: GlobalBannerView = {
   globalBanner: defaultGlobalBanner,
   freeModelBanner: defaultFreeModelBanner,
   models: [],
+  activeModels: [],
   globalRemainingSeconds: null,
   promotionRemainingSeconds: null,
 }
@@ -77,6 +78,9 @@ export function getGlobalBannerView(
   const elapsedSeconds = Math.max(0, now - dataUpdatedAt) / 1000
   const serverTime = data.server_time + elapsedSeconds
   const models = (data.models ?? []).filter(
+    (model) => !model.ends_at || model.ends_at > serverTime
+  )
+  const activeModels = (data.active_models ?? data.models ?? []).filter(
     (model) => !model.ends_at || model.ends_at > serverTime
   )
   const finiteEndTimes = models
@@ -106,6 +110,7 @@ export function getGlobalBannerView(
     },
     freeModelBanner,
     models,
+    activeModels,
     globalRemainingSeconds:
       globalVisible && globalBanner.countdown_enabled
         ? Math.max(0, Math.ceil(globalBanner.countdown_end_at - serverTime))
@@ -123,6 +128,7 @@ export function useGlobalBanner(): GlobalBannerView {
 
   const data = query.data?.success ? query.data.data : undefined
   const hasLiveCountdown =
+    data?.active_models?.some((model) => !!model.ends_at) ||
     data?.models?.some((model) => !!model.ends_at) ||
     (data?.global_banner?.enabled &&
       data.global_banner.countdown_enabled &&
@@ -139,5 +145,5 @@ export function useGlobalBanner(): GlobalBannerView {
 }
 
 export function useActiveModelPromotions(): ModelPromotion[] {
-  return useGlobalBanner().models
+  return useGlobalBanner().activeModels
 }

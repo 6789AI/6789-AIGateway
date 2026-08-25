@@ -125,6 +125,7 @@ describe('global banner', () => {
                   discount_rate: 0.8,
                 },
               ],
+              activeModels: [],
               globalRemainingSeconds: null,
               promotionRemainingSeconds: 90_061,
             }}
@@ -228,6 +229,7 @@ describe('global banner', () => {
               button_color: '#FFFFFF',
             },
             models: [],
+            activeModels: [],
             globalRemainingSeconds: null,
             promotionRemainingSeconds: null,
           }}
@@ -281,6 +283,7 @@ describe('global banner', () => {
                 button_color: '#FFFFFF',
               },
               models: [{ model_name: 'video-free', promotion_type: 'free' }],
+              activeModels: [],
               globalRemainingSeconds: null,
               promotionRemainingSeconds: null,
             }}
@@ -345,6 +348,7 @@ describe('global banner', () => {
                   discount_rate: 0.8,
                 },
               ],
+              activeModels: [],
               globalRemainingSeconds: null,
               promotionRemainingSeconds: 60,
             }}

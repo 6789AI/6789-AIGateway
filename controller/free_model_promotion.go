@@ -13,6 +13,7 @@ import (
 func GetFreeModelPromotions(c *gin.Context) {
 	now := time.Now()
 	promotions := billing_setting.GetActiveModelPromotions(now)
+	bannerPromotions := billing_setting.GetActiveBannerModelPromotions(now)
 	globalBanner := system_setting.GetGlobalBannerSettings()
 	globalBanner.Enabled = globalBanner.Enabled &&
 		strings.TrimSpace(globalBanner.Content) != "" &&
@@ -22,7 +23,7 @@ func GetFreeModelPromotions(c *gin.Context) {
 	if globalBanner.Enabled && globalBanner.CountdownEnabled {
 		nextChangeAt = globalBanner.CountdownEndAt
 	}
-	for _, promotion := range promotions {
+	for _, promotion := range bannerPromotions {
 		if promotion.EndsAt > 0 && (nextChangeAt == 0 || promotion.EndsAt < nextChangeAt) {
 			nextChangeAt = promotion.EndsAt
 		}
@@ -32,7 +33,7 @@ func GetFreeModelPromotions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"active":        len(promotions) > 0,
+			"active":        len(bannerPromotions) > 0,
 			"global_banner": globalBanner,
 			"free_model_banner": gin.H{
 				"background_color": freeModelBanner.BackgroundColor,
@@ -44,7 +45,8 @@ func GetFreeModelPromotions(c *gin.Context) {
 			},
 			"server_time":    now.Unix(),
 			"next_change_at": nextChangeAt,
-			"models":         promotions,
+			"models":         bannerPromotions,
+			"active_models":  promotions,
 		},
 	})
 }

@@ -425,12 +425,8 @@ func samePromotion(candidate, current ModelPromotion) bool {
 	}
 }
 
-func GetActiveModelPromotions(now time.Time) []ModelPromotion {
+func getActiveModelPromotions(now time.Time, bannerOnly bool) []ModelPromotion {
 	promotions := make([]ModelPromotion, 0)
-	if !billingSetting.FreeModelBannerEnabled {
-		return promotions
-	}
-
 	for model, rules := range billingSetting.PriceSchedules {
 		var selected ModelPromotion
 		matched := false
@@ -467,7 +463,7 @@ func GetActiveModelPromotions(now time.Time) []ModelPromotion {
 				selected.EndsAt = candidate.EndsAt
 			}
 		}
-		if matched && selectedVisible {
+		if matched && (!bannerOnly || selectedVisible) {
 			promotions = append(promotions, selected)
 		}
 	}
@@ -478,10 +474,23 @@ func GetActiveModelPromotions(now time.Time) []ModelPromotion {
 	return promotions
 }
 
+// GetActiveModelPromotions returns active pricing activities independently of
+// whether the optional global promotion banner is enabled.
+func GetActiveModelPromotions(now time.Time) []ModelPromotion {
+	return getActiveModelPromotions(now, false)
+}
+
+func GetActiveBannerModelPromotions(now time.Time) []ModelPromotion {
+	if !billingSetting.FreeModelBannerEnabled {
+		return make([]ModelPromotion, 0)
+	}
+	return getActiveModelPromotions(now, true)
+}
+
 // GetActiveFreeModelPromotions is kept for callers that only need the legacy
-// free subset. New banner consumers should use GetActiveModelPromotions.
+// free banner subset.
 func GetActiveFreeModelPromotions(now time.Time) []ModelPromotion {
-	return lo.Filter(GetActiveModelPromotions(now), func(promotion ModelPromotion, _ int) bool {
+	return lo.Filter(GetActiveBannerModelPromotions(now), func(promotion ModelPromotion, _ int) bool {
 		return promotion.PromotionType == PromotionTypeFree
 	})
 }

@@ -95,7 +95,10 @@ async function renderCard(promotion?: ModelPromotion) {
   await act(async () => {
     root.render(
       <I18nextProvider i18n={i18n}>
-        <ModelCard model={model} promotion={promotion} onClick={() => {}} />
+        <ModelCard
+          model={{ ...model, active_promotion: promotion }}
+          onClick={() => {}}
+        />
       </I18nextProvider>
     )
   })

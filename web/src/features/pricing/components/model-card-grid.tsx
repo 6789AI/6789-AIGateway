@@ -22,7 +22,6 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
-import { useActiveModelPromotions } from '@/features/global-banner'
 import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
 
 import { DEFAULT_PRICING_PAGE_SIZE, DEFAULT_TOKEN_UNIT } from '../constants'
@@ -42,7 +41,6 @@ export interface ModelCardGridProps {
 
 export function ModelCardGrid(props: ModelCardGridProps) {
   const { t } = useTranslation()
-  const promotions = useActiveModelPromotions()
   const [page, setPage] = useState(1)
   const pageSize = DEFAULT_PRICING_PAGE_SIZE
   const tokenUnit = props.tokenUnit ?? DEFAULT_TOKEN_UNIT
@@ -69,12 +67,6 @@ export function ModelCardGrid(props: ModelCardGridProps) {
     return map
   }, [perfQuery.data])
 
-  const promotionMap = useMemo(
-    () =>
-      new Map(promotions.map((promotion) => [promotion.model_name, promotion])),
-    [promotions]
-  )
-
   if (props.models.length === 0) {
     return null
   }
@@ -92,7 +84,6 @@ export function ModelCardGrid(props: ModelCardGridProps) {
             showRechargePrice={props.showRechargePrice}
             selectedGroup={props.selectedGroup}
             perf={perfMap.get(model.model_name || '')}
-            promotion={promotionMap.get(model.model_name || '')}
             onClick={() => props.onModelClick(model.model_name || '')}
           />
         ))}

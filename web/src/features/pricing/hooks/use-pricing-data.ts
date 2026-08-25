@@ -23,13 +23,17 @@ import { useStatus } from '@/hooks/use-status'
 
 import { getPricing } from '../api'
 
+const PRICING_REFRESH_INTERVAL = 15_000
+
 export function usePricingData() {
   const { status } = useStatus()
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['pricing'],
     queryFn: getPricing,
-    staleTime: 5 * 60 * 1000,
+    staleTime: PRICING_REFRESH_INTERVAL,
+    refetchInterval: PRICING_REFRESH_INTERVAL,
+    refetchIntervalInBackground: false,
   })
 
   // Ensure rates never reach zero to prevent division errors

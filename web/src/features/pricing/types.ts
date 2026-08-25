@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { ModelPromotion } from '@/features/global-banner/types'
+
 // ----------------------------------------------------------------------------
 // Pricing Types
 // ----------------------------------------------------------------------------
@@ -54,6 +56,8 @@ export type PricingModel = {
   billing_mode?: string
   /** Raw expression describing dynamic / tiered billing */
   billing_expr?: string
+  /** Activity applied to this exact pricing snapshot. */
+  active_promotion?: ModelPromotion
   /** Pricing version returned by backend, useful for cache busting */
   pricing_version?: string
   /**

@@ -38,6 +38,7 @@ type Pricing struct {
 	BaseModelPrice         *float64                        `json:"base_model_price,omitempty"`
 	BaseModelRatio         *float64                        `json:"base_model_ratio,omitempty"`
 	ActiveDiscountRate     *float64                        `json:"active_discount_rate,omitempty"`
+	ActivePromotion        *billing_setting.ModelPromotion `json:"active_promotion,omitempty"`
 	PriceSchedules         []billing_setting.PriceSchedule `json:"price_schedules,omitempty"`
 	PricingVersion         string                          `json:"pricing_version,omitempty"`
 }
@@ -81,7 +82,16 @@ func GetPricing() []Pricing {
 	result := make([]Pricing, len(pricingMap))
 	copy(result, pricingMap)
 	now := time.Now()
+	activePromotions := billing_setting.GetActiveModelPromotions(now)
+	promotionByModel := make(map[string]billing_setting.ModelPromotion, len(activePromotions))
+	for _, promotion := range activePromotions {
+		promotionByModel[promotion.ModelName] = promotion
+	}
 	for index := range result {
+		if promotion, ok := promotionByModel[result[index].ModelName]; ok {
+			promotionCopy := promotion
+			result[index].ActivePromotion = &promotionCopy
+		}
 		schedules := billing_setting.GetPriceSchedules(result[index].ModelName)
 		if len(schedules) == 0 {
 			continue
