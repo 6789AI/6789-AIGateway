@@ -45,7 +45,6 @@ func GetUserTask(c *gin.Context) {
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 
 	queryParams := model.SyncTaskQueryParams{
-		Platform:       constant.TaskPlatform(c.Query("platform")),
 		TaskID:         c.Query("task_id"),
 		Status:         c.Query("status"),
 		Action:         c.Query("action"),
@@ -60,9 +59,9 @@ func GetUserTask(c *gin.Context) {
 	common.ApiSuccess(c, pageInfo)
 }
 
-func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
+func tasksToDto(tasks []*model.Task, isAdmin bool) []*dto.TaskDto {
 	var userIdMap map[int]*model.UserBase
-	if fillUser {
+	if isAdmin {
 		userIdMap = make(map[int]*model.UserBase)
 		userIds := types.NewSet[int]()
 		for _, task := range tasks {
@@ -77,12 +76,16 @@ func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 	}
 	result := make([]*dto.TaskDto, len(tasks))
 	for i, task := range tasks {
-		if fillUser {
+		if isAdmin {
 			if user, ok := userIdMap[task.UserId]; ok {
 				task.Username = user.Username
 			}
 		}
-		result[i] = relay.TaskModel2Dto(task)
+		taskDto := relay.TaskModel2Dto(task)
+		if !isAdmin {
+			taskDto.Platform = ""
+		}
+		result[i] = taskDto
 	}
 	return result
 }

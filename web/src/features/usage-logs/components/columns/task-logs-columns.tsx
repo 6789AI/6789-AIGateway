@@ -28,7 +28,7 @@ import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import { TASK_STATUS } from '../../constants'
+import { TASK_ACTIONS, TASK_STATUS } from '../../constants'
 import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
 import { getTaskVideoPreviewUrl } from '../../lib/task-video-preview'
 import type { TaskLog } from '../../types'
@@ -183,7 +183,8 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
               className='border-border/60 bg-muted/30 !text-foreground max-w-full truncate rounded-md border px-1.5 py-0.5 font-mono'
             />
             <span className='text-muted-foreground/60 truncate text-[11px]'>
-              {t(log.platform)} · {t(taskActionMapper.getLabel(log.action))}
+              {log.channel_id || '-'} ·{' '}
+              {t(taskActionMapper.getLabel(log.action))}
             </span>
           </div>
         )
@@ -223,9 +224,11 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
         const status = log.status
         const [dialogOpen, setDialogOpen] = useState(false)
 
-        const isSunoSuccess =
-          log.platform === 'suno' && status === TASK_STATUS.SUCCESS
-        if (isSunoSuccess) {
+        const isAudioTaskSuccess =
+          (log.action === TASK_ACTIONS.MUSIC ||
+            log.action === TASK_ACTIONS.LYRICS) &&
+          status === TASK_STATUS.SUCCESS
+        if (isAudioTaskSuccess) {
           const data = parseTaskData(log.data)
           if (
             data.some(

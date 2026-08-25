@@ -288,7 +288,7 @@ export interface TaskLog {
   id: number
   user_id: number
   username?: string
-  platform: string // suno, kling, runway, etc.
+  platform: string // Admin-only provider identifier; empty in user log responses.
   task_id: string
   action: string // MUSIC, LYRICS, GENERATE, TEXT_GENERATE, etc.
   channel_id: number
