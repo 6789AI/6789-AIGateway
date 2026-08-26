@@ -16,6 +16,7 @@ venv/
 __pycache__/
 
 # Local dependency runtimes
+.air/
 .codex-bun-runtime/
 .codex-paramiko/
 

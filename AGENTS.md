@@ -52,6 +52,23 @@ web/           — Frontend (React 19, Rsbuild, Base UI, Tailwind)
 - Usage: `useTranslation()` hook, call `t('English key')` in components
 - CLI tools: `bun run i18n:sync` (from `web/`)
 
+## Development Workflow
+
+- The default and recommended local development stack is Air + SQLite. Do not recommend Docker, PostgreSQL, MySQL, or Redis unless the task specifically requires validating those integrations.
+- Run the backend from the repository root with `go tool air`. Air is pinned through the root `go.mod` tool directive; do not install or invoke an unpinned global `air` binary.
+- Leave `SQL_DSN` unset for normal local development so the backend uses SQLite. The default database file is `one-api.db`; use `SQLITE_PATH` only when a different local path is required.
+- Run the frontend in a separate terminal with exactly:
+
+```bash
+cd web
+bun install
+bun run dev -- --host 0.0.0.0 --port 5173
+```
+
+- The backend listens on `http://localhost:3000`; the frontend listens on `http://localhost:5173` and proxies development API requests to the backend.
+- When asked how to start the development server, present the separate Air backend and Bun frontend commands above as the primary workflow.
+- Use `make dev-api-docker` only for Docker/PostgreSQL/Redis validation. Use `make dev-api` for the Air + SQLite backend, or `make dev` to start both development processes when GNU Make is available.
+
 ## Rules
 
 ### Common Code Quality
@@ -95,6 +112,10 @@ Do NOT directly import or call `encoding/json` in business code. `json.RawMessag
 
 **Relay and provider behavior:**
 
+- **Channel endpoint support matrix:** Before adding, removing, or changing a channel type, provider adaptor, task adaptor, public relay route, relay format, or provider endpoint capability, MUST read `docs/channel-endpoint-support.md`.
+- Every new channel type MUST add its own row to `docs/channel-endpoint-support.md` in the same change. Updates that enable, disable, reroute, convert, proxy, or otherwise change an endpoint MUST update the affected row and the video/task table when applicable.
+- Keep the matrix aligned with `constant/channel.go`, `common/api_type.go`, `relay/relay_adaptor.go`, the public relay routers, `web/src/features/channels/constants.ts`, and the adaptor's request conversion, URL construction, request dispatch, and response handling. A registered route or a single implemented converter is not sufficient evidence that an endpoint is supported.
+- Document default behavior with request-body pass-through disabled. Distinguish native support, format conversion, model/configuration-conditional support, and OpenAI-compatible pass-through; do not present upstream-dependent pass-through as guaranteed provider support.
 - When implementing a new channel, confirm whether the provider supports `StreamOptions`; if supported, add the channel to `streamSupportedChannels`.
 - For request structs parsed from client JSON and re-marshaled to upstream providers, optional scalar fields MUST use pointer types with `omitempty` (for example, `*int`, `*uint`, `*float64`, `*bool`).
 - Preserve explicit zero values in upstream relay request DTOs: absent client JSON fields must become `nil` and be omitted, while explicit `0`, `0.0`, or `false` values must remain non-`nil` and be sent upstream.

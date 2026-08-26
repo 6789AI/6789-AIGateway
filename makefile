@@ -6,9 +6,9 @@ DEV_POSTGRES_SERVICE = postgres
 DEV_API_SERVICE = new-api
 DEV_POSTGRES_DB = new-api
 DEV_POSTGRES_USER = root
-DEV_SQLITE_PATH ?= one-api.db
+DEV_SQLITE_PATH ?= one-api.db?_busy_timeout=30000
 
-.PHONY: all build-web build-all-web start-api dev dev-api dev-api-rebuild dev-web reset-setup test
+.PHONY: all build-web build-all-web start-api dev dev-api dev-api-docker dev-api-rebuild dev-web reset-setup test
 
 all: build-all-web start-api
 
@@ -19,11 +19,14 @@ build-web:
 
 build-all-web: build-web
 
-start-api:
-	@echo "Starting api dev server..."
-	@cd $(API_DIR) && go run main.go &
+start-api: dev-api
 
 dev-api:
+	@echo "Starting API with Air and SQLite..."
+	@echo "API: http://localhost:3000"
+	@cd $(API_DIR) && SQL_DSN= SQLITE_PATH="$(DEV_SQLITE_PATH)" go tool air
+
+dev-api-docker:
 	@echo "Starting api services (docker)..."
 	@docker compose -f $(DEV_COMPOSE_FILE) up -d
 
@@ -37,7 +40,8 @@ dev-web:
 	@cd $(WEB_DIR) && bun install
 	@cd $(WEB_DIR) && bun run dev -- --host 0.0.0.0 --port $(DEV_WEB_PORT)
 
-dev: dev-api dev-web
+dev:
+	@$(MAKE) --no-print-directory -j2 dev-api dev-web
 
 # The main package embeds the ignored web/dist output and is covered after build-web.
 test:
@@ -68,6 +72,6 @@ reset-setup:
 		echo "SQLite setup state reset. Restart the local api process before testing the setup wizard."; \
 	else \
 		echo "No running docker dev PostgreSQL or local SQLite database found."; \
-		echo "Start the dev stack with 'make dev-api', or set SQLITE_PATH/DEV_SQLITE_PATH to your local SQLite database."; \
+		echo "Start the local Air server with 'make dev-api', use 'make dev-api-docker' for Docker, or set SQLITE_PATH/DEV_SQLITE_PATH to your local SQLite database."; \
 		exit 1; \
 	fi
