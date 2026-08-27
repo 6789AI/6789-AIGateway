@@ -74,6 +74,38 @@ export const HTTP_PROTOCOL_AUTO = 'auto'
 export const HTTP_PROTOCOL_HTTP1 = 'http1'
 export const MAX_HTTP2_CONNECTION_SHARDS = 8
 
+export const ASYNC_IMAGE_PROTOCOLS = ['ali', 'new_api', 'grsai'] as const
+export type AsyncImageProvider = (typeof ASYNC_IMAGE_PROTOCOLS)[number]
+
+export const ASYNC_IMAGE_CHANNEL_TYPES = new Set([
+  1, 3, 7, 8, 17, 19, 20, 22, 24, 26, 31, 35, 40, 41, 45, 47, 48, 51, 56,
+  58, 59, 60,
+])
+
+export function supportsAsyncImageConfiguration(channelType: number): boolean {
+  return ASYNC_IMAGE_CHANNEL_TYPES.has(channelType)
+}
+
+export function getDefaultAsyncImageProvider(
+  channelType: number,
+  baseUrl: string | undefined
+): AsyncImageProvider {
+  if (channelType === 17) return 'ali'
+  try {
+    const hostname = new URL(baseUrl || '').hostname.toLowerCase()
+    if (hostname === 'grsaiapi.com' || hostname === 'grsai.dakka.com.cn') {
+      return 'grsai'
+    }
+  } catch {
+    // Incomplete URLs use the New API-compatible default while editing.
+  }
+  return 'new_api'
+}
+
+function isAsyncImageProvider(value: unknown): value is AsyncImageProvider {
+  return ASYNC_IMAGE_PROTOCOLS.includes(value as AsyncImageProvider)
+}
+
 export function normalizeHttpProtocol(
   value: string | undefined | null
 ): 'auto' | 'http1' {
@@ -275,12 +307,31 @@ export const channelFormSchema = z
     allow_speed: z.boolean().optional(), // Anthropic: speed mode control
     claude_beta_query: z.boolean().optional(), // Anthropic: beta query passthrough
     disable_task_polling_sleep: z.boolean().optional(),
+    async_image_enabled: z.boolean().optional(),
+    async_image_provider: z.enum(ASYNC_IMAGE_PROTOCOLS).optional(),
+    async_image_provider_explicit: z.boolean().optional(),
     // Upstream model update settings (stored in settings JSON)
     upstream_model_update_check_enabled: z.boolean().optional(),
     upstream_model_update_auto_sync_enabled: z.boolean().optional(),
     upstream_model_update_ignored_models: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    if (data.async_image_enabled === true) {
+      if (!supportsAsyncImageConfiguration(data.type)) {
+        addRequiredIssue(
+          ctx,
+          'async_image_enabled',
+          'Asynchronous image generation is not supported for this channel type'
+        )
+      }
+      if (!data.async_image_provider) {
+        addRequiredIssue(
+          ctx,
+          'async_image_provider',
+          'Asynchronous image protocol is required'
+        )
+      }
+    }
     if (
       [3, 8, 36, 45, CHANNEL_TYPE_NEW_API].includes(data.type) &&
       !data.base_url?.trim()
@@ -447,6 +498,9 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   allow_speed: false,
   claude_beta_query: false,
   disable_task_polling_sleep: false,
+  async_image_enabled: false,
+  async_image_provider: 'new_api',
+  async_image_provider_explicit: false,
   upstream_model_update_check_enabled: false,
   upstream_model_update_auto_sync_enabled: false,
   upstream_model_update_ignored_models: '',
@@ -512,6 +566,12 @@ export function transformChannelToFormDefaults(
   let allowSpeed = false
   let claudeBetaQuery = false
   let disableTaskPollingSleep = false
+  let asyncImageEnabled = false
+  let asyncImageProviderExplicit = false
+  let asyncImageProvider: AsyncImageProvider = getDefaultAsyncImageProvider(
+    channel.type,
+    channel.base_url || undefined
+  )
   let upstreamModelUpdateCheckEnabled = false
   let upstreamModelUpdateAutoSyncEnabled = false
   let upstreamModelUpdateIgnoredModels = ''
@@ -532,6 +592,11 @@ export function transformChannelToFormDefaults(
       allowSpeed = parsed.allow_speed === true
       claudeBetaQuery = parsed.claude_beta_query === true
       disableTaskPollingSleep = parsed.disable_task_polling_sleep === true
+      asyncImageEnabled = parsed.async_image_enabled === true
+      if (isAsyncImageProvider(parsed.async_image_provider)) {
+        asyncImageProvider = parsed.async_image_provider
+        asyncImageProviderExplicit = true
+      }
       upstreamModelUpdateCheckEnabled =
         parsed.upstream_model_update_check_enabled === true
       upstreamModelUpdateAutoSyncEnabled =
@@ -590,6 +655,9 @@ export function transformChannelToFormDefaults(
     allow_speed: allowSpeed,
     claude_beta_query: claudeBetaQuery,
     disable_task_polling_sleep: disableTaskPollingSleep,
+    async_image_enabled: asyncImageEnabled,
+    async_image_provider: asyncImageProvider,
+    async_image_provider_explicit: asyncImageProviderExplicit,
     allow_safety_identifier: allowSafetyIdentifier,
     upstream_model_update_check_enabled: upstreamModelUpdateCheckEnabled,
     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
@@ -718,6 +786,16 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
 
   settingsObj.disable_task_polling_sleep =
     formData.disable_task_polling_sleep === true
+
+  if (supportsAsyncImageConfiguration(formData.type)) {
+    settingsObj.async_image_enabled = formData.async_image_enabled === true
+    settingsObj.async_image_provider =
+      formData.async_image_provider ||
+      getDefaultAsyncImageProvider(formData.type, formData.base_url)
+  } else {
+    delete settingsObj.async_image_enabled
+    delete settingsObj.async_image_provider
+  }
 
   // Upstream model update settings (for model-fetchable channel types)
   if (MODEL_FETCHABLE_TYPES.has(formData.type)) {

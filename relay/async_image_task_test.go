@@ -40,6 +40,16 @@ func TestGetTaskAdaptorSupportsGrsaiPlatform(t *testing.T) {
 	assert.Equal(t, "Grsai", adaptor.GetChannelName())
 }
 
+func TestGetTaskAdaptorSupportsConfiguredAsyncImagePlatforms(t *testing.T) {
+	aliAdaptor := GetTaskAdaptor(constant.TaskPlatformAsyncImageAli)
+	require.NotNil(t, aliAdaptor)
+	assert.Equal(t, "ali", aliAdaptor.GetChannelName())
+
+	newAPIAdaptor := GetTaskAdaptor(constant.TaskPlatformAsyncImageNewAPI)
+	require.NotNil(t, newAPIAdaptor)
+	assert.Equal(t, "New API async image", newAPIAdaptor.GetChannelName())
+}
+
 func TestImageFetchByIDIsScopedToOwnerAndImageTasks(t *testing.T) {
 	oldDB := model.DB
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

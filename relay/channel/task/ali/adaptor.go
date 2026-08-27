@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -644,19 +645,43 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	}
 
 	uri := fmt.Sprintf("%s/api/v1/tasks/%s", baseUrl, taskID)
+	header := http.Header{}
+	if config, ok := body["polling_config"].(*model.TaskPollingConfig); ok && config != nil && config.URL != "" {
+		uri = config.URL
+		for name, values := range config.Headers {
+			for _, value := range values {
+				header.Add(name, value)
+			}
+		}
+	}
 
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header = header
+	if req.Header.Get("Authorization") == "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
 
 	client, err := service.GetHttpClientWithProxy(proxy)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
 	}
 	return client.Do(req)
+}
+
+func (a *TaskAdaptor) TaskPollingConfig(upstreamTaskID string) (*model.TaskPollingConfig, error) {
+	if strings.TrimSpace(upstreamTaskID) == "" {
+		return nil, errors.New("task_id is required")
+	}
+	return &model.TaskPollingConfig{
+		URL: fmt.Sprintf("%s/api/v1/tasks/%s", strings.TrimRight(a.baseURL, "/"), url.PathEscape(upstreamTaskID)),
+		Headers: map[string][]string{
+			"Authorization": {"Bearer " + a.apiKey},
+		},
+	}, nil
 }
 
 func (a *TaskAdaptor) GetModelList() []string {

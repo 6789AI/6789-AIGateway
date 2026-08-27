@@ -42,14 +42,45 @@ func TestChannelValidateSettingsRejectsInvalidHTTPTransport(t *testing.T) {
 }
 
 func TestChannelValidateSettingsValidatesAsyncImageProvider(t *testing.T) {
-	channel := &Channel{}
-	channel.SetOtherSettings(dto.ChannelOtherSettings{AsyncImageProvider: "grsai"})
-	require.NoError(t, channel.ValidateSettings())
+	for _, provider := range []string{
+		dto.AsyncImageProviderAli,
+		dto.AsyncImageProviderNewAPI,
+		dto.AsyncImageProviderGrsai,
+	} {
+		channel := &Channel{Type: constant.ChannelTypeOpenAI}
+		channel.SetOtherSettings(dto.ChannelOtherSettings{AsyncImageEnabled: true, AsyncImageProvider: provider})
+		require.NoError(t, channel.ValidateSettings())
+	}
 
-	channel.SetOtherSettings(dto.ChannelOtherSettings{AsyncImageProvider: "unknown"})
-	err := channel.ValidateSettings()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "async_image_provider")
+	t.Run("legacy provider remains inert while disabled", func(t *testing.T) {
+		channel := &Channel{Type: constant.ChannelTypeOpenAI}
+		channel.SetOtherSettings(dto.ChannelOtherSettings{AsyncImageProvider: dto.AsyncImageProviderGrsai})
+		require.NoError(t, channel.ValidateSettings())
+	})
+
+	t.Run("unknown provider is rejected", func(t *testing.T) {
+		channel := &Channel{Type: constant.ChannelTypeOpenAI}
+		channel.SetOtherSettings(dto.ChannelOtherSettings{AsyncImageProvider: "unknown"})
+		err := channel.ValidateSettings()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "async_image_provider")
+	})
+
+	t.Run("enabled setting requires provider", func(t *testing.T) {
+		channel := &Channel{Type: constant.ChannelTypeOpenAI}
+		channel.SetOtherSettings(dto.ChannelOtherSettings{AsyncImageEnabled: true})
+		err := channel.ValidateSettings()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "async_image_provider")
+	})
+
+	t.Run("unsupported channel type is rejected", func(t *testing.T) {
+		channel := &Channel{Type: constant.ChannelTypeAnthropic}
+		channel.SetOtherSettings(dto.ChannelOtherSettings{AsyncImageEnabled: true, AsyncImageProvider: dto.AsyncImageProviderNewAPI})
+		err := channel.ValidateSettings()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "channel type")
+	})
 }
 
 func TestAdvancedCustomChannelRequiresModelListRouteOnlyWhenUpdateChecksEnabled(t *testing.T) {

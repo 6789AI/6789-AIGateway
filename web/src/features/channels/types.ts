@@ -92,7 +92,8 @@ export interface ChannelSettings {
 
 export interface ChannelOtherSettings {
   azure_responses_version?: string
-  async_image_provider?: 'grsai' | string
+  async_image_enabled?: boolean
+  async_image_provider?: 'ali' | 'new_api' | 'grsai' | string
   vertex_key_type?: 'json' | 'api_key'
   openrouter_enterprise?: boolean
   aws_key_type?: 'ak_sk' | 'api_key'

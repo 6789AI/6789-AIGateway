@@ -18,6 +18,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	relaykitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -31,6 +32,7 @@ type TaskSubmitResult struct {
 	Platform       constant.TaskPlatform
 	Quota          int
 	ClientResponse *TaskClientResponse
+	PollingConfig  *model.TaskPollingConfig
 	//PerCallPrice   types.PriceData
 }
 
@@ -154,15 +156,22 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 // 控制器负责 defer Refund 和成功后 Settle。
 func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitResult, *dto.TaskError) {
 	info.InitChannelMeta(c)
-	isGrsaiImageChannel := model.IsGrsaiAsyncImageChannel(info.ChannelBaseUrl, info.ChannelOtherSettings)
-	if info.RelayMode == relayconstant.RelayModeImageSubmit && info.ChannelType != constant.ChannelTypeAli && !isGrsaiImageChannel {
-		return nil, service.TaskErrorWrapperLocal(errors.New("the selected channel does not support native asynchronous image generation"), "async_image_not_supported", http.StatusBadRequest)
-	}
-
 	// 1. 确定 platform → 创建适配器 → 验证请求
 	platform := constant.TaskPlatform(c.GetString("platform"))
-	if info.RelayMode == relayconstant.RelayModeImageSubmit && isGrsaiImageChannel {
-		platform = constant.TaskPlatformGrsai
+	if info.RelayMode == relayconstant.RelayModeImageSubmit {
+		if !info.ChannelOtherSettings.AsyncImageEnabled {
+			return nil, service.TaskErrorWrapperLocal(errors.New("asynchronous image generation is disabled for the selected channel"), "async_image_not_supported", http.StatusBadRequest)
+		}
+		switch model.AsyncImageProvider(info.ChannelOtherSettings) {
+		case relaykitdto.AsyncImageProviderAli:
+			platform = constant.TaskPlatformAsyncImageAli
+		case relaykitdto.AsyncImageProviderGrsai:
+			platform = constant.TaskPlatformGrsai
+		case relaykitdto.AsyncImageProviderNewAPI:
+			platform = constant.TaskPlatformAsyncImageNewAPI
+		default:
+			return nil, service.TaskErrorWrapperLocal(errors.New("invalid asynchronous image protocol"), "async_image_not_supported", http.StatusBadRequest)
+		}
 	}
 	if platform == "" {
 		platform = GetTaskPlatform(c)
@@ -284,7 +293,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if err != nil {
 		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
 	}
-	if resp != nil && resp.StatusCode != http.StatusOK {
+	if resp != nil && (resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices) {
 		responseBody, _ := io.ReadAll(resp.Body)
 		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
 	}
@@ -314,6 +323,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		}
 	}
 	var clientResponse *TaskClientResponse
+	var pollingConfig *model.TaskPollingConfig
 	if info.RelayMode == relayconstant.RelayModeImageSubmit {
 		clientResponse = &TaskClientResponse{
 			StatusCode: http.StatusAccepted,
@@ -321,6 +331,12 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 				"Location":    []string{fmt.Sprintf("/v1/images/generations/%s", info.PublicTaskID)},
 				"Retry-After": []string{"5"},
 			},
+		}
+		if provider, ok := adaptor.(channel.TaskPollingConfigProvider); ok {
+			pollingConfig, err = provider.TaskPollingConfig(upstreamTaskID)
+			if err != nil {
+				return nil, service.TaskErrorWrapperLocal(err, "build_task_polling_config_failed", http.StatusInternalServerError)
+			}
 		}
 	}
 
@@ -330,6 +346,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		Platform:       platform,
 		Quota:          finalQuota,
 		ClientResponse: clientResponse,
+		PollingConfig:  pollingConfig,
 	}, nil
 }
 

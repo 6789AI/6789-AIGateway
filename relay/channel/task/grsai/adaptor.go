@@ -340,12 +340,27 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 	query := uri.Query()
 	query.Set("id", taskID)
 	uri.RawQuery = query.Encode()
+	header := http.Header{}
+	if config, ok := body["polling_config"].(*model.TaskPollingConfig); ok && config != nil && config.URL != "" {
+		uri, err = url.Parse(config.URL)
+		if err != nil {
+			return nil, fmt.Errorf("parse Grsai polling URL failed: %w", err)
+		}
+		for name, values := range config.Headers {
+			for _, value := range values {
+				header.Add(name, value)
+			}
+		}
+	}
 
 	req, err := http.NewRequest(http.MethodGet, uri.String(), nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header = header
+	if req.Header.Get("Authorization") == "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
 	req.Header.Set("Accept", "application/json")
 
 	client, err := service.GetHttpClientWithProxy(proxy)
@@ -353,6 +368,26 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
 	}
 	return client.Do(req)
+}
+
+func (a *TaskAdaptor) TaskPollingConfig(upstreamTaskID string) (*model.TaskPollingConfig, error) {
+	if strings.TrimSpace(upstreamTaskID) == "" {
+		return nil, fmt.Errorf("task_id is required")
+	}
+	uri, err := url.Parse(strings.TrimRight(a.baseURL, "/") + "/v1/api/result")
+	if err != nil {
+		return nil, err
+	}
+	query := uri.Query()
+	query.Set("id", upstreamTaskID)
+	uri.RawQuery = query.Encode()
+	return &model.TaskPollingConfig{
+		URL: uri.String(),
+		Headers: map[string][]string{
+			"Authorization": {"Bearer " + a.apiKey},
+			"Accept":        {"application/json"},
+		},
+	}, nil
 }
 
 func (a *TaskAdaptor) ParseTaskResult(responseBody []byte) (*relaycommon.TaskInfo, error) {

@@ -238,6 +238,50 @@ func (a *Adaptor) BuildModelListRequest(info *relaycommon.RelayInfo) (string, ht
 	return requestURL, header, nil
 }
 
+// ResolveOpenAICompatibleRoute resolves an Advanced Custom pass-through route
+// for task adaptors that need a stable upstream URL and authentication snapshot.
+func ResolveOpenAICompatibleRoute(info *relaycommon.RelayInfo, requestPath string) (string, http.Header, error) {
+	if info == nil {
+		return "", nil, errors.New("missing relay info")
+	}
+	config := info.ChannelOtherSettings.AdvancedCustom
+	if config == nil {
+		return "", nil, errors.New("advanced_custom is required")
+	}
+	if err := config.Validate(); err != nil {
+		return "", nil, err
+	}
+	route, ok := config.MatchPathForModel(requestPath, info.UpstreamModelName)
+	if !ok {
+		return "", nil, fmt.Errorf("advanced custom channel does not support request path %s for model %s", requestPath, info.UpstreamModelName)
+	}
+	converter := strings.TrimSpace(route.Converter)
+	if converter == "" {
+		converter = relayconvert.ConverterNone
+	}
+	if converter != relayconvert.ConverterNone {
+		return "", nil, fmt.Errorf("converter %q does not support asynchronous image requests", converter)
+	}
+	requestURL, err := buildRouteURL(route, converter, info)
+	if err != nil {
+		return "", nil, err
+	}
+
+	header := http.Header{}
+	if route.Auth == nil {
+		header.Set("Authorization", "Bearer "+info.ApiKey)
+		return requestURL, header, nil
+	}
+	switch strings.TrimSpace(route.Auth.Type) {
+	case dto.AdvancedCustomAuthTypeNone, dto.AdvancedCustomAuthTypeQuery:
+	case dto.AdvancedCustomAuthTypeHeader:
+		header.Set(strings.TrimSpace(route.Auth.Name), applyAuthTemplate(route.Auth.Value, info.ApiKey))
+	default:
+		return "", nil, fmt.Errorf("invalid advanced custom auth type: %s", route.Auth.Type)
+	}
+	return requestURL, header, nil
+}
+
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *relaycommon.RelayInfo) error {
 	if err := a.resolve(c, info); err != nil {
 		return err

@@ -964,8 +964,20 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
-	if provider := strings.ToLower(strings.TrimSpace(channelOtherSettings.AsyncImageProvider)); provider != "" && provider != "grsai" {
+	provider := strings.ToLower(strings.TrimSpace(channelOtherSettings.AsyncImageProvider))
+	if provider != "" &&
+		provider != dto.AsyncImageProviderAli &&
+		provider != dto.AsyncImageProviderNewAPI &&
+		provider != dto.AsyncImageProviderGrsai {
 		return fmt.Errorf("invalid async_image_provider: %s", channelOtherSettings.AsyncImageProvider)
+	}
+	if channelOtherSettings.AsyncImageEnabled {
+		if provider == "" {
+			return fmt.Errorf("async_image_provider is required when async_image_enabled is true")
+		}
+		if !ChannelTypeSupportsImageGeneration(channel.Type) {
+			return fmt.Errorf("async image generation is not supported for channel type %d", channel.Type)
+		}
 	}
 	if channel.Type == constant.ChannelTypeAdvancedCustom {
 		if channelOtherSettings.AdvancedCustom == nil {

@@ -11,6 +11,7 @@ import (
 	projecti18n "github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -95,17 +96,28 @@ func TestGetModelRequestImageFetchSkipsChannelSelection(t *testing.T) {
 	assert.Equal(t, relayconstant.RelayModeImageFetch, ctx.GetInt("relay_mode"))
 }
 
-func TestChannelSupportsAsyncImageSelectionForNativeProviders(t *testing.T) {
+func TestChannelSupportsAsyncImageSelectionForConfiguredProtocols(t *testing.T) {
+	aliChannel := &model.Channel{Type: constant.ChannelTypeAli}
+	aliChannel.SetOtherSettings(dto.ChannelOtherSettings{AsyncImageEnabled: true, AsyncImageProvider: dto.AsyncImageProviderAli})
 	assert.True(t, channelSupportsRequestPath(
-		&model.Channel{Type: constant.ChannelTypeAli},
+		aliChannel,
 		relayconstant.AsyncImageGenerationSelectionPath,
 		"wanx-v1",
 	))
 	grsaiBaseURL := "https://grsaiapi.com"
+	grsaiChannel := &model.Channel{Type: constant.ChannelTypeGemini, BaseURL: &grsaiBaseURL}
+	grsaiChannel.SetOtherSettings(dto.ChannelOtherSettings{AsyncImageEnabled: true, AsyncImageProvider: dto.AsyncImageProviderGrsai})
 	assert.True(t, channelSupportsRequestPath(
-		&model.Channel{Type: constant.ChannelTypeGemini, BaseURL: &grsaiBaseURL},
+		grsaiChannel,
 		relayconstant.AsyncImageGenerationSelectionPath,
 		"nano-banana-2",
+	))
+	newAPIChannel := &model.Channel{Type: constant.ChannelTypeOpenAI}
+	newAPIChannel.SetOtherSettings(dto.ChannelOtherSettings{AsyncImageEnabled: true, AsyncImageProvider: dto.AsyncImageProviderNewAPI})
+	assert.True(t, channelSupportsRequestPath(
+		newAPIChannel,
+		relayconstant.AsyncImageGenerationSelectionPath,
+		"image-model",
 	))
 	assert.False(t, channelSupportsRequestPath(
 		&model.Channel{Type: constant.ChannelTypeOpenAI},

@@ -166,6 +166,9 @@ import {
   findMissingModelsInMapping,
   validateModelMappingJson,
   hasAdvancedSettingsErrors,
+  getDefaultAsyncImageProvider,
+  supportsAsyncImageConfiguration,
+  type AsyncImageProvider,
 } from '../../lib'
 import {
   collectInvalidStatusCodeEntries,
@@ -297,6 +300,8 @@ const SENSITIVE_FORM_FIELDS = [
   'allow_speed',
   'claude_beta_query',
   'disable_task_polling_sleep',
+  'async_image_enabled',
+  'async_image_provider',
   'upstream_model_update_check_enabled',
   'upstream_model_update_auto_sync_enabled',
   'upstream_model_update_ignored_models',
@@ -340,6 +345,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.force_format ||
     values.thinking_to_content ||
     values.pass_through_body_enabled ||
+    values.async_image_enabled ||
     values.system_prompt_override ||
     (values.http_protocol && values.http_protocol !== 'auto') ||
     (values.http2_connection_shards != null &&
@@ -749,6 +755,11 @@ export function ChannelMutateDrawer({
   const currentDisableTaskPollingSleep = form.watch(
     'disable_task_polling_sleep'
   )
+  const currentAsyncImageEnabled = form.watch('async_image_enabled')
+  const currentAsyncImageProvider = form.watch('async_image_provider')
+  const currentAsyncImageProviderExplicit = form.watch(
+    'async_image_provider_explicit'
+  )
   const currentProxy = form.watch('proxy')
   const currentHttpProtocol = form.watch('http_protocol')
   const currentHttp2ConnectionShards = form.watch('http2_connection_shards')
@@ -766,6 +777,16 @@ export function ChannelMutateDrawer({
   )
   const currentUpstreamModelUpdateIgnoredModels = form.watch(
     'upstream_model_update_ignored_models'
+  )
+  const asyncImageConfigurationVisible =
+    supportsAsyncImageConfiguration(currentType)
+  const asyncImageProtocolItems = useMemo(
+    () => [
+      { value: 'ali', label: t('Ali native') },
+      { value: 'new_api', label: t('New API compatible') },
+      { value: 'grsai', label: t('Grsai') },
+    ],
+    [t]
   )
   const shouldPreviewUnsavedModels =
     !isEditing ||
@@ -1018,6 +1039,7 @@ export function ChannelMutateDrawer({
     currentForceFormat ||
     currentThinkingToContent ||
     currentPassThroughBodyEnabled ||
+    currentAsyncImageEnabled ||
     currentDisableTaskPollingSleep ||
     currentProxy?.trim() ||
     currentSystemPrompt?.trim() ||
@@ -1265,6 +1287,38 @@ export function ChannelMutateDrawer({
       initialStatusCodeMappingRef.current = ''
     }
   }, [isEditing, channelData, form])
+
+  useEffect(() => {
+    if (!asyncImageConfigurationVisible) {
+      if (currentAsyncImageEnabled) {
+        form.setValue('async_image_enabled', false, {
+          shouldDirty: true,
+          shouldValidate: true,
+        })
+      }
+      return
+    }
+    if (!currentAsyncImageEnabled && !currentAsyncImageProviderExplicit) {
+      const defaultProvider = getDefaultAsyncImageProvider(
+        currentType,
+        currentBaseUrl
+      )
+      if (currentAsyncImageProvider !== defaultProvider) {
+        form.setValue('async_image_provider', defaultProvider, {
+          shouldDirty: false,
+          shouldValidate: true,
+        })
+      }
+    }
+  }, [
+    asyncImageConfigurationVisible,
+    currentAsyncImageEnabled,
+    currentAsyncImageProvider,
+    currentAsyncImageProviderExplicit,
+    currentBaseUrl,
+    currentType,
+    form,
+  ])
 
   // Handle type change - set default values for specific types
   useEffect(() => {
@@ -4143,6 +4197,93 @@ export function ChannelMutateDrawer({
                                   </FormItem>
                                 )}
                               />
+
+                              {asyncImageConfigurationVisible && (
+                                <>
+                                  <FormField
+                                    control={form.control}
+                                    name='async_image_enabled'
+                                    render={({ field }) => (
+                                      <FormItem className='flex items-center justify-between gap-4 px-4 py-3'>
+                                        <div className='min-w-0 space-y-0.5'>
+                                          <FormLabel>
+                                            {t(
+                                              'Enable asynchronous image generation'
+                                            )}
+                                          </FormLabel>
+                                          <FormDescription>
+                                            {t(
+                                              'Allow this channel to handle image requests that explicitly opt in to asynchronous processing'
+                                            )}
+                                          </FormDescription>
+                                        </div>
+                                        <FormControl>
+                                          <Switch
+                                            checked={field.value}
+                                            onCheckedChange={field.onChange}
+                                          />
+                                        </FormControl>
+                                      </FormItem>
+                                    )}
+                                  />
+
+                                  {currentAsyncImageEnabled && (
+                                    <FormField
+                                      control={form.control}
+                                      name='async_image_provider'
+                                      render={({ field }) => (
+                                        <FormItem className='px-4 py-3'>
+                                          <FormLabel>
+                                            {t('Asynchronous image protocol')}
+                                          </FormLabel>
+                                          <Select
+                                            items={asyncImageProtocolItems}
+                                            value={field.value || 'new_api'}
+                                            onValueChange={(value) => {
+                                              field.onChange(
+                                                value as AsyncImageProvider
+                                              )
+                                              form.setValue(
+                                                'async_image_provider_explicit',
+                                                true,
+                                                { shouldDirty: true }
+                                              )
+                                            }}
+                                          >
+                                            <FormControl>
+                                              <SelectTrigger>
+                                                <SelectValue />
+                                              </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent
+                                              alignItemWithTrigger={false}
+                                            >
+                                              <SelectGroup>
+                                                {asyncImageProtocolItems.map(
+                                                  (item) => (
+                                                    <SelectItem
+                                                      key={item.value}
+                                                      value={item.value}
+                                                    >
+                                                      {item.label}
+                                                    </SelectItem>
+                                                  )
+                                                )}
+                                              </SelectGroup>
+                                            </SelectContent>
+                                          </Select>
+                                          <FormDescription>
+                                            {t(
+                                              'Choose the upstream submission and polling protocol used by this channel'
+                                            )}
+                                          </FormDescription>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                  )}
+                                </>
+                              )}
 
                               <FormField
                                 control={form.control}

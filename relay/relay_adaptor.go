@@ -40,6 +40,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/task/hailuo"
 	taskjimeng "github.com/QuantumNous/new-api/relay/channel/task/jimeng"
 	"github.com/QuantumNous/new-api/relay/channel/task/kling"
+	tasknewapi "github.com/QuantumNous/new-api/relay/channel/task/newapi"
 	tasksora "github.com/QuantumNous/new-api/relay/channel/task/sora"
 	"github.com/QuantumNous/new-api/relay/channel/task/suno"
 	taskvertex "github.com/QuantumNous/new-api/relay/channel/task/vertex"
@@ -150,6 +151,10 @@ func GetTaskAdaptor(platform constant.TaskPlatform) channel.TaskAdaptor {
 		return &suno.TaskAdaptor{}
 	case constant.TaskPlatformGrsai:
 		return &taskgrsai.TaskAdaptor{}
+	case constant.TaskPlatformAsyncImageAli:
+		return &taskali.TaskAdaptor{}
+	case constant.TaskPlatformAsyncImageNewAPI:
+		return &tasknewapi.TaskAdaptor{}
 	}
 	if channelType, err := strconv.ParseInt(string(platform), 10, 64); err == nil {
 		switch channelType {

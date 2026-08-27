@@ -1,7 +1,6 @@
 package model
 
 import (
-	"net/url"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -53,29 +52,30 @@ func ChannelSupportsAsyncImage(channel *Channel, modelName string) bool {
 	)
 }
 
-// ChannelMetadataSupportsAsyncImage reports whether the selected upstream
-// model has a native asynchronous image API on this channel.
-func ChannelMetadataSupportsAsyncImage(channelType int, baseURL string, settings dto.ChannelOtherSettings, upstreamModel string) bool {
-	if IsGrsaiAsyncImageChannel(baseURL, settings) {
-		return IsGrsaiImageModel(upstreamModel)
-	}
-	return channelType == constant.ChannelTypeAli && !model_setting.IsSyncImageModel(upstreamModel)
-}
-
-// IsGrsaiAsyncImageChannel recognizes the public Grsai endpoints and supports
-// an explicit override for deployments that proxy Grsai through another host.
-func IsGrsaiAsyncImageChannel(baseURL string, settings dto.ChannelOtherSettings) bool {
-	provider := strings.ToLower(strings.TrimSpace(settings.AsyncImageProvider))
-	if provider != "" {
-		return provider == "grsai"
-	}
-
-	parsed, err := url.Parse(strings.TrimSpace(baseURL))
-	if err != nil {
+// ChannelMetadataSupportsAsyncImage reports whether this channel is explicitly
+// enabled for the selected asynchronous image protocol and upstream model.
+func ChannelMetadataSupportsAsyncImage(channelType int, _ string, settings dto.ChannelOtherSettings, upstreamModel string) bool {
+	if !ChannelTypeSupportsImageGeneration(channelType) || !settings.AsyncImageEnabled {
 		return false
 	}
-	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
-	return host == "grsaiapi.com" || host == "grsai.dakka.com.cn"
+	switch AsyncImageProvider(settings) {
+	case dto.AsyncImageProviderAli:
+		return !model_setting.IsSyncImageModel(upstreamModel)
+	case dto.AsyncImageProviderGrsai:
+		return IsGrsaiImageModel(upstreamModel)
+	case dto.AsyncImageProviderNewAPI:
+		return true
+	default:
+		return false
+	}
+}
+
+func AsyncImageProvider(settings dto.ChannelOtherSettings) string {
+	return strings.ToLower(strings.TrimSpace(settings.AsyncImageProvider))
+}
+
+func IsGrsaiAsyncImageChannel(_ string, settings dto.ChannelOtherSettings) bool {
+	return settings.AsyncImageEnabled && AsyncImageProvider(settings) == dto.AsyncImageProviderGrsai
 }
 
 func IsGrsaiImageModel(modelName string) bool {
@@ -83,4 +83,34 @@ func IsGrsaiImageModel(modelName string) bool {
 	return strings.HasPrefix(modelName, "nano-banana") ||
 		modelName == "gpt-image-2" ||
 		strings.HasPrefix(modelName, "gpt-image-2-")
+}
+
+func ChannelTypeSupportsImageGeneration(channelType int) bool {
+	switch channelType {
+	case constant.ChannelTypeOpenAI,
+		constant.ChannelTypeAzure,
+		constant.ChannelTypeOhMyGPT,
+		constant.ChannelTypeCustom,
+		constant.ChannelTypeAli,
+		constant.ChannelType360,
+		constant.ChannelTypeOpenRouter,
+		constant.ChannelTypeFastGPT,
+		constant.ChannelTypeGemini,
+		constant.ChannelTypeZhipu_v4,
+		constant.ChannelTypeLingYiWanWu,
+		constant.ChannelTypeMiniMax,
+		constant.ChannelTypeSiliconFlow,
+		constant.ChannelTypeVertexAi,
+		constant.ChannelTypeVolcEngine,
+		constant.ChannelTypeXinference,
+		constant.ChannelTypeXai,
+		constant.ChannelTypeJimeng,
+		constant.ChannelTypeReplicate,
+		constant.ChannelTypeAdvancedCustom,
+		constant.ChannelTypeSub2API,
+		constant.ChannelTypeNewAPI:
+		return true
+	default:
+		return false
+	}
 }

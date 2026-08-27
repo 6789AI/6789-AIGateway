@@ -92,3 +92,7 @@ type OpenAIVideoConverter interface {
 type OpenAIImageTaskConverter interface {
 	ConvertToOpenAIImageTask(originTask *model.Task) ([]byte, error)
 }
+
+type TaskPollingConfigProvider interface {
+	TaskPollingConfig(upstreamTaskID string) (*model.TaskPollingConfig, error)
+}
