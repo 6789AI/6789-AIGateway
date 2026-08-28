@@ -234,6 +234,14 @@ export interface UserWalletData {
   used_quota: number
   /** Total request count */
   request_count: number
+  /** Total usage allowance across currently active promotions */
+  free_usage_limit: number
+  /** Used and reserved usage across currently active promotions */
+  free_usage_used: number
+  /** Remaining usage across currently active promotions */
+  free_usage_remaining: number
+  /** Whether at least one promotion is currently active */
+  free_usage_active: boolean
   /** Affiliate quota (pending rewards) */
   aff_quota: number
   /** Total affiliate quota earned (historical) */

@@ -117,11 +117,26 @@ function SubscriptionBadge(props: { quota: number }) {
   )
 }
 
+function PromotionFreeBadge() {
+  const { t } = useTranslation()
+
+  return (
+    <StatusBadge
+      label={t('Free allowance')}
+      variant='success'
+      size='sm'
+      copyable={false}
+    />
+  )
+}
+
 export function LogCostDisplay(props: LogCostDisplayProps) {
   const isSubscription = props.other?.billing_source === 'subscription'
+  const isPromotionFree =
+    props.other?.promotion_free_usage === true && props.quota === 0
   const showToolSurcharge = hasToolSurcharge(props.other)
 
-  if (!isSubscription && !showToolSurcharge) {
+  if (!isPromotionFree && !isSubscription && !showToolSurcharge) {
     return (
       <div className='flex flex-col gap-0.5'>
         <QuotaBadge quota={props.quota} />
@@ -129,14 +144,18 @@ export function LogCostDisplay(props: LogCostDisplayProps) {
     )
   }
 
+  let costBadge = <QuotaBadge quota={props.quota} />
+  if (isSubscription) {
+    costBadge = <SubscriptionBadge quota={props.quota} />
+  }
+  if (isPromotionFree) {
+    costBadge = <PromotionFreeBadge />
+  }
+
   return (
     <TooltipProvider>
       <div className='inline-flex items-center gap-1'>
-        {isSubscription ? (
-          <SubscriptionBadge quota={props.quota} />
-        ) : (
-          <QuotaBadge quota={props.quota} />
-        )}
+        {costBadge}
         {showToolSurcharge ? <ToolSurchargeMarker /> : null}
       </div>
     </TooltipProvider>

@@ -311,6 +311,15 @@ func TestTaskBillingOtherFiltersHistoricalOtherRatios(t *testing.T) {
 	assert.NotContains(t, other, "inf")
 }
 
+func TestTaskBillingOtherPreservesPromotionFreeUsage(t *testing.T) {
+	task := makeTask(1, 1, 0, 0, BillingSourceWallet, 0)
+	task.PrivateData.PromotionFreeUsage = true
+
+	other := taskBillingOther(task)
+
+	assert.Equal(t, true, other["promotion_free_usage"])
+}
+
 func TestTaskBillingContextPriceDataFiltersMultiplier(t *testing.T) {
 	priceData := taskBillingContextPriceData(&model.TaskBillingContext{
 		OtherRatios: map[string]float64{

@@ -141,6 +141,9 @@ type RelayInfo struct {
 	// PromotionActivityKey is non-empty after one scheduled activity use has
 	// been reserved for this request.
 	PromotionActivityKey string
+	// PromotionFreeUsage marks requests whose reserved scheduled activity
+	// reduced the effective model price or discount rate to zero.
+	PromotionFreeUsage bool
 	// SubscriptionAmountTotal / SubscriptionAmountUsedAfterPreConsume are used to compute remaining in logs.
 	SubscriptionAmountTotal               int64
 	SubscriptionAmountUsedAfterPreConsume int64

@@ -60,6 +60,7 @@ await i18n.use(initReactI18next).init({
         Subscription: 'Subscription',
         'Deducted by subscription': 'Deducted by subscription',
         'Includes tool-call surcharge': 'Includes tool-call surcharge',
+        'Free allowance': 'Free allowance',
       },
     },
   },
@@ -148,6 +149,71 @@ describe('log cost display', () => {
     })
 
     assert.equal(rendered.container.textContent?.includes('Subscription'), true)
+    assert.ok(
+      rendered.container.querySelector('[data-tool-surcharge-indicator="true"]')
+    )
+
+    await unmountCost(rendered)
+  })
+
+  test('shows free allowance only when the backend marks a promotion as free', async () => {
+    const rendered = await renderCost({
+      quota: 0,
+      other: { promotion_free_usage: true },
+    })
+
+    assert.equal(
+      rendered.container.textContent?.includes('Free allowance'),
+      true
+    )
+    assert.equal(
+      normalizedText(rendered.container.textContent).includes(
+        normalizedText(formatLogQuota(0))
+      ),
+      false
+    )
+
+    await unmountCost(rendered)
+  })
+
+  test('keeps an unmarked zero-cost log as a regular zero amount', async () => {
+    const rendered = await renderCost({ quota: 0, other: null })
+
+    assert.equal(
+      rendered.container.textContent?.includes('Free allowance'),
+      false
+    )
+    assert.equal(
+      normalizedText(rendered.container.textContent).includes(
+        normalizedText(formatLogQuota(0))
+      ),
+      true
+    )
+
+    await unmountCost(rendered)
+  })
+
+  test('shows a nonzero promotion surcharge as an amount with its surcharge marker', async () => {
+    const rendered = await renderCost({
+      quota: 150,
+      other: {
+        promotion_free_usage: true,
+        web_search: true,
+        web_search_call_count: 1,
+        web_search_price: 150,
+      },
+    })
+
+    assert.equal(
+      rendered.container.textContent?.includes('Free allowance'),
+      false
+    )
+    assert.equal(
+      normalizedText(rendered.container.textContent).includes(
+        normalizedText(formatLogQuota(150))
+      ),
+      true
+    )
     assert.ok(
       rendered.container.querySelector('[data-tool-surcharge-indicator="true"]')
     )

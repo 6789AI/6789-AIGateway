@@ -105,3 +105,53 @@ func TestPromotionAllowanceExpandsWithTotalConsumption(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, granted)
 }
+
+func TestGetPromotionUsageSummaryDeduplicatesAndAggregatesActiveActivities(t *testing.T) {
+	truncateTables(t)
+	user := User{Username: "promotion-summary-user", UsedQuota: 0}
+	require.NoError(t, DB.Create(&user).Error)
+	require.NoError(t, DB.Create(&PromotionUsage{
+		UserId:        user.Id,
+		ActivityKey:   "activity-a",
+		UsedCount:     3,
+		ReservedCount: 2,
+	}).Error)
+
+	summary, err := GetPromotionUsageSummary(user.Id, user.UsedQuota, []string{
+		"activity-a",
+		"activity-a",
+		"activity-b",
+		"",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, summary.Active)
+	assert.Equal(t, 40, summary.Limit)
+	assert.Equal(t, 5, summary.Used)
+	assert.Equal(t, 35, summary.Remaining)
+}
+
+func TestGetPromotionUsageSummaryRestoresFullAllowanceBetweenActivities(t *testing.T) {
+	truncateTables(t)
+	originalQuotaPerUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = 500_000
+	t.Cleanup(func() {
+		common.QuotaPerUnit = originalQuotaPerUnit
+	})
+
+	user := User{Username: "promotion-inactive-summary-user", UsedQuota: 33_333_500}
+	require.NoError(t, DB.Create(&user).Error)
+	require.NoError(t, DB.Create(&PromotionUsage{
+		UserId:      user.Id,
+		ActivityKey: "finished-activity",
+		UsedCount:   50,
+	}).Error)
+
+	summary, err := GetPromotionUsageSummary(user.Id, user.UsedQuota, nil)
+
+	require.NoError(t, err)
+	assert.False(t, summary.Active)
+	assert.Equal(t, 200, summary.Limit)
+	assert.Zero(t, summary.Used)
+	assert.Equal(t, 200, summary.Remaining)
+}

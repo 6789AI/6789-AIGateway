@@ -44,6 +44,13 @@ type PromotionReservation struct {
 	UpdatedAt   int64  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
+type PromotionUsageSummary struct {
+	Limit     int
+	Used      int
+	Remaining int
+	Active    bool
+}
+
 // PromotionAllowanceForUsedQuota converts cumulative platform consumption to
 // activity uses: below 10 units gets 20; otherwise floor(amount*3), capped at 2000.
 func PromotionAllowanceForUsedQuota(usedQuota int) int {
@@ -64,6 +71,51 @@ func PromotionAllowanceForUsedQuota(usedQuota int) int {
 		return promotionMaximumAllowance
 	}
 	return int(allowance.IntPart())
+}
+
+// GetPromotionUsageSummary aggregates the remaining allowance for active,
+// distinct promotion occurrences. Between activities it reports the user's
+// full per-occurrence allowance so the wallet can show the next entitlement.
+func GetPromotionUsageSummary(userId int, usedQuota int, activityKeys []string) (PromotionUsageSummary, error) {
+	uniqueKeys := make([]string, 0, len(activityKeys))
+	seen := make(map[string]struct{}, len(activityKeys))
+	for _, activityKey := range activityKeys {
+		activityKey = strings.TrimSpace(activityKey)
+		if activityKey == "" {
+			continue
+		}
+		if _, exists := seen[activityKey]; exists {
+			continue
+		}
+		seen[activityKey] = struct{}{}
+		uniqueKeys = append(uniqueKeys, activityKey)
+	}
+	allowance := PromotionAllowanceForUsedQuota(usedQuota)
+	if len(uniqueKeys) == 0 {
+		return PromotionUsageSummary{
+			Limit:     allowance,
+			Remaining: allowance,
+		}, nil
+	}
+
+	summary := PromotionUsageSummary{
+		Limit:     allowance * len(uniqueKeys),
+		Remaining: allowance * len(uniqueKeys),
+		Active:    true,
+	}
+	var usages []PromotionUsage
+	if err := DB.Where("user_id = ? AND activity_key IN ?", userId, uniqueKeys).Find(&usages).Error; err != nil {
+		return PromotionUsageSummary{}, err
+	}
+	for _, usage := range usages {
+		used := usage.UsedCount + usage.ReservedCount
+		if used < 0 {
+			used = 0
+		}
+		summary.Used += used
+		summary.Remaining -= min(used, allowance)
+	}
+	return summary, nil
 }
 
 // ReservePromotionUse atomically reserves one shared activity use. Exhaustion

@@ -374,6 +374,39 @@ func TestActiveModelPromotionsAreIndependentOfBannerVisibility(t *testing.T) {
 	assert.Empty(t, GetActiveBannerModelPromotions(now))
 }
 
+func TestGetActivePromotionActivityKeysDeduplicatesSharedOccurrences(t *testing.T) {
+	originalModes := billingSetting.BillingMode
+	originalSchedules := billingSetting.PriceSchedules
+	t.Cleanup(func() {
+		billingSetting.BillingMode = originalModes
+		billingSetting.PriceSchedules = originalSchedules
+	})
+
+	now := time.Unix(150, 0)
+	billingSetting.BillingMode = map[string]string{
+		"model-a": BillingModeRatio,
+		"model-b": BillingModeRatio,
+		"model-c": BillingModeRatio,
+	}
+	sharedRule := PriceSchedule{
+		Type: PriceScheduleAbsolute, AdjustmentType: PriceAdjustmentRate,
+		DiscountRate: pricePointer(0), StartAt: 100, EndAt: 200,
+	}
+	billingSetting.PriceSchedules = map[string][]PriceSchedule{
+		"model-a": {sharedRule},
+		"model-b": {sharedRule},
+		"model-c": {{
+			Type: PriceScheduleAbsolute, AdjustmentType: PriceAdjustmentRate,
+			DiscountRate: pricePointer(0.5), StartAt: 120, EndAt: 220,
+		}},
+	}
+
+	assert.Equal(t, []string{
+		"v1:absolute:100:200",
+		"v1:absolute:120:220",
+	}, GetActivePromotionActivityKeys(now))
+}
+
 func TestGetActiveModelPromotionsUsesLowestEffectivePerRequestPrice(t *testing.T) {
 	originalModes := billingSetting.BillingMode
 	originalSchedules := billingSetting.PriceSchedules

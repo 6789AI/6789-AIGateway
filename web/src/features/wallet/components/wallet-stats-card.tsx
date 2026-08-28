@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Activity, BarChart3, WalletCards } from 'lucide-react'
+import { Activity, BarChart3, Gift, WalletCards } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
@@ -34,12 +34,15 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   const { t } = useTranslation()
   if (props.loading) {
     return (
-      <div className='grid grid-cols-3 divide-x rounded-lg border'>
-        {['balance', 'usage', 'requests'].map((key) => (
-          <div key={key} className='min-w-0 px-2.5 py-2.5 sm:px-5 sm:py-4'>
+      <div className='bg-border grid grid-cols-2 gap-px overflow-hidden rounded-lg border sm:grid-cols-4'>
+        {['balance', 'usage', 'free-usage', 'requests'].map((key) => (
+          <div
+            key={key}
+            className='bg-background min-w-0 px-2.5 py-2.5 sm:px-5 sm:py-4'
+          >
             <Skeleton className='h-3.5 w-full' />
             <Skeleton className='mt-2 h-6 w-full sm:h-7' />
-            <Skeleton className='mt-1.5 hidden h-3.5 w-24 md:block' />
+            <Skeleton className='mt-1.5 h-3.5 w-24' />
           </div>
         ))}
       </div>
@@ -68,6 +71,13 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
       tone: 'info',
     },
     {
+      label: t('Free Usage'),
+      value: (props.user?.free_usage_remaining ?? 0).toLocaleString(),
+      description: t('Active during promotions'),
+      icon: Gift,
+      tone: 'warning',
+    },
+    {
       label: t('API Requests'),
       value: (props.user?.request_count ?? 0).toLocaleString(),
       description: t('Total requests made'),
@@ -77,9 +87,12 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   ]
 
   return (
-    <div className='grid grid-cols-3 divide-x rounded-lg border'>
+    <div className='bg-border grid grid-cols-2 gap-px overflow-hidden rounded-lg border sm:grid-cols-4'>
       {stats.map((item) => (
-        <div key={item.label} className='min-w-0 px-2.5 py-2.5 sm:px-5 sm:py-4'>
+        <div
+          key={item.label}
+          className='bg-background min-w-0 px-2.5 py-2.5 sm:px-5 sm:py-4'
+        >
           <div className='flex items-center gap-1.5 sm:gap-2.5'>
             <IconBadge tone={item.tone} size='stat'>
               <item.icon />
@@ -92,7 +105,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
           <div className='text-foreground mt-1.5 font-mono text-sm font-bold tracking-tight break-all tabular-nums sm:mt-2.5 sm:text-2xl'>
             {item.value}
           </div>
-          <div className='text-muted-foreground/60 mt-1 hidden text-xs md:block'>
+          <div className='text-muted-foreground/60 mt-1 text-[10px] sm:text-xs'>
             {item.description}
           </div>
         </div>

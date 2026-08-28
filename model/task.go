@@ -114,6 +114,7 @@ type TaskPrivateData struct {
 	// PromotionRequestId keeps an activity-use reservation alive until an
 	// asynchronous task reaches a terminal state.
 	PromotionRequestId string `json:"promotion_request_id,omitempty"`
+	PromotionFreeUsage bool   `json:"promotion_free_usage,omitempty"`
 }
 
 type TaskPollingConfig struct {
@@ -189,6 +190,9 @@ type SyncTaskQueryParams struct {
 func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) *Task {
 	properties := Properties{}
 	privateData := TaskPrivateData{}
+	if relayInfo != nil {
+		privateData.PromotionFreeUsage = relayInfo.PromotionFreeUsage
+	}
 	if relayInfo != nil && relayInfo.ChannelMeta != nil {
 		if relayInfo.ChannelMeta.ChannelIsMultiKey ||
 			platform == constant.TaskPlatformGrsai ||

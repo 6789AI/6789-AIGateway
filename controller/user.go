@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/QuantumNous/new-api/constant"
@@ -487,6 +488,29 @@ func GetSelf(c *gin.Context) {
 		return
 	}
 	responseData := buildSelfUserData(user)
+	activityKeys := billing_setting.GetActivePromotionActivityKeys(time.Now())
+	promotionUsage, err := model.GetPromotionUsageSummary(
+		user.Id,
+		user.UsedQuota,
+		activityKeys,
+	)
+	if err != nil {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("failed to query promotion usage for user %d: %v", user.Id, err))
+		allowance := model.PromotionAllowanceForUsedQuota(user.UsedQuota)
+		limit := allowance
+		if len(activityKeys) > 1 {
+			limit *= len(activityKeys)
+		}
+		promotionUsage = model.PromotionUsageSummary{
+			Limit:     limit,
+			Remaining: limit,
+			Active:    len(activityKeys) > 0,
+		}
+	}
+	responseData["free_usage_limit"] = promotionUsage.Limit
+	responseData["free_usage_used"] = promotionUsage.Used
+	responseData["free_usage_remaining"] = promotionUsage.Remaining
+	responseData["free_usage_active"] = promotionUsage.Active
 	// The authenticated role is loaded from GetUserCache. It should equal the
 	// row role, but use it for capabilities so GetSelf and login/refresh remain
 	// consistent with the authorization decision made for this request.

@@ -55,6 +55,7 @@ func TestScheduledPriceAppliesFreeActivityToRequestAndTaskBilling(t *testing.T) 
 	require.True(t, requestPrice.UsePrice)
 	require.Zero(t, requestPrice.ModelPrice)
 	require.Zero(t, requestPrice.QuotaToPreConsume)
+	require.True(t, info.PromotionFreeUsage)
 
 	ctx, info = newContext()
 	taskPrice, err := ModelPriceHelperPerCall(ctx, info)
@@ -62,6 +63,7 @@ func TestScheduledPriceAppliesFreeActivityToRequestAndTaskBilling(t *testing.T) 
 	require.True(t, taskPrice.UsePrice)
 	require.Zero(t, taskPrice.ModelPrice)
 	require.Zero(t, taskPrice.Quota)
+	require.True(t, info.PromotionFreeUsage)
 }
 
 func TestScheduledDiscountAppliesAcrossBillingModes(t *testing.T) {

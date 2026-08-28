@@ -55,6 +55,7 @@ type ModelPromotion struct {
 	Price         *float64 `json:"price,omitempty"`
 	DiscountRate  *float64 `json:"discount_rate,omitempty"`
 	EndsAt        int64    `json:"ends_at,omitempty"`
+	ActivityKey   string   `json:"-"`
 }
 
 // ScheduledAdjustment is the selected active promotion and the shared
@@ -403,7 +404,11 @@ func GetScheduledDiscount(model string, now time.Time) (float64, bool) {
 }
 
 func promotionFromRule(model string, rule PriceSchedule, endsAt int64) (ModelPromotion, bool) {
-	promotion := ModelPromotion{ModelName: model, EndsAt: endsAt}
+	promotion := ModelPromotion{
+		ModelName:   model,
+		EndsAt:      endsAt,
+		ActivityKey: priceScheduleActivityKey(rule, endsAt),
+	}
 	switch priceScheduleAdjustmentType(rule) {
 	case PriceAdjustmentFixed:
 		if rule.Price == nil || *rule.Price < 0 || math.IsNaN(*rule.Price) || math.IsInf(*rule.Price, 0) {
@@ -531,6 +536,23 @@ func getActiveModelPromotions(now time.Time, bannerOnly bool) []ModelPromotion {
 // whether the optional global promotion banner is enabled.
 func GetActiveModelPromotions(now time.Time) []ModelPromotion {
 	return getActiveModelPromotions(now, false)
+}
+
+// GetActivePromotionActivityKeys returns each active pricing activity once,
+// even when multiple models share the same occurrence and allowance.
+func GetActivePromotionActivityKeys(now time.Time) []string {
+	activityKeys := make(map[string]struct{})
+	for _, promotion := range GetActiveModelPromotions(now) {
+		if promotion.ActivityKey != "" {
+			activityKeys[promotion.ActivityKey] = struct{}{}
+		}
+	}
+	keys := make([]string, 0, len(activityKeys))
+	for key := range activityKeys {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func GetActiveBannerModelPromotions(now time.Time) []ModelPromotion {
