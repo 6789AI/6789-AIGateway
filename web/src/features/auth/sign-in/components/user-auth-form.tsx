@@ -26,9 +26,9 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { z } from 'zod'
 
+import { BotProtectionWidget } from '@/components/bot-protection'
 import { Dialog } from '@/components/dialog'
 import { PasswordInput } from '@/components/password-input'
-import { Turnstile } from '@/components/turnstile'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -45,7 +45,7 @@ import { LegalConsent } from '@/features/auth/components/legal-consent'
 import { OAuthProviders } from '@/features/auth/components/oauth-providers'
 import { loginFormSchema } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
-import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
+import { useBotProtection } from '@/features/auth/hooks/use-bot-protection'
 import { beginPasskeyLogin, finishPasskeyLogin } from '@/features/auth/passkey'
 import type { AuthFormProps } from '@/features/auth/types'
 import { useStatus } from '@/hooks/use-status'
@@ -83,13 +83,7 @@ export function UserAuthForm({
     (status?.password_login_enabled ??
       status?.data?.password_login_enabled ??
       true) !== false
-  const {
-    isTurnstileEnabled,
-    turnstileSiteKey,
-    turnstileToken,
-    setTurnstileToken,
-    validateTurnstile,
-  } = useTurnstile()
+  const botProtection = useBotProtection('login')
   const { handleLoginSuccess, redirectTo2FA } = useAuthRedirect()
   const setPending2FAFlowToken = useAuthStore(
     (state) => state.auth.setPending2FAFlowToken
@@ -156,14 +150,14 @@ export function UserAuthForm({
       return
     }
 
-    if (!validateTurnstile()) return
+    if (!botProtection.validate()) return
 
     setIsLoading(true)
     try {
       const res = await login({
         username: data.username,
         password: data.password,
-        turnstile: turnstileToken,
+        bot_protection: botProtection.proof,
       })
 
       if (res.success) {
@@ -346,6 +340,7 @@ export function UserAuthForm({
       <form
         onSubmit={form.handleSubmit(onSubmit)}
         className={cn('grid gap-4', className)}
+        autoComplete='on'
         {...props}
       >
         {hasAlternativeLogin && alternativeLoginMethods}
@@ -362,6 +357,9 @@ export function UserAuthForm({
                   <FormControl>
                     <Input
                       placeholder={t('Enter your username or email')}
+                      autoComplete='username'
+                      autoCapitalize='none'
+                      spellCheck={false}
                       {...field}
                     />
                   </FormControl>
@@ -380,6 +378,7 @@ export function UserAuthForm({
                   <FormControl>
                     <PasswordInput
                       placeholder={t('Enter password')}
+                      autoComplete='current-password'
                       {...field}
                     />
                   </FormControl>
@@ -398,18 +397,24 @@ export function UserAuthForm({
             <Button
               type='submit'
               className='mt-2 w-full justify-center gap-2'
-              disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
+              disabled={
+                isLoading ||
+                (requiresLegalConsent && !agreedToLegal) ||
+                (botProtection.isEnabled && !botProtection.proof)
+              }
             >
               {isLoading ? <Loader2 className='animate-spin' /> : <LogIn />}
               {t('Sign in')}
             </Button>
 
-            {/* Turnstile */}
-            {isTurnstileEnabled && (
+            {botProtection.isEnabled && (
               <div className='mt-2'>
-                <Turnstile
-                  siteKey={turnstileSiteKey}
-                  onVerify={setTurnstileToken}
+                <BotProtectionWidget
+                  provider={botProtection.provider}
+                  siteKey={botProtection.siteKey}
+                  capAPIEndpoint={botProtection.capAPIEndpoint}
+                  onVerify={botProtection.setProof}
+                  onExpire={() => botProtection.setProof('')}
                 />
               </div>
             )}

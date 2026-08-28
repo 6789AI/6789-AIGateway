@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
+    "@cap.js/wasm": "0.0.7",
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/language": "^6.12.4",
     "@codemirror/state": "^6.7.0",
@@ -40,6 +41,7 @@
     "ai": "^7.0.14",
     "auto-skeleton-react": "^1.0.5",
     "axios": "^1.18.1",
+    "cap-widget": "0.1.50",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

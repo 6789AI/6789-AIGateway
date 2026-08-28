@@ -24,9 +24,9 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { z } from 'zod'
 
+import { BotProtectionWidget } from '@/components/bot-protection'
 import { Dialog } from '@/components/dialog'
 import { PasswordInput } from '@/components/password-input'
-import { Turnstile } from '@/components/turnstile'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -43,8 +43,8 @@ import { LegalConsent } from '@/features/auth/components/legal-consent'
 import { OAuthProviders } from '@/features/auth/components/oauth-providers'
 import { registerFormSchema } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
+import { useBotProtection } from '@/features/auth/hooks/use-bot-protection'
 import { useEmailVerification } from '@/features/auth/hooks/use-email-verification'
-import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
 import {
   getAffiliateCode,
   saveAffiliateCode,
@@ -65,17 +65,14 @@ export function SignUpForm({
   const [wechatCode, setWeChatCode] = useState('')
   const [isWeChatDialogOpen, setIsWeChatDialogOpen] = useState(false)
   const [isWeChatSubmitting, setIsWeChatSubmitting] = useState(false)
-  const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
+  const [registrationWidgetKey, setRegistrationWidgetKey] = useState(0)
+  const [emailVerificationWidgetKey, setEmailVerificationWidgetKey] =
+    useState(0)
   const legalConsentErrorMessage = t('Please agree to the legal terms first')
 
   const { status } = useStatus()
-  const {
-    isTurnstileEnabled,
-    turnstileSiteKey,
-    turnstileToken,
-    setTurnstileToken,
-    validateTurnstile,
-  } = useTurnstile()
+  const registrationProtection = useBotProtection('register')
+  const emailVerificationProtection = useBotProtection('email_verification')
   const { redirectToLogin, handleLoginSuccess } = useAuthRedirect()
   const {
     isSending: isSendingCode,
@@ -83,8 +80,8 @@ export function SignUpForm({
     isActive,
     sendCode,
   } = useEmailVerification({
-    turnstileToken,
-    validateTurnstile,
+    botProtectionProof: emailVerificationProtection.proof,
+    validateBotProtection: emailVerificationProtection.validate,
   })
 
   const form = useForm<z.infer<typeof registerFormSchema>>({
@@ -107,7 +104,11 @@ export function SignUpForm({
     status?.data?.oauth_register_enabled ??
     true
   const hasWeChatLogin = Boolean(status?.wechat_login)
-  const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
+  const registrationProtectionReady =
+    !registrationProtection.isEnabled || Boolean(registrationProtection.proof)
+  const emailVerificationProtectionReady =
+    !emailVerificationProtection.isEnabled ||
+    Boolean(emailVerificationProtection.proof)
 
   const wechatQrCodeUrl = useMemo(() => {
     return (
@@ -156,7 +157,7 @@ export function SignUpForm({
       }
     }
 
-    if (!validateTurnstile()) return
+    if (!registrationProtection.validate()) return
 
     setIsLoading(true)
     try {
@@ -166,7 +167,7 @@ export function SignUpForm({
         email: data.email || undefined,
         verification_code: verificationCode || undefined,
         aff_code: getAffiliateCode(),
-        turnstile: turnstileToken,
+        bot_protection: registrationProtection.proof,
       })
 
       if (res?.success) {
@@ -184,8 +185,8 @@ export function SignUpForm({
 
   async function handleSendVerificationCode() {
     if (await sendCode(emailValue || '')) {
-      setTurnstileToken('')
-      setTurnstileWidgetKey((current) => current + 1)
+      emailVerificationProtection.setProof('')
+      setEmailVerificationWidgetKey((current) => current + 1)
     }
   }
 
@@ -245,6 +246,7 @@ export function SignUpForm({
       <form
         onSubmit={form.handleSubmit(onSubmit)}
         className={cn('grid gap-4', className)}
+        autoComplete='on'
         {...props}
       >
         {/* Username Field */}
@@ -255,7 +257,13 @@ export function SignUpForm({
             <FormItem>
               <FormLabel>{t('Username')}</FormLabel>
               <FormControl>
-                <Input placeholder={t('Enter your username')} {...field} />
+                <Input
+                  placeholder={t('Enter your username')}
+                  autoComplete='username'
+                  autoCapitalize='none'
+                  spellCheck={false}
+                  {...field}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -272,6 +280,7 @@ export function SignUpForm({
               <FormControl>
                 <PasswordInput
                   placeholder={t('Enter password (8-20 characters)')}
+                  autoComplete='new-password'
                   {...field}
                 />
               </FormControl>
@@ -288,7 +297,11 @@ export function SignUpForm({
             <FormItem>
               <FormLabel>{t('Confirm password')}</FormLabel>
               <FormControl>
-                <PasswordInput placeholder={t('Confirm password')} {...field} />
+                <PasswordInput
+                  placeholder={t('Confirm password')}
+                  autoComplete='new-password'
+                  {...field}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -311,6 +324,9 @@ export function SignUpForm({
                     <Input
                       placeholder={t('name@example.com')}
                       type='email'
+                      autoComplete='email'
+                      autoCapitalize='none'
+                      spellCheck={false}
                       {...field}
                     />
                   </FormControl>
@@ -324,6 +340,8 @@ export function SignUpForm({
               <div className='flex-1'>
                 <Input
                   placeholder={t('Verification code')}
+                  name='verification_code'
+                  autoComplete='one-time-code'
                   value={verificationCode}
                   onChange={(e) => setVerificationCode(e.target.value)}
                 />
@@ -336,23 +354,41 @@ export function SignUpForm({
                   isSendingCode ||
                   isActive ||
                   !emailValue ||
-                  !turnstileReady
+                  !emailVerificationProtectionReady
                 }
                 onClick={handleSendVerificationCode}
               >
                 {verificationCodeAction}
               </Button>
             </div>
+
+            {emailVerificationProtection.isEnabled && (
+              <div className='mt-2'>
+                <BotProtectionWidget
+                  key={emailVerificationWidgetKey}
+                  provider={emailVerificationProtection.provider}
+                  siteKey={emailVerificationProtection.siteKey}
+                  capAPIEndpoint={emailVerificationProtection.capAPIEndpoint}
+                  onVerify={emailVerificationProtection.setProof}
+                  onExpire={() => emailVerificationProtection.setProof('')}
+                />
+              </div>
+            )}
           </>
         )}
 
-        {/* Turnstile */}
-        {isTurnstileEnabled && (
+        {registrationProtection.isEnabled && (
           <div className='mt-2'>
-            <Turnstile
-              key={turnstileWidgetKey}
-              siteKey={turnstileSiteKey}
-              onVerify={setTurnstileToken}
+            <BotProtectionWidget
+              key={registrationWidgetKey}
+              provider={registrationProtection.provider}
+              siteKey={registrationProtection.siteKey}
+              capAPIEndpoint={registrationProtection.capAPIEndpoint}
+              onVerify={registrationProtection.setProof}
+              onExpire={() => {
+                registrationProtection.setProof('')
+                setRegistrationWidgetKey((current) => current + 1)
+              }}
             />
           </div>
         )}
@@ -371,7 +407,7 @@ export function SignUpForm({
           disabled={
             isLoading ||
             (requiresLegalConsent && !agreedToLegal) ||
-            !turnstileReady
+            !registrationProtectionReady
           }
         >
           {isLoading ? <Loader2 className='h-4 w-4 animate-spin' /> : null}

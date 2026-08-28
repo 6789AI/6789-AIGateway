@@ -175,8 +175,25 @@ export type AuthSettings = {
   WeChatServerToken: string
   WeChatAccountQRCodeImageURL: string
   TurnstileCheckEnabled: boolean
+  BotProtectionProvider: 'turnstile' | 'recaptcha' | 'geetest_v4' | 'cap'
+  BotProtectionLoginEnabled: boolean
+  BotProtectionRegisterEnabled: boolean
+  BotProtectionEmailVerificationEnabled: boolean
+  BotProtectionPasswordResetEnabled: boolean
+  BotProtectionCheckinEnabled: boolean
   TurnstileSiteKey: string
   TurnstileSecretKey: string
+  TurnstileSecretKeyConfigured: boolean
+  ReCaptchaSiteKey: string
+  ReCaptchaSecretKey: string
+  ReCaptchaSecretKeyConfigured: boolean
+  GeeTestCaptchaId: string
+  GeeTestSecretKey: string
+  GeeTestSecretKeyConfigured: boolean
+  CapServerURL: string
+  CapSiteKey: string
+  CapSecretKey: string
+  CapSecretKeyConfigured: boolean
   'passkey.enabled': boolean
   'passkey.rp_display_name': string
   'passkey.rp_id': string
@@ -361,15 +378,22 @@ export type OperationsSettings = {
   DemoSiteEnabled: boolean
   SelfUseModeEnabled: boolean
   QuotaRemindThreshold: string
+  EmailSenderProvider: 'smtp' | 'bt_mail'
   SMTPServer: string
   SMTPPort: string
   SMTPAccount: string
+  SMTPFromName: string
   SMTPFrom: string
   SMTPToken: string
   SMTPSSLEnabled: boolean
   SMTPStartTLSEnabled: boolean
   SMTPInsecureSkipVerify: boolean
   SMTPForceAuthLogin: boolean
+  BTMailAPIURL: string
+  BTMailFromName: string
+  BTMailFrom: string
+  BTMailPassword: string
+  BTMailPasswordConfigured: boolean
   WorkerUrl: string
   WorkerValidKey: string
   WorkerAllowHttpImageRequestEnabled: boolean

@@ -25,7 +25,7 @@ import type { AuthBundle } from '@/stores/auth-store'
 export interface LoginPayload {
   username: string
   password: string
-  turnstile?: string
+  bot_protection?: string
 }
 
 export interface TwoFAPayload {
@@ -39,17 +39,17 @@ export interface RegisterPayload {
   email?: string
   verification_code?: string
   aff_code?: string
-  turnstile?: string
+  bot_protection?: string
 }
 
 export interface PasswordResetPayload {
   email: string
-  turnstile?: string
+  bot_protection?: string
 }
 
 export interface EmailVerificationPayload {
   email: string
-  turnstile?: string
+  bot_protection?: string
 }
 
 export interface BindEmailPayload {
@@ -118,6 +118,15 @@ export interface SystemStatus {
     WeChatAccountQRCodeImageURL?: string
     turnstile_check?: boolean
     turnstile_site_key?: string
+    bot_protection_enabled?: boolean
+    bot_protection_provider?: string
+    bot_protection_site_key?: string
+    bot_protection_cap_api_endpoint?: string
+    bot_protection_login_enabled?: boolean
+    bot_protection_register_enabled?: boolean
+    bot_protection_email_verification_enabled?: boolean
+    bot_protection_password_reset_enabled?: boolean
+    bot_protection_checkin_enabled?: boolean
     email_verification?: boolean
     self_use_mode_enabled?: boolean
     display_in_currency?: boolean
@@ -163,6 +172,15 @@ export interface SystemStatus {
   WeChatAccountQRCodeImageURL?: string
   turnstile_check?: boolean
   turnstile_site_key?: string
+  bot_protection_enabled?: boolean
+  bot_protection_provider?: string
+  bot_protection_site_key?: string
+  bot_protection_cap_api_endpoint?: string
+  bot_protection_login_enabled?: boolean
+  bot_protection_register_enabled?: boolean
+  bot_protection_email_verification_enabled?: boolean
+  bot_protection_password_reset_enabled?: boolean
+  bot_protection_checkin_enabled?: boolean
   email_verification?: boolean
   self_use_mode_enabled?: boolean
   display_in_currency?: boolean

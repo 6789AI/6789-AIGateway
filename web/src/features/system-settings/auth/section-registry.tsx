@@ -108,8 +108,29 @@ const AUTH_SECTIONS = [
       <BotProtectionSection
         defaultValues={{
           TurnstileCheckEnabled: settings.TurnstileCheckEnabled,
+          BotProtectionProvider: settings.BotProtectionProvider,
+          BotProtectionLoginEnabled: settings.BotProtectionLoginEnabled,
+          BotProtectionRegisterEnabled: settings.BotProtectionRegisterEnabled,
+          BotProtectionEmailVerificationEnabled:
+            settings.BotProtectionEmailVerificationEnabled,
+          BotProtectionPasswordResetEnabled:
+            settings.BotProtectionPasswordResetEnabled,
+          BotProtectionCheckinEnabled: settings.BotProtectionCheckinEnabled,
           TurnstileSiteKey: settings.TurnstileSiteKey,
           TurnstileSecretKey: settings.TurnstileSecretKey,
+          ReCaptchaSiteKey: settings.ReCaptchaSiteKey,
+          ReCaptchaSecretKey: settings.ReCaptchaSecretKey,
+          GeeTestCaptchaId: settings.GeeTestCaptchaId,
+          GeeTestSecretKey: settings.GeeTestSecretKey,
+          CapServerURL: settings.CapServerURL,
+          CapSiteKey: settings.CapSiteKey,
+          CapSecretKey: settings.CapSecretKey,
+        }}
+        secretConfigured={{
+          turnstile: settings.TurnstileSecretKeyConfigured,
+          recaptcha: settings.ReCaptchaSecretKeyConfigured,
+          geetest_v4: settings.GeeTestSecretKeyConfigured,
+          cap: settings.CapSecretKeyConfigured,
         }}
       />
     ),
