@@ -44,6 +44,12 @@ func InitOptionMap() {
 	common.OptionMap["TelegramOAuthEnabled"] = strconv.FormatBool(common.TelegramOAuthEnabled)
 	common.OptionMap["WeChatAuthEnabled"] = strconv.FormatBool(common.WeChatAuthEnabled)
 	common.OptionMap["TurnstileCheckEnabled"] = strconv.FormatBool(common.TurnstileCheckEnabled)
+	common.OptionMap["BotProtectionProvider"] = common.BotProtectionProvider
+	common.OptionMap["BotProtectionLoginEnabled"] = strconv.FormatBool(common.BotProtectionLoginEnabled)
+	common.OptionMap["BotProtectionRegisterEnabled"] = strconv.FormatBool(common.BotProtectionRegisterEnabled)
+	common.OptionMap["BotProtectionEmailVerificationEnabled"] = strconv.FormatBool(common.BotProtectionEmailVerificationEnabled)
+	common.OptionMap["BotProtectionPasswordResetEnabled"] = strconv.FormatBool(common.BotProtectionPasswordResetEnabled)
+	common.OptionMap["BotProtectionCheckinEnabled"] = strconv.FormatBool(common.BotProtectionCheckinEnabled)
 	common.OptionMap["RegisterEnabled"] = strconv.FormatBool(common.RegisterEnabled)
 	common.OptionMap["AutomaticDisableChannelEnabled"] = strconv.FormatBool(common.AutomaticDisableChannelEnabled)
 	common.OptionMap["AutomaticEnableChannelEnabled"] = strconv.FormatBool(common.AutomaticEnableChannelEnabled)
@@ -59,6 +65,7 @@ func InitOptionMap() {
 	common.OptionMap["EmailDomainWhitelist"] = strings.Join(common.EmailDomainWhitelist, ",")
 	common.OptionMap["SMTPServer"] = ""
 	common.OptionMap["SMTPFrom"] = ""
+	common.OptionMap["SMTPFromName"] = ""
 	common.OptionMap["SMTPPort"] = strconv.Itoa(common.SMTPPort)
 	common.OptionMap["SMTPAccount"] = ""
 	common.OptionMap["SMTPToken"] = ""
@@ -66,6 +73,11 @@ func InitOptionMap() {
 	common.OptionMap["SMTPStartTLSEnabled"] = strconv.FormatBool(common.SMTPStartTLSEnabled)
 	common.OptionMap["SMTPInsecureSkipVerify"] = strconv.FormatBool(common.SMTPInsecureSkipVerify)
 	common.OptionMap["SMTPForceAuthLogin"] = strconv.FormatBool(common.SMTPForceAuthLogin)
+	common.OptionMap["EmailSenderProvider"] = common.EmailSenderProvider
+	common.OptionMap["BTMailAPIURL"] = ""
+	common.OptionMap["BTMailFrom"] = ""
+	common.OptionMap["BTMailFromName"] = ""
+	common.OptionMap["BTMailPassword"] = ""
 	common.OptionMap["Notice"] = ""
 	common.OptionMap["About"] = ""
 	common.OptionMap["HomePageContent"] = ""
@@ -131,6 +143,13 @@ func InitOptionMap() {
 	common.OptionMap["WeChatAccountQRCodeImageURL"] = ""
 	common.OptionMap["TurnstileSiteKey"] = ""
 	common.OptionMap["TurnstileSecretKey"] = ""
+	common.OptionMap["ReCaptchaSiteKey"] = ""
+	common.OptionMap["ReCaptchaSecretKey"] = ""
+	common.OptionMap["GeeTestCaptchaId"] = ""
+	common.OptionMap["GeeTestSecretKey"] = ""
+	common.OptionMap["CapServerURL"] = ""
+	common.OptionMap["CapSiteKey"] = ""
+	common.OptionMap["CapSecretKey"] = ""
 	common.OptionMap["QuotaForNewUser"] = strconv.Itoa(common.QuotaForNewUser)
 	common.OptionMap["QuotaForInviter"] = strconv.Itoa(common.QuotaForInviter)
 	common.OptionMap["QuotaForInvitee"] = strconv.Itoa(common.QuotaForInvitee)
@@ -321,6 +340,16 @@ func updateOptionMap(key string, value string) (err error) {
 			common.TelegramOAuthEnabled = boolValue
 		case "TurnstileCheckEnabled":
 			common.TurnstileCheckEnabled = boolValue
+		case "BotProtectionLoginEnabled":
+			common.BotProtectionLoginEnabled = boolValue
+		case "BotProtectionRegisterEnabled":
+			common.BotProtectionRegisterEnabled = boolValue
+		case "BotProtectionEmailVerificationEnabled":
+			common.BotProtectionEmailVerificationEnabled = boolValue
+		case "BotProtectionPasswordResetEnabled":
+			common.BotProtectionPasswordResetEnabled = boolValue
+		case "BotProtectionCheckinEnabled":
+			common.BotProtectionCheckinEnabled = boolValue
 		case "RegisterEnabled":
 			common.RegisterEnabled = boolValue
 		case "EmailDomainRestrictionEnabled":
@@ -403,8 +432,20 @@ func updateOptionMap(key string, value string) (err error) {
 		common.SMTPAccount = value
 	case "SMTPFrom":
 		common.SMTPFrom = value
+	case "SMTPFromName":
+		common.SMTPFromName = value
 	case "SMTPToken":
 		common.SMTPToken = value
+	case "EmailSenderProvider":
+		common.EmailSenderProvider = value
+	case "BTMailAPIURL":
+		common.BTMailAPIURL = value
+	case "BTMailFrom":
+		common.BTMailFrom = value
+	case "BTMailFromName":
+		common.BTMailFromName = value
+	case "BTMailPassword":
+		common.BTMailPassword = value
 	case "ServerAddress":
 		system_setting.ServerAddress = value
 	case "WorkerUrl":
@@ -527,6 +568,22 @@ func updateOptionMap(key string, value string) (err error) {
 		common.TurnstileSiteKey = value
 	case "TurnstileSecretKey":
 		common.TurnstileSecretKey = value
+	case "BotProtectionProvider":
+		common.BotProtectionProvider = value
+	case "ReCaptchaSiteKey":
+		common.ReCaptchaSiteKey = value
+	case "ReCaptchaSecretKey":
+		common.ReCaptchaSecretKey = value
+	case "GeeTestCaptchaId":
+		common.GeeTestCaptchaId = value
+	case "GeeTestSecretKey":
+		common.GeeTestSecretKey = value
+	case "CapServerURL":
+		common.CapServerURL = value
+	case "CapSiteKey":
+		common.CapSiteKey = value
+	case "CapSecretKey":
+		common.CapSecretKey = value
 	case "QuotaForNewUser":
 		common.QuotaForNewUser, _ = strconv.Atoi(value)
 	case "QuotaForInviter":

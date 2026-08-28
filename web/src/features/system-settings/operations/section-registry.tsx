@@ -61,20 +61,27 @@ const OPERATIONS_SECTIONS = [
   },
   {
     id: 'email',
-    titleKey: 'SMTP Email',
+    titleKey: 'Sending settings',
     build: (settings: OperationsSettings) => (
       <EmailSettingsSection
         defaultValues={{
+          EmailSenderProvider: settings.EmailSenderProvider,
           SMTPServer: settings.SMTPServer,
           SMTPPort: settings.SMTPPort,
           SMTPAccount: settings.SMTPAccount,
+          SMTPFromName: settings.SMTPFromName,
           SMTPFrom: settings.SMTPFrom,
           SMTPToken: settings.SMTPToken,
           SMTPSSLEnabled: settings.SMTPSSLEnabled,
           SMTPStartTLSEnabled: settings.SMTPStartTLSEnabled,
           SMTPInsecureSkipVerify: settings.SMTPInsecureSkipVerify,
           SMTPForceAuthLogin: settings.SMTPForceAuthLogin,
+          BTMailAPIURL: settings.BTMailAPIURL,
+          BTMailFromName: settings.BTMailFromName,
+          BTMailFrom: settings.BTMailFrom,
+          BTMailPassword: settings.BTMailPassword,
         }}
+        btMailPasswordConfigured={settings.BTMailPasswordConfigured}
       />
     ),
   },

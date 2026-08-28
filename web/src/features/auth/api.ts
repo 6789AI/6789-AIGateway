@@ -42,14 +42,16 @@ import type {
 
 // User login with username and password
 export async function login(payload: LoginPayload) {
-  const turnstile = payload.turnstile ?? ''
   const res = await api.post<LoginResponse>(
-    `/api/user/login?turnstile=${turnstile}`,
+    '/api/user/login',
     {
       username: payload.username,
       password: payload.password,
     },
-    { skipAuthRefresh: true }
+    {
+      params: { bot_protection: payload.bot_protection ?? '' },
+      skipAuthRefresh: true,
+    }
   )
   return res.data
 }
@@ -119,10 +121,10 @@ export async function logout(): Promise<ApiResponse> {
 // Send password reset email
 export async function sendPasswordResetEmail(
   email: string,
-  turnstile?: string
+  botProtectionProof?: string
 ): Promise<ApiResponse> {
   const res = await api.get('/api/reset_password', {
-    params: { email, turnstile },
+    params: { email, bot_protection: botProtectionProof },
   })
   return res.data
 }
@@ -182,8 +184,9 @@ export async function telegramLogin(
 
 // User registration
 export async function register(payload: RegisterPayload): Promise<ApiResponse> {
-  const res = await api.post(`/api/user/register`, payload, {
-    params: { turnstile: payload.turnstile ?? '' },
+  const { bot_protection: botProtectionProof, ...body } = payload
+  const res = await api.post(`/api/user/register`, body, {
+    params: { bot_protection: botProtectionProof ?? '' },
   })
   return res.data
 }
@@ -191,10 +194,10 @@ export async function register(payload: RegisterPayload): Promise<ApiResponse> {
 // Send email verification code
 export async function sendEmailVerification(
   email: string,
-  turnstile?: string
+  botProtectionProof?: string
 ): Promise<ApiResponse> {
   const res = await api.get('/api/verification', {
-    params: { email, turnstile },
+    params: { email, bot_protection: botProtectionProof },
   })
   return res.data
 }

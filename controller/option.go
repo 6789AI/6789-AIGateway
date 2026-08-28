@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -42,6 +43,43 @@ func isPositiveOptionValue(value string) bool {
 	}
 	floatValue, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 	return err == nil && floatValue > 0
+}
+
+func validateBotProtectionConfiguration(provider string) error {
+	switch provider {
+	case common.BotProtectionProviderTurnstile:
+		if common.TurnstileSiteKey == "" || common.TurnstileSecretKey == "" {
+			return fmt.Errorf("无法启用机器人保护，请先填写 Turnstile Site Key 和 Secret Key")
+		}
+	case common.BotProtectionProviderReCaptcha:
+		if common.ReCaptchaSiteKey == "" || common.ReCaptchaSecretKey == "" {
+			return fmt.Errorf("无法启用机器人保护，请先填写 reCAPTCHA Site Key 和 Secret Key")
+		}
+	case common.BotProtectionProviderGeeTestV4:
+		if common.GeeTestCaptchaId == "" || common.GeeTestSecretKey == "" {
+			return fmt.Errorf("无法启用机器人保护，请先填写极验 V4 Captcha ID 和 Captcha Key")
+		}
+	case common.BotProtectionProviderCap:
+		if common.CapServerURL == "" || common.CapSiteKey == "" || common.CapSecretKey == "" {
+			return fmt.Errorf("无法启用机器人保护，请先填写 Cap 服务地址、Site Key 和 Secret Key")
+		}
+	default:
+		return fmt.Errorf("不支持的机器人保护提供商")
+	}
+	return nil
+}
+
+func validateCapServerURL(rawURL string) error {
+	parsed, err := url.ParseRequestURI(strings.TrimSpace(rawURL))
+	if err != nil ||
+		parsed.Host == "" ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.User != nil ||
+		parsed.RawQuery != "" ||
+		parsed.Fragment != "" {
+		return fmt.Errorf("Cap 服务地址必须是有效的 HTTP 或 HTTPS URL")
+	}
+	return nil
 }
 
 func collectModelNamesFromOptionValue(raw string, modelNames map[string]struct{}) {
@@ -86,11 +124,16 @@ func GetOptions(c *gin.Context) {
 			continue
 		}
 		value := common.Interface2String(v)
-		isSensitiveKey := strings.HasSuffix(k, "Token") ||
+		isPublicBotProtectionKey := k == "TurnstileSiteKey" ||
+			k == "ReCaptchaSiteKey" ||
+			k == "GeeTestCaptchaId" ||
+			k == "CapSiteKey"
+		isSensitiveKey := !isPublicBotProtectionKey && (strings.HasSuffix(k, "Token") ||
 			strings.HasSuffix(k, "Secret") ||
 			strings.HasSuffix(k, "Key") ||
+			strings.HasSuffix(k, "Password") ||
 			strings.HasSuffix(k, "secret") ||
-			strings.HasSuffix(k, "api_key")
+			strings.HasSuffix(k, "api_key"))
 		if isSensitiveKey {
 			continue
 		}
@@ -110,6 +153,13 @@ func GetOptions(c *gin.Context) {
 		Key:   "CompletionRatioMeta",
 		Value: buildCompletionRatioMetaValue(optionValues),
 	})
+	options = append(options,
+		&model.Option{Key: "TurnstileSecretKeyConfigured", Value: strconv.FormatBool(common.TurnstileSecretKey != "")},
+		&model.Option{Key: "ReCaptchaSecretKeyConfigured", Value: strconv.FormatBool(common.ReCaptchaSecretKey != "")},
+		&model.Option{Key: "GeeTestSecretKeyConfigured", Value: strconv.FormatBool(common.GeeTestSecretKey != "")},
+		&model.Option{Key: "CapSecretKeyConfigured", Value: strconv.FormatBool(common.CapSecretKey != "")},
+		&model.Option{Key: "BTMailPasswordConfigured", Value: strconv.FormatBool(common.BTMailPassword != "")},
+	)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -155,6 +205,44 @@ func UpdateOption(c *gin.Context) {
 		}
 	}
 	switch option.Key {
+	case "EmailSenderProvider":
+		provider := option.Value.(string)
+		if !common.IsEmailSenderProvider(provider) {
+			common.ApiErrorMsg(c, "不支持的发件方式")
+			return
+		}
+		if provider == common.EmailSenderProviderBTMail {
+			if err := common.ValidateBTMailConfiguration(); err != nil {
+				common.ApiErrorMsg(c, err.Error())
+				return
+			}
+		}
+	case "BTMailAPIURL":
+		if option.Value != "" {
+			if err := common.ValidateBTMailAPIURL(option.Value.(string)); err != nil {
+				common.ApiErrorMsg(c, err.Error())
+				return
+			}
+		}
+	case "BotProtectionProvider":
+		provider := option.Value.(string)
+		if !common.IsBotProtectionProvider(provider) {
+			common.ApiErrorMsg(c, "不支持的机器人保护提供商")
+			return
+		}
+		if common.TurnstileCheckEnabled {
+			if err := validateBotProtectionConfiguration(provider); err != nil {
+				common.ApiErrorMsg(c, err.Error())
+				return
+			}
+		}
+	case "CapServerURL":
+		if option.Value != "" {
+			if err := validateCapServerURL(option.Value.(string)); err != nil {
+				common.ApiErrorMsg(c, err.Error())
+				return
+			}
+		}
 	case "GitHubOAuthEnabled":
 		if option.Value == "true" && common.GitHubClientId == "" {
 			c.JSON(http.StatusOK, gin.H{
@@ -204,12 +292,18 @@ func UpdateOption(c *gin.Context) {
 			return
 		}
 	case "TurnstileCheckEnabled":
-		if option.Value == "true" && common.TurnstileSiteKey == "" {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "无法启用 Turnstile 校验，请先填入 Turnstile 校验相关配置信息！",
-			})
-
+		if option.Value == "true" {
+			if err := validateBotProtectionConfiguration(common.BotProtectionProvider); err != nil {
+				common.ApiErrorMsg(c, err.Error())
+				return
+			}
+		}
+		if option.Value == "true" && !common.BotProtectionLoginEnabled &&
+			!common.BotProtectionRegisterEnabled &&
+			!common.BotProtectionEmailVerificationEnabled &&
+			!common.BotProtectionPasswordResetEnabled &&
+			!common.BotProtectionCheckinEnabled {
+			common.ApiErrorMsg(c, "请至少启用一个机器人保护功能")
 			return
 		}
 	case "TelegramOAuthEnabled":

@@ -11,12 +11,17 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/smtp"
+	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -250,8 +255,14 @@ func withSMTPSettings(t *testing.T) {
 	originalSMTPForceAuthLogin := SMTPForceAuthLogin
 	originalSMTPAccount := SMTPAccount
 	originalSMTPFrom := SMTPFrom
+	originalSMTPFromName := SMTPFromName
 	originalSMTPToken := SMTPToken
 	originalSystemName := SystemName
+	originalEmailSenderProvider := EmailSenderProvider
+	originalBTMailAPIURL := BTMailAPIURL
+	originalBTMailFrom := BTMailFrom
+	originalBTMailFromName := BTMailFromName
+	originalBTMailPassword := BTMailPassword
 
 	t.Cleanup(func() {
 		SMTPServer = originalSMTPServer
@@ -262,9 +273,109 @@ func withSMTPSettings(t *testing.T) {
 		SMTPForceAuthLogin = originalSMTPForceAuthLogin
 		SMTPAccount = originalSMTPAccount
 		SMTPFrom = originalSMTPFrom
+		SMTPFromName = originalSMTPFromName
 		SMTPToken = originalSMTPToken
 		SystemName = originalSystemName
+		EmailSenderProvider = originalEmailSenderProvider
+		BTMailAPIURL = originalBTMailAPIURL
+		BTMailFrom = originalBTMailFrom
+		BTMailFromName = originalBTMailFromName
+		BTMailPassword = originalBTMailPassword
 	})
+}
+
+func TestSendEmailUsesBTMailHTTPAPI(t *testing.T) {
+	type requestRecord struct {
+		method      string
+		path        string
+		contentType string
+		form        url.Values
+	}
+	records := make(chan requestRecord, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		records <- requestRecord{
+			method:      r.Method,
+			path:        r.URL.Path,
+			contentType: r.Header.Get("Content-Type"),
+			form:        r.PostForm,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":true,"msg":"发送邮件成功"}`))
+	}))
+	defer server.Close()
+	withSMTPSettings(t)
+
+	EmailSenderProvider = EmailSenderProviderBTMail
+	BTMailAPIURL = server.URL + "/mail_sys/send_mail_http.json"
+	BTMailFrom = "sender@example.com"
+	BTMailFromName = `宝塔 <通知>`
+	BTMailPassword = "mail-password"
+
+	err := SendEmail("验证邮件", "first@example.com; second@example.com", "<p>123456</p>")
+	require.NoError(t, err)
+	record := <-records
+	assert.Equal(t, http.MethodPost, record.method)
+	assert.Equal(t, "/mail_sys/send_mail_http.json", record.path)
+	assert.Equal(t, "application/x-www-form-urlencoded", record.contentType)
+	assert.Equal(t, "sender@example.com", record.form.Get("mail_from"))
+	assert.Equal(t, "mail-password", record.form.Get("password"))
+	assert.Equal(t, "first@example.com,second@example.com", record.form.Get("mail_to"))
+	assert.Equal(t, "验证邮件", record.form.Get("subject"))
+	assert.Contains(t, record.form.Get("content"), "宝塔 &lt;通知&gt;")
+	assert.Contains(t, record.form.Get("content"), "<p>123456</p>")
+	assert.Equal(t, "html", record.form.Get("subtype"))
+}
+
+func TestDecorateBTMailContentKeepsSenderNameInsideHTMLBody(t *testing.T) {
+	content := `<!doctype html><html><head></head><body class="email"><p>Hello</p></body></html>`
+
+	decorated := decorateBTMailContent("Sender", content)
+
+	assert.True(t, strings.HasPrefix(decorated, "<!doctype html>"))
+	assert.Contains(t, decorated, `<body class="email"><table role="presentation"`)
+	assert.Contains(t, decorated, `<p>Hello</p></body></html>`)
+}
+
+func TestSendEmailReturnsBTMailFailureMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":false,"msg":"Postfix 服务未启动"}`))
+	}))
+	defer server.Close()
+	withSMTPSettings(t)
+
+	EmailSenderProvider = EmailSenderProviderBTMail
+	BTMailAPIURL = server.URL
+	BTMailFrom = "sender@example.com"
+	BTMailPassword = "mail-password"
+
+	err := SendEmail("验证邮件", "receiver@example.com", "<p>123456</p>")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "Postfix 服务未启动")
+}
+
+func TestSendEmailDoesNotForwardBTMailPasswordAcrossRedirect(t *testing.T) {
+	var redirectedRequests atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		redirectedRequests.Add(1)
+	}))
+	defer target.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+	withSMTPSettings(t)
+
+	EmailSenderProvider = EmailSenderProviderBTMail
+	BTMailAPIURL = server.URL
+	BTMailFrom = "sender@example.com"
+	BTMailPassword = "mail-password"
+
+	err := SendEmail("验证邮件", "receiver@example.com", "<p>123456</p>")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "HTTP 307")
+	assert.Equal(t, int32(0), redirectedRequests.Load())
 }
 
 func TestSendEmailUsesExplicitStartTLSWithInsecureCertificate(t *testing.T) {
@@ -280,6 +391,7 @@ func TestSendEmailUsesExplicitStartTLSWithInsecureCertificate(t *testing.T) {
 	SMTPForceAuthLogin = false
 	SMTPAccount = "sender@example.com"
 	SMTPFrom = "sender@example.com"
+	SMTPFromName = "通知中心"
 	SMTPToken = "secret"
 	SystemName = "New API"
 
@@ -289,6 +401,7 @@ func TestSendEmailUsesExplicitStartTLSWithInsecureCertificate(t *testing.T) {
 	select {
 	case message := <-server.messages:
 		require.Contains(t, message, "Subject: =?UTF-8?B?")
+		require.Contains(t, message, "From: =?utf-8?")
 		require.Contains(t, message, "<p>123456</p>")
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for SMTP DATA")

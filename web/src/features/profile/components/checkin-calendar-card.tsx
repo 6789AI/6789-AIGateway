@@ -29,8 +29,8 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { BotProtectionWidget } from '@/components/bot-protection'
 import { Dialog } from '@/components/dialog'
-import { Turnstile } from '@/components/turnstile'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
@@ -41,6 +41,7 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from '@/components/ui/tooltip'
+import { useBotProtection } from '@/features/auth/hooks/use-bot-protection'
 import { formatQuotaWithCurrency } from '@/lib/currency'
 import dayjs from '@/lib/dayjs'
 import { cn } from '@/lib/utils'
@@ -50,25 +51,21 @@ import type { CheckinRecord } from '../types'
 
 interface CheckinCalendarCardProps {
   checkinEnabled: boolean
-  turnstileEnabled: boolean
-  turnstileSiteKey: string
 }
 
-export function CheckinCalendarCard({
-  checkinEnabled,
-  turnstileEnabled,
-  turnstileSiteKey,
-}: CheckinCalendarCardProps) {
+export function CheckinCalendarCard(props: CheckinCalendarCardProps) {
   const { t } = useTranslation()
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1)
   })
   const [checkinLoading, setCheckinLoading] = useState(false)
-  const [turnstileModalVisible, setTurnstileModalVisible] = useState(false)
-  const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
+  const [botProtectionModalVisible, setBotProtectionModalVisible] =
+    useState(false)
+  const [botProtectionWidgetKey, setBotProtectionWidgetKey] = useState(0)
   const [initialLoaded, setInitialLoaded] = useState(false)
   const [collapsed, setCollapsed] = useState<boolean>(false)
+  const botProtection = useBotProtection('checkin')
 
   const currentMonthStr = useMemo(() => {
     const y = currentMonth.getFullYear()
@@ -91,7 +88,7 @@ export function CheckinCalendarCard({
       }
       throw new Error(res.message || t('Failed to fetch checkin status'))
     },
-    enabled: checkinEnabled,
+    enabled: props.checkinEnabled,
     staleTime: 30000,
   })
   /* eslint-enable @tanstack/query/exhaustive-deps */
@@ -129,37 +126,22 @@ export function CheckinCalendarCard({
     setInitialLoaded(true)
   }, [checkinData, checkedToday, initialLoaded, isLoading])
 
-  const shouldTriggerTurnstile = useCallback(
-    (message?: string) => {
-      if (!turnstileEnabled) return false
-      if (typeof message !== 'string') return true
-      return message.includes('Turnstile')
-    },
-    [turnstileEnabled]
-  )
-
   const doCheckin = useCallback(
-    async (token?: string) => {
+    async (proof?: string) => {
       setCheckinLoading(true)
       try {
-        const res = await performCheckin(token)
+        const res = await performCheckin(proof)
         if (res.success && res.data) {
           toast.success(
             `${t('Check-in successful! Received')} ${formatQuotaWithCurrency(res.data.quota_awarded)}`
           )
           refetch()
-          setTurnstileModalVisible(false)
+          setBotProtectionModalVisible(false)
+          botProtection.setProof('')
         } else {
-          if (!token && shouldTriggerTurnstile(res.message)) {
-            if (!turnstileSiteKey) {
-              toast.error(t('Turnstile is enabled but site key is empty.'))
-              return
-            }
-            setTurnstileModalVisible(true)
-            return
-          }
-          if (token && shouldTriggerTurnstile(res.message)) {
-            setTurnstileWidgetKey((v) => v + 1)
+          if (proof && botProtection.isEnabled) {
+            botProtection.setProof('')
+            setBotProtectionWidgetKey((value) => value + 1)
           }
           toast.error(res.message || t('Check-in failed'))
         }
@@ -169,7 +151,7 @@ export function CheckinCalendarCard({
         setCheckinLoading(false)
       }
     },
-    [refetch, shouldTriggerTurnstile, t, turnstileSiteKey]
+    [botProtection, refetch, t]
   )
 
   const handlePrevMonth = () => {
@@ -219,7 +201,7 @@ export function CheckinCalendarCard({
 
   const weekDays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
-  if (!checkinEnabled) {
+  if (!props.checkinEnabled) {
     return null
   }
 
@@ -252,11 +234,12 @@ export function CheckinCalendarCard({
   return (
     <TooltipProvider delay={100}>
       <Dialog
-        open={turnstileModalVisible}
+        open={botProtectionModalVisible}
         onOpenChange={(open) => {
-          setTurnstileModalVisible(open)
+          setBotProtectionModalVisible(open)
           if (!open) {
-            setTurnstileWidgetKey((v) => v + 1)
+            botProtection.setProof('')
+            setBotProtectionWidgetKey((value) => value + 1)
           }
         }}
         title={t('Security Check')}
@@ -268,14 +251,18 @@ export function CheckinCalendarCard({
           {t('Please complete the security check to continue.')}
         </div>
         <div className='flex justify-center py-4'>
-          <Turnstile
-            key={turnstileWidgetKey}
-            siteKey={turnstileSiteKey}
-            onVerify={(token) => {
-              doCheckin(token)
+          <BotProtectionWidget
+            key={botProtectionWidgetKey}
+            provider={botProtection.provider}
+            siteKey={botProtection.siteKey}
+            capAPIEndpoint={botProtection.capAPIEndpoint}
+            onVerify={(proof) => {
+              botProtection.setProof(proof)
+              doCheckin(proof)
             }}
             onExpire={() => {
-              setTurnstileWidgetKey((v) => v + 1)
+              botProtection.setProof('')
+              setBotProtectionWidgetKey((value) => value + 1)
             }}
           />
         </div>
@@ -323,7 +310,13 @@ export function CheckinCalendarCard({
               </div>
             </button>
             <Button
-              onClick={() => doCheckin()}
+              onClick={() => {
+                if (botProtection.isEnabled) {
+                  setBotProtectionModalVisible(true)
+                  return
+                }
+                doCheckin()
+              }}
               disabled={checkinLoading || checkedToday}
               size='sm'
               className='w-full shrink-0 sm:w-auto'

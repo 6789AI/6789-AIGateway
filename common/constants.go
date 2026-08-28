@@ -67,6 +67,12 @@ var LinuxDOOAuthEnabled = false
 var WeChatAuthEnabled = false
 var TelegramOAuthEnabled = false
 var TurnstileCheckEnabled = false
+var BotProtectionProvider = BotProtectionProviderTurnstile
+var BotProtectionLoginEnabled = true
+var BotProtectionRegisterEnabled = true
+var BotProtectionEmailVerificationEnabled = true
+var BotProtectionPasswordResetEnabled = true
+var BotProtectionCheckinEnabled = true
 var RegisterEnabled = true
 
 var EmailDomainRestrictionEnabled = false // 是否启用邮箱域名限制
@@ -103,7 +109,13 @@ var SMTPInsecureSkipVerify = false
 var SMTPForceAuthLogin = false
 var SMTPAccount = ""
 var SMTPFrom = ""
+var SMTPFromName = ""
 var SMTPToken = ""
+var EmailSenderProvider = EmailSenderProviderSMTP
+var BTMailAPIURL = ""
+var BTMailFrom = ""
+var BTMailFromName = ""
+var BTMailPassword = ""
 
 var GitHubClientId = ""
 var GitHubClientSecret = ""
@@ -117,6 +129,13 @@ var WeChatAccountQRCodeImageURL = ""
 
 var TurnstileSiteKey = ""
 var TurnstileSecretKey = ""
+var ReCaptchaSiteKey = ""
+var ReCaptchaSecretKey = ""
+var GeeTestCaptchaId = ""
+var GeeTestSecretKey = ""
+var CapServerURL = ""
+var CapSiteKey = ""
+var CapSecretKey = ""
 
 var TelegramBotToken = ""
 var TelegramBotName = ""

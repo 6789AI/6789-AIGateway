@@ -21,10 +21,12 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { BotProtectionWidget } from '@/components/bot-protection'
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useBotProtection } from '@/features/auth/hooks/use-bot-protection'
 import { useCountdown } from '@/hooks/use-countdown'
 
 import { sendEmailVerification, bindEmail } from '../../api'
@@ -51,6 +53,8 @@ export function EmailBindDialog({
   const [sendingCode, setSendingCode] = useState(false)
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
+  const [botProtectionWidgetKey, setBotProtectionWidgetKey] = useState(0)
+  const botProtection = useBotProtection('email_verification')
   const {
     secondsLeft,
     isActive,
@@ -65,18 +69,21 @@ export function EmailBindDialog({
       toast.error(t('Please enter a valid email address'))
       return
     }
+    if (!botProtection.validate()) return
 
     try {
       setSendingCode(true)
-      const response = await sendEmailVerification(email)
+      const response = await sendEmailVerification(email, botProtection.proof)
 
       if (response.success) {
         toast.success(t('Verification code sent! Please check your email.'))
         startCountdown()
+        botProtection.setProof('')
+        setBotProtectionWidgetKey((value) => value + 1)
       } else {
         toast.error(response.message || t('Failed to send verification code'))
       }
-    } catch (_error) {
+    } catch {
       toast.error(t('Failed to send verification code'))
     } finally {
       setSendingCode(false)
@@ -100,11 +107,12 @@ export function EmailBindDialog({
         // Reset form
         setEmail('')
         setCode('')
+        botProtection.setProof('')
         resetCountdown()
       } else {
         toast.error(response.message || t('Failed to bind email'))
       }
-    } catch (_error) {
+    } catch {
       toast.error(t('Failed to bind email'))
     } finally {
       setLoading(false)
@@ -118,9 +126,18 @@ export function EmailBindDialog({
         // Reset form when closing
         setEmail('')
         setCode('')
+        botProtection.setProof('')
+        setBotProtectionWidgetKey((value) => value + 1)
         resetCountdown()
       }
     }
+  }
+
+  let sendButtonLabel = t('Send')
+  if (isActive) {
+    sendButtonLabel = `${secondsLeft}s`
+  } else if (sendingCode) {
+    sendButtonLabel = t('Sending...')
   }
 
   return (
@@ -172,6 +189,19 @@ export function EmailBindDialog({
           />
         </div>
 
+        {botProtection.isEnabled && (
+          <div className='flex justify-center'>
+            <BotProtectionWidget
+              key={botProtectionWidgetKey}
+              provider={botProtection.provider}
+              siteKey={botProtection.siteKey}
+              capAPIEndpoint={botProtection.capAPIEndpoint}
+              onVerify={botProtection.setProof}
+              onExpire={() => botProtection.setProof('')}
+            />
+          </div>
+        )}
+
         <div className='space-y-2'>
           <Label htmlFor='code'>{t('Verification Code')}</Label>
           <div className='flex gap-2'>
@@ -187,13 +217,14 @@ export function EmailBindDialog({
               type='button'
               variant='outline'
               onClick={handleSendCode}
-              disabled={sendingCode || isActive || !email}
+              disabled={
+                sendingCode ||
+                isActive ||
+                !email ||
+                (botProtection.isEnabled && !botProtection.proof)
+              }
             >
-              {isActive
-                ? `${secondsLeft}s`
-                : sendingCode
-                  ? t('Sending...')
-                  : t('Send')}
+              {sendButtonLabel}
             </Button>
           </div>
         </div>

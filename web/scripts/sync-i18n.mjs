@@ -39,6 +39,9 @@ const BRAND_AND_LITERAL_KEYS = new Set([
   'AccessKey / SecretAccessKey',
   'AZURE_OPENAI_ENDPOINT *',
   'Baidu V2',
+  'Cap',
+  'Captcha ID',
+  'Captcha Key',
   'CC Switch',
   'ChatGPT',
   'ChatGPT Subscription (Codex)',
@@ -53,6 +56,7 @@ const BRAND_AND_LITERAL_KEYS = new Set([
   'FastGPT',
   'Gemini',
   'Gemini Image 4K',
+  'GeeTest V4',
   'GitHub',
   'Jimeng',
   'JustSong',
@@ -78,6 +82,7 @@ const BRAND_AND_LITERAL_KEYS = new Set([
   'Passkey',
   'Perplexity',
   'QuantumNous',
+  'reCAPTCHA',
   'Quota:',
   'Replicate',
   'SiliconFlow',
@@ -89,6 +94,7 @@ const BRAND_AND_LITERAL_KEYS = new Set([
   'TTFT P50',
   'TTFT P95',
   'TTFT P99',
+  'Turnstile',
   'Uptime Kuma',
   'Uptime Kuma URL',
   'Vertex AI',
@@ -247,7 +253,16 @@ async function main() {
   for (const filename of localeFiles) {
     const locale = filename.replace(/\.json$/i, '')
     const raw = await fs.readFile(path.join(LOCALES_DIR, filename), 'utf8')
-    parsedByLocale[locale] = JSON.parse(raw)
+    const json = JSON.parse(raw)
+    const unexpectedNamespaces = Object.keys(json).filter(
+      (key) => key !== 'translation'
+    )
+    if (unexpectedNamespaces.length > 0) {
+      throw new Error(
+        `${filename} has keys outside the translation namespace: ${unexpectedNamespaces.join(', ')}`
+      )
+    }
+    parsedByLocale[locale] = json
   }
 
   const baseLocale = Object.keys(parsedByLocale)
