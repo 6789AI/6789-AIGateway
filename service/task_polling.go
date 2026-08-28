@@ -35,6 +35,12 @@ type TaskPollingAdaptor interface {
 	AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int
 }
 
+// TaskBillingAdjuster is the billing subset shared by scheduled polling and
+// user-triggered realtime task refreshes.
+type TaskBillingAdjuster interface {
+	AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int
+}
+
 // GetTaskAdaptorFunc 由 main 包注入，用于获取指定平台的任务适配器。
 // 打破 service -> relay -> relay/channel -> service 的循环依赖。
 var GetTaskAdaptorFunc func(platform constant.TaskPlatform) TaskPollingAdaptor
@@ -83,7 +89,7 @@ func sweepTimedOutTasks(ctx context.Context) {
 			continue
 		}
 		timedOutCount++
-		if !isLegacy && task.Quota != 0 {
+		if !isLegacy && (task.Quota != 0 || task.PrivateData.PromotionRequestId != "") {
 			RefundTaskQuota(ctx, task, reason)
 		}
 	}
@@ -304,8 +310,12 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 			logger.LogError(ctx, fmt.Sprintf("UpdateSunoTask task %s error: %v", task.TaskID, err))
 		} else if !won {
 			logger.LogWarn(ctx, fmt.Sprintf("Task %s CAS lost or no-op update, skip billing", task.TaskID))
-		} else if isFailure && prevStatus != model.TaskStatusFailure && task.Quota != 0 {
-			RefundTaskQuota(ctx, task, task.FailReason)
+		} else if prevStatus != task.Status {
+			if isFailure && (task.Quota != 0 || task.PrivateData.PromotionRequestId != "") {
+				RefundTaskQuota(ctx, task, task.FailReason)
+			} else if task.Status == model.TaskStatusSuccess {
+				commitTaskPromotionUse(ctx, task)
+			}
 		}
 	}
 	return nil
@@ -409,7 +419,7 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 				logger.LogError(ctx, fmt.Sprintf("Failed to mark task %s after channel lookup failure: %s", task.TaskID, updateErr.Error()))
 				continue
 			}
-			if won && task.Quota != 0 {
+			if won && (task.Quota != 0 || task.PrivateData.PromotionRequestId != "") {
 				RefundTaskQuota(ctx, task, reason)
 			}
 		}
@@ -587,7 +597,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		task.FailReason = taskResult.Reason
 		logger.LogInfo(ctx, fmt.Sprintf("Task %s failed: %s", task.TaskID, task.FailReason))
 		taskResult.Progress = taskcommon.ProgressComplete
-		if quota != 0 {
+		if quota != 0 || task.PrivateData.PromotionRequestId != "" {
 			shouldRefund = true
 		}
 	default:
@@ -618,11 +628,8 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		logger.LogDebug(ctx, "No update needed for task %s", task.TaskID)
 	}
 
-	if shouldSettle {
-		settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
-	}
-	if shouldRefund {
-		RefundTaskQuota(ctx, task, task.FailReason)
+	if shouldSettle || shouldRefund {
+		FinalizeTaskTerminalState(ctx, adaptor, task, taskResult)
 	}
 
 	return nil
@@ -667,7 +674,7 @@ func truncateBase64(s string) string {
 //
 //  2. taskResult.TotalTokens > 0 → 按 token 重算
 //  3. 都不满足 → 保持预扣额度不变
-func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) {
+func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskBillingAdjuster, task *model.Task, taskResult *relaycommon.TaskInfo) {
 	// 0. 按次计费仅在上游返回实际倍率时做差额结算。
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
 		if len(taskResult.BillingRatios) > 0 {
@@ -693,4 +700,17 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 		return
 	}
 	// 3. 无调整，保持预扣额度
+}
+
+// FinalizeTaskTerminalState runs exactly once after the caller wins the task's
+// terminal-state CAS. Success settles billing and consumes the promotion use;
+// failure refunds both billing and the promotion reservation.
+func FinalizeTaskTerminalState(ctx context.Context, adaptor TaskBillingAdjuster, task *model.Task, taskResult *relaycommon.TaskInfo) {
+	switch task.Status {
+	case model.TaskStatusSuccess:
+		settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+		commitTaskPromotionUse(ctx, task)
+	case model.TaskStatusFailure:
+		RefundTaskQuota(ctx, task, task.FailReason)
+	}
 }

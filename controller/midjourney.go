@@ -201,8 +201,9 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 				task.VideoUrls = "" // 空值时清空字段
 			}
 
+			taskFailed := (task.Progress != "100%" && responseItem.FailReason != "") || (task.Progress == "100%" && task.Status == "FAILURE")
 			shouldReturnQuota := false
-			if (task.Progress != "100%" && responseItem.FailReason != "") || (task.Progress == "100%" && task.Status == "FAILURE") {
+			if taskFailed {
 				logger.LogInfo(ctx, task.MjId+" 构建失败，"+task.FailReason)
 				task.Progress = "100%"
 				if task.Quota != 0 {
@@ -212,23 +213,35 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 			won, err := task.UpdateWithStatus(preStatus)
 			if err != nil {
 				logger.LogError(ctx, "UpdateMidjourneyTask task error: "+err.Error())
-			} else if won && shouldReturnQuota {
-				err = model.IncreaseUserQuota(task.UserId, task.Quota, false)
-				if err != nil {
-					logger.LogError(ctx, "fail to increase user quota: "+err.Error())
+			} else if won {
+				if task.PromotionRequestId != "" {
+					if taskFailed {
+						err = model.RefundPromotionUse(task.PromotionRequestId)
+					} else if task.Progress == "100%" && task.Status == "SUCCESS" {
+						err = model.CommitPromotionUse(task.PromotionRequestId)
+					}
+					if err != nil {
+						logger.LogError(ctx, "finalize Midjourney promotion use failed: "+err.Error())
+					}
 				}
-				model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-					UserId:    task.UserId,
-					LogType:   model.LogTypeRefund,
-					Content:   "",
-					ChannelId: task.ChannelId,
-					ModelName: service.CovertMjpActionToModelName(task.Action),
-					Quota:     task.Quota,
-					Other: map[string]interface{}{
-						"task_id": task.MjId,
-						"reason":  "构图失败",
-					},
-				})
+				if shouldReturnQuota {
+					err = model.IncreaseUserQuota(task.UserId, task.Quota, false)
+					if err != nil {
+						logger.LogError(ctx, "fail to increase user quota: "+err.Error())
+					}
+					model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+						UserId:    task.UserId,
+						LogType:   model.LogTypeRefund,
+						Content:   "",
+						ChannelId: task.ChannelId,
+						ModelName: service.CovertMjpActionToModelName(task.Action),
+						Quota:     task.Quota,
+						Other: map[string]interface{}{
+							"task_id": task.MjId,
+							"reason":  "构图失败",
+						},
+					})
+				}
 			}
 		}
 	}

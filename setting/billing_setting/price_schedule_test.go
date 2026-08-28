@@ -197,6 +197,39 @@ func TestGetScheduledDiscount(t *testing.T) {
 	assert.Equal(t, 0.5, rate)
 }
 
+func TestScheduledAdjustmentActivityKeyIsSharedAcrossModelsAndChangesByOccurrence(t *testing.T) {
+	original := billingSetting.PriceSchedules
+	t.Cleanup(func() {
+		billingSetting.PriceSchedules = original
+	})
+
+	rule := PriceSchedule{
+		Type: PriceScheduleWeekly, AdjustmentType: PriceAdjustmentRate,
+		DiscountRate: pricePointer(0.8), Weekdays: []int{2, 1},
+		StartMinute: 9 * 60, EndMinute: 17 * 60, Timezone: "UTC",
+	}
+	billingSetting.PriceSchedules = map[string][]PriceSchedule{
+		"model-a": {rule},
+		"model-b": {{
+			Type: PriceScheduleWeekly, AdjustmentType: PriceAdjustmentRate,
+			DiscountRate: pricePointer(0.5), Weekdays: []int{1, 2},
+			StartMinute: 9 * 60, EndMinute: 17 * 60, Timezone: "UTC",
+		}},
+	}
+
+	monday := time.Date(2026, time.August, 24, 10, 0, 0, 0, time.UTC)
+	tuesday := monday.AddDate(0, 0, 1)
+	mondayA, matched := GetScheduledDiscountAdjustment("model-a", monday)
+	require.True(t, matched)
+	mondayB, matched := GetScheduledDiscountAdjustment("model-b", monday)
+	require.True(t, matched)
+	tuesdayA, matched := GetScheduledDiscountAdjustment("model-a", tuesday)
+	require.True(t, matched)
+
+	assert.Equal(t, mondayA.ActivityKey, mondayB.ActivityKey)
+	assert.NotEqual(t, mondayA.ActivityKey, tuesdayA.ActivityKey)
+}
+
 func TestGetActiveFreeModelPromotions(t *testing.T) {
 	originalModes := billingSetting.BillingMode
 	originalSchedules := billingSetting.PriceSchedules

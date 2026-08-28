@@ -136,6 +136,17 @@ func RelayMidjourneyNotify(c *gin.Context) *dto.MidjourneyResponse {
 			Description: "update_midjourney_task_failed",
 		}
 	}
+	if midjourneyTask.PromotionRequestId != "" {
+		if midjRequest.Status == "SUCCESS" {
+			if err := model.CommitPromotionUse(midjourneyTask.PromotionRequestId); err != nil {
+				logger.LogError(c, fmt.Sprintf("commit Midjourney promotion use failed: %s", err.Error()))
+			}
+		} else if midjRequest.Status == "FAILURE" || midjRequest.FailReason != "" {
+			if err := model.RefundPromotionUse(midjourneyTask.PromotionRequestId); err != nil {
+				logger.LogError(c, fmt.Sprintf("refund Midjourney promotion use failed: %s", err.Error()))
+			}
+		}
+	}
 
 	return nil
 }
@@ -210,6 +221,12 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 			Description: err.Error(),
 		}
 	}
+	promotionRetained := false
+	defer func() {
+		if !promotionRetained {
+			service.RefundPromotionUse(c, info)
+		}
+	}()
 
 	userQuota, err := model.GetUserQuota(info.UserId, false)
 	if err != nil {
@@ -276,10 +293,14 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 		ChannelId:   c.GetInt("channel_id"),
 		Quota:       priceData.Quota,
 	}
+	if info.PromotionActivityKey != "" {
+		midjourneyTask.PromotionRequestId = info.RequestId
+	}
 	err = midjourneyTask.Insert()
 	if err != nil {
 		return service.MidjourneyErrorWrapper(constant.MjRequestError, "insert_midjourney_task_failed")
 	}
+	promotionRetained = mjResp.StatusCode == http.StatusOK && midjResponse.Code == 1
 	c.Writer.WriteHeader(mjResp.StatusCode)
 	respBody, err := json.Marshal(midjResponse)
 	if err != nil {
@@ -517,6 +538,12 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 			Description: err.Error(),
 		}
 	}
+	promotionRetained := false
+	defer func() {
+		if !promotionRetained {
+			service.RefundPromotionUse(c, relayInfo)
+		}
+	}()
 
 	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
 	if err != nil {
@@ -632,12 +659,19 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		midjourneyTask.Progress = "100%"
 		midjourneyTask.Status = "SUCCESS"
 	}
+	if consumeQuota && relayInfo.PromotionActivityKey != "" {
+		midjourneyTask.PromotionRequestId = relayInfo.RequestId
+	}
 	err = midjourneyTask.Insert()
 	if err != nil {
 		return &dto.MidjourneyResponse{
 			Code:        4,
 			Description: "insert_midjourney_task_failed",
 		}
+	}
+	promotionRetained = consumeQuota && midjResponseWithStatus.StatusCode == http.StatusOK
+	if promotionRetained && midjourneyTask.Status == "SUCCESS" {
+		service.CommitPromotionUse(c, relayInfo)
 	}
 
 	if midjResponse.Code == 22 { //22-排队中，说明任务已存在

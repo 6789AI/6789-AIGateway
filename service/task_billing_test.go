@@ -49,6 +49,8 @@ func TestMain(m *testing.M) {
 		&model.UserSubscription{},
 		&model.SystemTask{},
 		&model.SystemTaskLock{},
+		&model.PromotionUsage{},
+		&model.PromotionReservation{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -72,6 +74,8 @@ func truncate(t *testing.T) {
 		model.DB.Exec("DELETE FROM user_subscriptions")
 		model.DB.Exec("DELETE FROM system_task_locks")
 		model.DB.Exec("DELETE FROM system_tasks")
+		model.DB.Exec("DELETE FROM promotion_reservations")
+		model.DB.Exec("DELETE FROM promotion_usages")
 	})
 }
 
@@ -470,6 +474,59 @@ func TestRefundTaskQuota_ZeroQuota(t *testing.T) {
 
 	// No log created
 	assert.Equal(t, int64(0), countLogs(t))
+}
+
+func TestFinalizeTaskTerminalState_ZeroQuotaFailureRefundsPromotionReservation(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID = 31
+	seedUser(t, userID, 5000)
+	granted, err := model.ReservePromotionUse(userID, "free-task-request", "v1:absolute:100:200")
+	require.NoError(t, err)
+	require.True(t, granted)
+
+	task := makeTask(userID, 0, 0, 0, BillingSourceWallet, 0)
+	task.Status = model.TaskStatusFailure
+	task.PrivateData.PromotionRequestId = "free-task-request"
+
+	FinalizeTaskTerminalState(ctx, &mockAdaptor{}, task, &relaycommon.TaskInfo{Status: model.TaskStatusFailure})
+
+	var usage model.PromotionUsage
+	require.NoError(t, model.DB.Where("user_id = ?", userID).Take(&usage).Error)
+	assert.Zero(t, usage.ReservedCount)
+	assert.Zero(t, usage.UsedCount)
+	var reservationCount int64
+	require.NoError(t, model.DB.Model(&model.PromotionReservation{}).
+		Where("request_id = ?", "free-task-request").
+		Count(&reservationCount).Error)
+	assert.Zero(t, reservationCount)
+}
+
+func TestFinalizeTaskTerminalState_SuccessCommitsPromotionReservation(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID = 32
+	seedUser(t, userID, 5000)
+	granted, err := model.ReservePromotionUse(userID, "successful-task-request", "v1:absolute:200:300")
+	require.NoError(t, err)
+	require.True(t, granted)
+
+	task := makeTask(userID, 0, 0, 0, BillingSourceWallet, 0)
+	task.Status = model.TaskStatusSuccess
+	task.PrivateData.PromotionRequestId = "successful-task-request"
+	FinalizeTaskTerminalState(ctx, &mockAdaptor{}, task, &relaycommon.TaskInfo{Status: model.TaskStatusSuccess})
+
+	var usage model.PromotionUsage
+	require.NoError(t, model.DB.Where("user_id = ?", userID).Take(&usage).Error)
+	assert.Zero(t, usage.ReservedCount)
+	assert.Equal(t, 1, usage.UsedCount)
+	var reservationCount int64
+	require.NoError(t, model.DB.Model(&model.PromotionReservation{}).
+		Where("request_id = ?", "successful-task-request").
+		Count(&reservationCount).Error)
+	assert.Zero(t, reservationCount)
 }
 
 func TestRefundTaskQuota_NoToken(t *testing.T) {

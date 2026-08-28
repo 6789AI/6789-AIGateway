@@ -164,6 +164,7 @@ func taskModelName(task *model.Task) string {
 // 当异步任务失败时，将预扣的 quota 退还给用户（支持钱包和订阅），并退还令牌额度。
 // 返回资金来源是否已成功退还；失败时保留 quota，供显式重试或人工对账。
 func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool {
+	refundTaskPromotionUse(ctx, task)
 	quota := task.Quota
 	if quota == 0 {
 		return true

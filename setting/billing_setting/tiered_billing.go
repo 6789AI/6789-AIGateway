@@ -57,6 +57,13 @@ type ModelPromotion struct {
 	EndsAt        int64    `json:"ends_at,omitempty"`
 }
 
+// ScheduledAdjustment is the selected active promotion and the shared
+// occurrence key used to enforce a per-user activity allowance.
+type ScheduledAdjustment struct {
+	Value       float64
+	ActivityKey string
+}
+
 // BillingSetting is managed by config.GlobalConfig.Register.
 // DB keys: billing_setting.billing_mode, billing_setting.billing_expr,
 // billing_setting.price_schedules
@@ -292,14 +299,39 @@ func priceScheduleActiveUntil(rule PriceSchedule, now time.Time) (int64, bool) {
 	return 0, false
 }
 
-// GetScheduledPrice returns the lowest active price after applying fixed-price
-// and percentage-discount rules to the supplied base price.
-func GetScheduledPrice(model string, basePrice float64, now time.Time) (float64, bool) {
+func priceScheduleActivityKey(rule PriceSchedule, endsAt int64) string {
+	switch rule.Type {
+	case PriceScheduleAbsolute:
+		return fmt.Sprintf("v1:absolute:%d:%d", rule.StartAt, rule.EndAt)
+	case PriceScheduleWeekly:
+		weekdays := append([]int(nil), rule.Weekdays...)
+		sort.Ints(weekdays)
+		weekdayParts := make([]string, len(weekdays))
+		for index, weekday := range weekdays {
+			weekdayParts[index] = fmt.Sprintf("%d", weekday)
+		}
+		return fmt.Sprintf(
+			"v1:weekly:%s:%s:%d:%d:%d",
+			rule.Timezone,
+			strings.Join(weekdayParts, ","),
+			rule.StartMinute,
+			rule.EndMinute,
+			endsAt,
+		)
+	default:
+		return ""
+	}
+}
+
+// GetScheduledPriceAdjustment returns the lowest active scheduled price and
+// a key shared by models configured for the same activity occurrence.
+func GetScheduledPriceAdjustment(model string, basePrice float64, now time.Time) (ScheduledAdjustment, bool) {
 	rules := billingSetting.PriceSchedules[model]
-	var effective float64
+	var selected ScheduledAdjustment
 	matched := false
 	for _, rule := range rules {
-		if _, active := priceScheduleActiveUntil(rule, now); !active {
+		endsAt, active := priceScheduleActiveUntil(rule, now)
+		if !active {
 			continue
 		}
 
@@ -319,19 +351,29 @@ func GetScheduledPrice(model string, basePrice float64, now time.Time) (float64,
 			continue
 		}
 
-		if !matched || candidate < effective {
-			effective = candidate
+		if !matched || candidate < selected.Value {
+			selected = ScheduledAdjustment{
+				Value:       candidate,
+				ActivityKey: priceScheduleActivityKey(rule, endsAt),
+			}
 			matched = true
 		}
 	}
-	return effective, matched
+	return selected, matched
 }
 
-// GetScheduledDiscount returns the lowest active discount rate for token and
-// expression billing. Fixed-price rules are intentionally ignored.
-func GetScheduledDiscount(model string, now time.Time) (float64, bool) {
+// GetScheduledPrice returns the lowest active price after applying fixed-price
+// and percentage-discount rules to the supplied base price.
+func GetScheduledPrice(model string, basePrice float64, now time.Time) (float64, bool) {
+	adjustment, matched := GetScheduledPriceAdjustment(model, basePrice, now)
+	return adjustment.Value, matched
+}
+
+// GetScheduledDiscountAdjustment returns the lowest active discount for token
+// and expression billing. Fixed-price rules are intentionally ignored.
+func GetScheduledDiscountAdjustment(model string, now time.Time) (ScheduledAdjustment, bool) {
 	rules := billingSetting.PriceSchedules[model]
-	var effective float64
+	var selected ScheduledAdjustment
 	matched := false
 	for _, rule := range rules {
 		if priceScheduleAdjustmentType(rule) != PriceAdjustmentRate || rule.DiscountRate == nil {
@@ -341,12 +383,23 @@ func GetScheduledDiscount(model string, now time.Time) (float64, bool) {
 		if rate < 0 || rate > 1 || math.IsNaN(rate) || math.IsInf(rate, 0) {
 			continue
 		}
-		if _, active := priceScheduleActiveUntil(rule, now); active && (!matched || rate < effective) {
-			effective = rate
+		endsAt, active := priceScheduleActiveUntil(rule, now)
+		if active && (!matched || rate < selected.Value) {
+			selected = ScheduledAdjustment{
+				Value:       rate,
+				ActivityKey: priceScheduleActivityKey(rule, endsAt),
+			}
 			matched = true
 		}
 	}
-	return effective, matched
+	return selected, matched
+}
+
+// GetScheduledDiscount returns the lowest active discount rate for token and
+// expression billing. Fixed-price rules are intentionally ignored.
+func GetScheduledDiscount(model string, now time.Time) (float64, bool) {
+	adjustment, matched := GetScheduledDiscountAdjustment(model, now)
+	return adjustment.Value, matched
 }
 
 func promotionFromRule(model string, rule PriceSchedule, endsAt int64) (ModelPromotion, bool) {

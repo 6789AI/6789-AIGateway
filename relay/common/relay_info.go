@@ -138,6 +138,9 @@ type RelayInfo struct {
 	SubscriptionPlanTitle string
 	// RequestId is used for idempotent pre-consume/refund
 	RequestId string
+	// PromotionActivityKey is non-empty after one scheduled activity use has
+	// been reserved for this request.
+	PromotionActivityKey string
 	// SubscriptionAmountTotal / SubscriptionAmountUsedAfterPreConsume are used to compute remaining in logs.
 	SubscriptionAmountTotal               int64
 	SubscriptionAmountUsedAfterPreConsume int64

@@ -111,6 +111,9 @@ type TaskPrivateData struct {
 	TokenId        int                 `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
 	NodeName       string              `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
 	BillingContext *TaskBillingContext `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
+	// PromotionRequestId keeps an activity-use reservation alive until an
+	// asynchronous task reaches a terminal state.
+	PromotionRequestId string `json:"promotion_request_id,omitempty"`
 }
 
 type TaskPollingConfig struct {

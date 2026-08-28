@@ -158,6 +158,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
 		return
 	}
+	defer func() {
+		if newAPIError != nil {
+			service.RefundPromotionUse(c, relayInfo)
+			return
+		}
+		service.CommitPromotionUse(c, relayInfo)
+	}()
 
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
 
@@ -533,6 +540,9 @@ func relayTask(c *gin.Context, relayMode int) {
 		if taskErr != nil && relayInfo.Billing != nil {
 			relayInfo.Billing.Refund(c)
 		}
+		if taskErr != nil {
+			service.RefundPromotionUse(c, relayInfo)
+		}
 	}()
 
 	requestPath := common.GetContextKeyString(c, constant.ContextKeyChannelSelectionPath)
@@ -618,6 +628,9 @@ func relayTask(c *gin.Context, relayMode int) {
 		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 		task.PrivateData.TokenId = relayInfo.TokenId
 		task.PrivateData.NodeName = common.NodeName
+		if relayInfo.PromotionActivityKey != "" {
+			task.PrivateData.PromotionRequestId = relayInfo.RequestId
+		}
 		task.PrivateData.BillingContext = &model.TaskBillingContext{
 			Version:         model.TaskBillingContextVersion,
 			ModelPrice:      relayInfo.PriceData.ModelPrice,
@@ -668,6 +681,7 @@ func relayTask(c *gin.Context, relayMode int) {
 			if insertErr := task.Insert(); insertErr != nil {
 				common.SysError("insert task error: " + insertErr.Error())
 			}
+			service.CommitPromotionUse(c, relayInfo)
 		}
 	}
 
