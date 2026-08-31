@@ -49,25 +49,26 @@ func billingActivityTime(info *relaycommon.RelayInfo) time.Time {
 	return time.Now()
 }
 
-func reserveScheduledActivity(c *gin.Context, info *relaycommon.RelayInfo, adjustment billing_setting.ScheduledAdjustment) bool {
+func reserveScheduledActivity(c *gin.Context, info *relaycommon.RelayInfo, adjustment billing_setting.ScheduledAdjustment) (bool, error) {
 	if info == nil || adjustment.ActivityKey == "" {
-		return false
+		return false, nil
 	}
 	if info.UserId <= 0 || info.IsPlayground || info.IsChannelTest {
-		return true
+		return true, nil
 	}
 	if info.PromotionActivityKey != "" {
-		return info.PromotionActivityKey == adjustment.ActivityKey
+		return info.PromotionActivityKey == adjustment.ActivityKey, nil
 	}
-	granted, err := model.ReservePromotionUse(info.UserId, info.RequestId, adjustment.ActivityKey)
+	activeActivityKeys := billing_setting.GetActivePromotionActivityKeys(billingActivityTime(info))
+	granted, err := model.ReservePromotionUse(info.UserId, info.RequestId, adjustment.ActivityKey, activeActivityKeys...)
 	if err != nil {
 		logger.LogError(c, fmt.Sprintf("reserve model promotion use failed: %s", err.Error()))
-		return false
+		return false, fmt.Errorf("reserve model promotion use: %w", err)
 	}
 	if granted {
 		info.PromotionActivityKey = adjustment.ActivityKey
 	}
-	return granted
+	return granted, nil
 }
 
 func refundScheduledActivityAfterPricingError(c *gin.Context, info *relaycommon.RelayInfo, activityKeyBefore string, err error) {
@@ -164,9 +165,15 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		imageRatio, _ = ratio_setting.GetImageRatio(info.OriginModelName)
 		audioRatio = ratio_setting.GetAudioRatio(info.OriginModelName)
 		audioCompletionRatio = ratio_setting.GetAudioCompletionRatio(info.OriginModelName)
-		if adjustment, matched := billing_setting.GetScheduledDiscountAdjustment(info.OriginModelName, now); matched && reserveScheduledActivity(c, info, adjustment) {
-			modelRatio *= adjustment.Value
-			info.PromotionFreeUsage = adjustment.Value == 0
+		if adjustment, matched := billing_setting.GetScheduledDiscountAdjustment(info.OriginModelName, now); matched {
+			granted, reserveErr := reserveScheduledActivity(c, info, adjustment)
+			if reserveErr != nil {
+				return hosttypes.PriceData{}, reserveErr
+			}
+			if granted {
+				modelRatio *= adjustment.Value
+				info.PromotionFreeUsage = adjustment.Value == 0
+			}
 		}
 		ratio := modelRatio * groupRatioInfo.GroupRatio
 		quota, err := common.QuotaFromFloatStrict(float64(preConsumedTokens) * ratio)
@@ -175,9 +182,15 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		}
 		preConsumedQuota = quota
 	} else {
-		if adjustment, matched := billing_setting.GetScheduledPriceAdjustment(info.OriginModelName, modelPrice, now); matched && reserveScheduledActivity(c, info, adjustment) {
-			modelPrice = adjustment.Value
-			info.PromotionFreeUsage = adjustment.Value == 0
+		if adjustment, matched := billing_setting.GetScheduledPriceAdjustment(info.OriginModelName, modelPrice, now); matched {
+			granted, reserveErr := reserveScheduledActivity(c, info, adjustment)
+			if reserveErr != nil {
+				return hosttypes.PriceData{}, reserveErr
+			}
+			if granted {
+				modelPrice = adjustment.Value
+				info.PromotionFreeUsage = adjustment.Value == 0
+			}
 		}
 		if meta.ImagePriceRatio != 0 {
 			modelPrice = modelPrice * meta.ImagePriceRatio
@@ -271,13 +284,25 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (price
 		}
 	}
 	if usePrice {
-		if adjustment, matched := billing_setting.GetScheduledPriceAdjustment(info.OriginModelName, modelPrice, now); matched && reserveScheduledActivity(c, info, adjustment) {
-			modelPrice = adjustment.Value
+		if adjustment, matched := billing_setting.GetScheduledPriceAdjustment(info.OriginModelName, modelPrice, now); matched {
+			granted, reserveErr := reserveScheduledActivity(c, info, adjustment)
+			if reserveErr != nil {
+				return hosttypes.PriceData{}, reserveErr
+			}
+			if granted {
+				modelPrice = adjustment.Value
+				info.PromotionFreeUsage = adjustment.Value == 0
+			}
+		}
+	} else if adjustment, matched := billing_setting.GetScheduledDiscountAdjustment(info.OriginModelName, now); matched {
+		granted, reserveErr := reserveScheduledActivity(c, info, adjustment)
+		if reserveErr != nil {
+			return hosttypes.PriceData{}, reserveErr
+		}
+		if granted {
+			modelRatio *= adjustment.Value
 			info.PromotionFreeUsage = adjustment.Value == 0
 		}
-	} else if adjustment, matched := billing_setting.GetScheduledDiscountAdjustment(info.OriginModelName, now); matched && reserveScheduledActivity(c, info, adjustment) {
-		modelRatio *= adjustment.Value
-		info.PromotionFreeUsage = adjustment.Value == 0
 	}
 
 	var quota int
@@ -364,10 +389,16 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 	// Expression coefficients are $/1M tokens prices; convert to quota the same way per-call billing does.
 	quotaBeforeGroup := rawCost / 1_000_000 * common.QuotaPerUnit
 	var discountRate *float64
-	if adjustment, matched := billing_setting.GetScheduledDiscountAdjustment(info.OriginModelName, now); matched && reserveScheduledActivity(c, info, adjustment) {
-		discountRate = &adjustment.Value
-		quotaBeforeGroup *= adjustment.Value
-		info.PromotionFreeUsage = adjustment.Value == 0
+	if adjustment, matched := billing_setting.GetScheduledDiscountAdjustment(info.OriginModelName, now); matched {
+		granted, reserveErr := reserveScheduledActivity(c, info, adjustment)
+		if reserveErr != nil {
+			return hosttypes.PriceData{}, reserveErr
+		}
+		if granted {
+			discountRate = &adjustment.Value
+			quotaBeforeGroup *= adjustment.Value
+			info.PromotionFreeUsage = adjustment.Value == 0
+		}
 	}
 	preConsumedQuota, err := billingexpr.QuotaRoundStrict(quotaBeforeGroup * groupRatioInfo.GroupRatio)
 	if err != nil {

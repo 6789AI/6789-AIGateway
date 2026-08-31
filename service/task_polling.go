@@ -90,13 +90,59 @@ func sweepTimedOutTasks(ctx context.Context) {
 		}
 		timedOutCount++
 		if !isLegacy && (task.Quota != 0 || task.PrivateData.PromotionRequestId != "") {
-			RefundTaskQuota(ctx, task, reason)
+			if !RefundTaskQuota(ctx, task, reason) {
+				logger.LogError(ctx, fmt.Sprintf("sweepTimedOutTasks: refund pending for task %s", task.TaskID))
+			}
 		}
 	}
 
 	if timedOutCount > 0 {
 		logger.LogInfo(ctx, fmt.Sprintf("sweepTimedOutTasks: timed out %d tasks", timedOutCount))
 	}
+}
+
+// failTaskAndRefund atomically moves an unfinished task to FAILURE and, only
+// after winning that status CAS, refunds its pending billing reservation. This
+// keeps concurrent pollers from issuing duplicate refunds.
+func failTaskAndRefund(ctx context.Context, task *model.Task, reason string) bool {
+	if task == nil {
+		return false
+	}
+
+	oldStatus := task.Status
+	isLegacy := task.SubmitTime > 0 && task.SubmitTime < model.TaskRefundLegacyCutoff
+	if isLegacy {
+		reason = "任务失败（旧系统遗留任务，不进行退款，请联系管理员）"
+	}
+	now := time.Now().Unix()
+	task.Status = model.TaskStatusFailure
+	task.Progress = taskcommon.ProgressComplete
+	task.FailReason = reason
+	if task.FinishTime == 0 {
+		task.FinishTime = now
+	}
+	if isLegacy {
+		// Legacy tasks predate the automatic refund rollout. Clear the marker
+		// together with the terminal transition so they cannot be refunded later.
+		task.Quota = 0
+	}
+
+	won, err := task.UpdateWithStatus(oldStatus)
+	if err != nil {
+		logger.LogError(ctx, fmt.Sprintf("failed to mark task %s as failure: %s", task.TaskID, err.Error()))
+		return false
+	}
+	if !won {
+		logger.LogInfo(ctx, fmt.Sprintf("task %s already transitioned, skip failure refund", task.TaskID))
+		return false
+	}
+
+	if !isLegacy && (task.Quota != 0 || task.PrivateData.PromotionRequestId != "") {
+		if !RefundTaskQuota(ctx, task, reason) {
+			logger.LogError(ctx, fmt.Sprintf("task %s failed but refund remains pending", task.TaskID))
+		}
+	}
+	return true
 }
 
 // TaskPollSummary is the result recorded on an async_task_poll system task row,
@@ -146,27 +192,20 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 		summary.PlatformsScanned++
 		taskChannelM := make(map[int][]string)
 		taskM := make(map[string]*model.Task)
-		nullTaskIds := make([]int64, 0)
+		nullTasks := make([]*model.Task, 0)
 		for _, task := range tasks {
 			upstreamID := task.GetUpstreamTaskID()
 			if upstreamID == "" {
-				// 统计失败的未完成任务
-				nullTaskIds = append(nullTaskIds, task.ID)
+				nullTasks = append(nullTasks, task)
 				continue
 			}
 			taskM[upstreamID] = task
 			taskChannelM[task.ChannelId] = append(taskChannelM[task.ChannelId], upstreamID)
 		}
-		if len(nullTaskIds) > 0 {
-			summary.NullTasksFailed += len(nullTaskIds)
-			err := model.TaskBulkUpdateByID(nullTaskIds, map[string]any{
-				"status":   "FAILURE",
-				"progress": "100%",
-			})
-			if err != nil {
-				logger.LogError(ctx, fmt.Sprintf("Fix null task_id task error: %v", err))
-			} else {
-				logger.LogInfo(ctx, fmt.Sprintf("Fix null task_id task success: %v", nullTaskIds))
+		if len(nullTasks) > 0 {
+			summary.NullTasksFailed += len(nullTasks)
+			for _, task := range nullTasks {
+				failTaskAndRefund(ctx, task, "任务缺少上游任务 ID，无法继续轮询")
 			}
 		}
 		if len(taskChannelM) == 0 {
@@ -224,20 +263,10 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 	ch, err := model.CacheGetChannel(channelId)
 	if err != nil {
 		common.SysLog(fmt.Sprintf("CacheGetChannel: %v", err))
-		// Collect DB primary key IDs for bulk update (taskIds are upstream IDs, not task_id column values)
-		var failedIDs []int64
 		for _, upstreamID := range taskIds {
 			if t, ok := taskM[upstreamID]; ok {
-				failedIDs = append(failedIDs, t.ID)
+				failTaskAndRefund(ctx, t, fmt.Sprintf("获取渠道信息失败，请联系管理员，渠道ID：%d", channelId))
 			}
-		}
-		err = model.TaskBulkUpdateByID(failedIDs, map[string]any{
-			"fail_reason": fmt.Sprintf("获取渠道信息失败，请联系管理员，渠道ID：%d", channelId),
-			"status":      "FAILURE",
-			"progress":    "100%",
-		})
-		if err != nil {
-			common.SysLog(fmt.Sprintf("UpdateSunoTask error: %v", err))
 		}
 		return err
 	}
@@ -401,27 +430,12 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 	cacheGetChannel, err := model.CacheGetChannel(channelId)
 	if err != nil {
 		reason := fmt.Sprintf("Failed to get channel info, channel ID: %d", channelId)
-		now := time.Now().Unix()
 		for _, upstreamID := range taskIds {
 			task, ok := taskM[upstreamID]
 			if !ok || task == nil {
 				continue
 			}
-			oldStatus := task.Status
-			task.Status = model.TaskStatusFailure
-			task.Progress = taskcommon.ProgressComplete
-			task.FailReason = reason
-			if task.FinishTime == 0 {
-				task.FinishTime = now
-			}
-			won, updateErr := task.UpdateWithStatus(oldStatus)
-			if updateErr != nil {
-				logger.LogError(ctx, fmt.Sprintf("Failed to mark task %s after channel lookup failure: %s", task.TaskID, updateErr.Error()))
-				continue
-			}
-			if won && (task.Quota != 0 || task.PrivateData.PromotionRequestId != "") {
-				RefundTaskQuota(ctx, task, reason)
-			}
+			failTaskAndRefund(ctx, task, reason)
 		}
 		return fmt.Errorf("CacheGetChannel failed: %w", err)
 	}

@@ -179,3 +179,25 @@ func TestRedeemConcurrentSingleSuccess(t *testing.T) {
 	require.NoError(t, DB.First(&user, "id = ?", userId).Error)
 	assert.Equal(t, 300, user.Quota, "quota must be credited exactly once")
 }
+
+func TestRedeemRollsBackWhenUserDoesNotExist(t *testing.T) {
+	truncateTables(t)
+	require.NoError(t, DB.AutoMigrate(&Redemption{}))
+
+	key := "10000000000000000000000000000002"
+	redemption := &Redemption{
+		Name:        "redeem-missing-user",
+		Key:         key,
+		Status:      common.RedemptionCodeStatusEnabled,
+		Quota:       500,
+		CreatedTime: common.GetTimestamp(),
+	}
+	require.NoError(t, DB.Create(redemption).Error)
+
+	_, err := Redeem(key, 999999)
+	require.ErrorIs(t, err, ErrRedeemFailed)
+
+	var stored Redemption
+	require.NoError(t, DB.First(&stored, "id = ?", redemption.Id).Error)
+	assert.Equal(t, common.RedemptionCodeStatusEnabled, stored.Status)
+}

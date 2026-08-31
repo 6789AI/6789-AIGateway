@@ -260,6 +260,43 @@ func TestUpdateVideoTasksRefundsWhenChannelIsMissing(t *testing.T) {
 	assert.Equal(t, int64(1), countLogs(t))
 }
 
+func TestRunTaskPollingOnceRefundsTaskWithoutUpstreamID(t *testing.T) {
+	truncate(t)
+
+	const userID, channelID, initialQuota, taskQuota = 110, 110, 10_000, 1200
+	seedUser(t, userID, initialQuota)
+	seedChannel(t, channelID)
+	model.UpdateUserUsedQuota(userID, taskQuota)
+	model.UpdateChannelUsedQuota(channelID, taskQuota)
+
+	task := makeTask(userID, channelID, taskQuota, 0, BillingSourceWallet, 0)
+	task.TaskID = ""
+	task.Platform = constant.TaskPlatform("kling")
+	task.Progress = "30%"
+	task.SubmitTime = time.Now().Unix()
+	require.NoError(t, model.DB.Create(task).Error)
+
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor {
+		return &taskPollingFetchAdaptor{}
+	}
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+	previousQueryLimit := constant.TaskQueryLimit
+	constant.TaskQueryLimit = 100
+	t.Cleanup(func() { constant.TaskQueryLimit = previousQueryLimit })
+
+	summary := RunTaskPollingOnce(context.Background(), nil)
+
+	assert.Equal(t, 1, summary.NullTasksFailed)
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
+	assert.Zero(t, reloaded.Quota)
+	assert.Equal(t, initialQuota+taskQuota, getUserQuota(t, userID))
+	assert.Zero(t, getUserUsedQuota(t, userID))
+	assert.Zero(t, getChannelUsedQuota(t, channelID))
+}
+
 func TestUpdateVideoTasksDefaultSleepDoesNotBlockOtherChannels(t *testing.T) {
 	truncate(t)
 

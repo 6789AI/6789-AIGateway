@@ -373,6 +373,14 @@ func canManageTargetRole(myRole int, targetRole int) bool {
 	return myRole == common.RoleRootUser || myRole > targetRole
 }
 
+type userDetailsResponse struct {
+	*model.User
+	FreeUsageLimit     int  `json:"free_usage_limit"`
+	FreeUsageUsed      int  `json:"free_usage_used"`
+	FreeUsageRemaining int  `json:"free_usage_remaining"`
+	FreeUsageActive    bool `json:"free_usage_active"`
+}
+
 func GetUser(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -390,10 +398,27 @@ func GetUser(c *gin.Context) {
 		return
 	}
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
+	activityKeys := billing_setting.GetActivePromotionActivityKeys(time.Now())
+	promotionUsage, err := model.GetPromotionUsageSummary(user.Id, user.UsedQuota, activityKeys)
+	if err != nil {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("failed to query promotion usage for user %d: %v", user.Id, err))
+		allowance := model.PromotionAllowanceForUsedQuota(user.UsedQuota)
+		promotionUsage = model.PromotionUsageSummary{
+			Limit:     allowance,
+			Remaining: allowance,
+			Active:    len(activityKeys) > 0,
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    user,
+		"data": &userDetailsResponse{
+			User:               user,
+			FreeUsageLimit:     promotionUsage.Limit,
+			FreeUsageUsed:      promotionUsage.Used,
+			FreeUsageRemaining: promotionUsage.Remaining,
+			FreeUsageActive:    promotionUsage.Active,
+		},
 	})
 	return
 }
@@ -497,13 +522,9 @@ func GetSelf(c *gin.Context) {
 	if err != nil {
 		logger.LogWarn(c.Request.Context(), fmt.Sprintf("failed to query promotion usage for user %d: %v", user.Id, err))
 		allowance := model.PromotionAllowanceForUsedQuota(user.UsedQuota)
-		limit := allowance
-		if len(activityKeys) > 1 {
-			limit *= len(activityKeys)
-		}
 		promotionUsage = model.PromotionUsageSummary{
-			Limit:     limit,
-			Remaining: limit,
+			Limit:     allowance,
+			Remaining: allowance,
 			Active:    len(activityKeys) > 0,
 		}
 	}

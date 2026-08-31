@@ -50,12 +50,13 @@ type PriceSchedule struct {
 }
 
 type ModelPromotion struct {
-	ModelName     string   `json:"model_name"`
-	PromotionType string   `json:"promotion_type"`
-	Price         *float64 `json:"price,omitempty"`
-	DiscountRate  *float64 `json:"discount_rate,omitempty"`
-	EndsAt        int64    `json:"ends_at,omitempty"`
-	ActivityKey   string   `json:"-"`
+	ModelName         string   `json:"model_name"`
+	PromotionType     string   `json:"promotion_type"`
+	Price             *float64 `json:"price,omitempty"`
+	DiscountRate      *float64 `json:"discount_rate,omitempty"`
+	EndsAt            int64    `json:"ends_at,omitempty"`
+	ActivityKey       string   `json:"-"`
+	legacyActivityKey string   `json:"-"`
 }
 
 // ScheduledAdjustment is the selected active promotion and the shared
@@ -300,25 +301,54 @@ func priceScheduleActiveUntil(rule PriceSchedule, now time.Time) (int64, bool) {
 	return 0, false
 }
 
-func priceScheduleActivityKey(rule PriceSchedule, endsAt int64) string {
+func priceScheduleWeeklyKeyParts(rule PriceSchedule) string {
+	weekdays := append([]int(nil), rule.Weekdays...)
+	sort.Ints(weekdays)
+	weekdayParts := make([]string, len(weekdays))
+	for index, weekday := range weekdays {
+		weekdayParts[index] = fmt.Sprintf("%d", weekday)
+	}
+	return strings.Join(weekdayParts, ",")
+}
+
+func priceScheduleLegacyActivityKey(rule PriceSchedule, endsAt int64) string {
+	if rule.Type != PriceScheduleWeekly {
+		return ""
+	}
+	return fmt.Sprintf(
+		"v1:weekly:%s:%s:%d:%d:%d",
+		rule.Timezone,
+		priceScheduleWeeklyKeyParts(rule),
+		rule.StartMinute,
+		rule.EndMinute,
+		endsAt,
+	)
+}
+
+func priceScheduleActivityKey(rule PriceSchedule, endsAt int64, now time.Time) string {
 	switch rule.Type {
 	case PriceScheduleAbsolute:
 		return fmt.Sprintf("v1:absolute:%d:%d", rule.StartAt, rule.EndAt)
 	case PriceScheduleWeekly:
-		weekdays := append([]int(nil), rule.Weekdays...)
-		sort.Ints(weekdays)
-		weekdayParts := make([]string, len(weekdays))
-		for index, weekday := range weekdays {
-			weekdayParts[index] = fmt.Sprintf("%d", weekday)
+		weekdayParts := priceScheduleWeeklyKeyParts(rule)
+		if rule.StartMinute == rule.EndMinute {
+			// An all-day rule can span consecutive selected weekdays. Include the
+			// local calendar date so each day's activity gets its own allowance.
+			if location, err := loadPriceScheduleLocation(rule.Timezone); err == nil {
+				local := now.In(location)
+				occurrenceDate := local.Format("2006-01-02")
+				return fmt.Sprintf(
+					"v2:weekly:%s:%s:%d:%d:%d:%s",
+					rule.Timezone,
+					weekdayParts,
+					rule.StartMinute,
+					rule.EndMinute,
+					endsAt,
+					occurrenceDate,
+				)
+			}
 		}
-		return fmt.Sprintf(
-			"v1:weekly:%s:%s:%d:%d:%d",
-			rule.Timezone,
-			strings.Join(weekdayParts, ","),
-			rule.StartMinute,
-			rule.EndMinute,
-			endsAt,
-		)
+		return priceScheduleLegacyActivityKey(rule, endsAt)
 	default:
 		return ""
 	}
@@ -355,7 +385,7 @@ func GetScheduledPriceAdjustment(model string, basePrice float64, now time.Time)
 		if !matched || candidate < selected.Value {
 			selected = ScheduledAdjustment{
 				Value:       candidate,
-				ActivityKey: priceScheduleActivityKey(rule, endsAt),
+				ActivityKey: priceScheduleActivityKey(rule, endsAt, now),
 			}
 			matched = true
 		}
@@ -388,7 +418,7 @@ func GetScheduledDiscountAdjustment(model string, now time.Time) (ScheduledAdjus
 		if active && (!matched || rate < selected.Value) {
 			selected = ScheduledAdjustment{
 				Value:       rate,
-				ActivityKey: priceScheduleActivityKey(rule, endsAt),
+				ActivityKey: priceScheduleActivityKey(rule, endsAt, now),
 			}
 			matched = true
 		}
@@ -403,11 +433,14 @@ func GetScheduledDiscount(model string, now time.Time) (float64, bool) {
 	return adjustment.Value, matched
 }
 
-func promotionFromRule(model string, rule PriceSchedule, endsAt int64) (ModelPromotion, bool) {
+func promotionFromRule(model string, rule PriceSchedule, endsAt int64, now time.Time) (ModelPromotion, bool) {
 	promotion := ModelPromotion{
 		ModelName:   model,
 		EndsAt:      endsAt,
-		ActivityKey: priceScheduleActivityKey(rule, endsAt),
+		ActivityKey: priceScheduleActivityKey(rule, endsAt, now),
+	}
+	if rule.Type == PriceScheduleWeekly && rule.StartMinute == rule.EndMinute {
+		promotion.legacyActivityKey = priceScheduleLegacyActivityKey(rule, endsAt)
 	}
 	switch priceScheduleAdjustmentType(rule) {
 	case PriceAdjustmentFixed:
@@ -498,7 +531,7 @@ func getActiveModelPromotions(now time.Time, bannerOnly bool) []ModelPromotion {
 			if !ruleActive {
 				continue
 			}
-			candidate, ok := promotionFromRule(model, rule, ruleEndsAt)
+			candidate, ok := promotionFromRule(model, rule, ruleEndsAt, now)
 			if !ok {
 				continue
 			}
@@ -545,6 +578,9 @@ func GetActivePromotionActivityKeys(now time.Time) []string {
 	for _, promotion := range GetActiveModelPromotions(now) {
 		if promotion.ActivityKey != "" {
 			activityKeys[promotion.ActivityKey] = struct{}{}
+		}
+		if promotion.legacyActivityKey != "" {
+			activityKeys[promotion.legacyActivityKey] = struct{}{}
 		}
 	}
 	keys := make([]string, 0, len(activityKeys))

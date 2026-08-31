@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -19,14 +18,14 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestGetSelfFallsBackWhenPromotionUsageQueryFails(t *testing.T) {
+func TestGetUserIncludesPromotionUsageForAuthorizedAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	previousDB := model.DB
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	model.DB = db
-	require.NoError(t, db.AutoMigrate(&model.User{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.PromotionUsage{}))
 	t.Cleanup(func() {
 		model.DB = previousDB
 		sqlDB, dbErr := db.DB()
@@ -45,37 +44,39 @@ func TestGetSelfFallsBackWhenPromotionUsageQueryFails(t *testing.T) {
 	})
 
 	now := time.Now()
+	startAt := now.Add(-time.Hour).Unix()
+	endAt := now.Add(time.Hour).Unix()
 	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
-		"billing_setting.billing_mode": `{"fallback-model":"scheduled_price","fallback-model-two":"scheduled_price"}`,
+		"billing_setting.billing_mode": `{"promotion-detail-model":"scheduled_price"}`,
 		"billing_setting.price_schedules": fmt.Sprintf(
-			`{"fallback-model":[{"type":"absolute","price":0,"start_at":%d,"end_at":%d}],"fallback-model-two":[{"type":"absolute","price":0,"start_at":%d,"end_at":%d}]}`,
-			now.Add(-time.Hour).Unix(), now.Add(time.Hour).Unix(),
-			now.Add(-30*time.Minute).Unix(), now.Add(2*time.Hour).Unix(),
+			`{"promotion-detail-model":[{"type":"absolute","price":0,"start_at":%d,"end_at":%d}]}`,
+			startAt, endAt,
 		),
 	}))
 
 	user := model.User{
-		Username:  "promotion-fallback-user",
+		Username:  "promotion-detail-user",
 		Password:  "password",
 		Role:      common.RoleCommonUser,
 		Status:    common.UserStatusEnabled,
 		Group:     "default",
-		UsedQuota: int(common.QuotaPerUnit * 20),
+		UsedQuota: int(common.QuotaPerUnit * 10),
 	}
 	require.NoError(t, db.Create(&user).Error)
-	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("test:fail_promotion_usage_query", func(tx *gorm.DB) {
-		if tx.Statement.Table == "promotion_usages" {
-			tx.AddError(errors.New("promotion usage query failed"))
-		}
-	}))
+	require.NoError(t, db.Create(&model.PromotionUsage{
+		UserId:        user.Id,
+		ActivityKey:   fmt.Sprintf("v1:absolute:%d:%d", startAt, endAt),
+		UsedCount:     2,
+		ReservedCount: 1,
+	}).Error)
 
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
-	context.Request = httptest.NewRequest(http.MethodGet, "/api/user/self", nil)
-	context.Set("id", user.Id)
-	context.Set("role", user.Role)
+	context.Request = httptest.NewRequest(http.MethodGet, "/api/user/"+fmt.Sprint(user.Id), nil)
+	context.Params = gin.Params{{Key: "id", Value: fmt.Sprint(user.Id)}}
+	context.Set("role", common.RoleAdminUser)
 
-	GetSelf(context)
+	GetUser(context)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var response struct {
@@ -89,8 +90,8 @@ func TestGetSelfFallsBackWhenPromotionUsageQueryFails(t *testing.T) {
 	}
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	assert.True(t, response.Success)
-	assert.Equal(t, 60, response.Data.FreeUsageLimit)
-	assert.Zero(t, response.Data.FreeUsageUsed)
-	assert.Equal(t, 60, response.Data.FreeUsageRemaining)
+	assert.Equal(t, 30, response.Data.FreeUsageLimit)
+	assert.Equal(t, 3, response.Data.FreeUsageUsed)
+	assert.Equal(t, 27, response.Data.FreeUsageRemaining)
 	assert.True(t, response.Data.FreeUsageActive)
 }

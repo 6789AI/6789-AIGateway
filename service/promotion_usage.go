@@ -43,12 +43,14 @@ func commitTaskPromotionUse(ctx context.Context, task *model.Task) {
 	}
 }
 
-func refundTaskPromotionUse(ctx context.Context, task *model.Task) {
+func refundTaskPromotionUse(ctx context.Context, task *model.Task) bool {
 	requestId := task.PrivateData.PromotionRequestId
 	if requestId == "" {
-		return
+		return true
 	}
 	if err := model.RefundPromotionUse(requestId); err != nil {
 		logger.LogError(ctx, fmt.Sprintf("refund task model promotion use failed (task=%s): %s", task.TaskID, err.Error()))
+		return false
 	}
+	return true
 }

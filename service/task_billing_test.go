@@ -353,6 +353,27 @@ func getUserQuota(t *testing.T, id int) int {
 	return user.Quota
 }
 
+func getUserUsedQuota(t *testing.T, id int) int {
+	t.Helper()
+	var user model.User
+	require.NoError(t, model.DB.Select("used_quota").Where("id = ?", id).First(&user).Error)
+	return user.UsedQuota
+}
+
+func getUserRequestCount(t *testing.T, id int) int {
+	t.Helper()
+	var user model.User
+	require.NoError(t, model.DB.Select("request_count").Where("id = ?", id).First(&user).Error)
+	return user.RequestCount
+}
+
+func getChannelUsedQuota(t *testing.T, id int) int64 {
+	t.Helper()
+	var channel model.Channel
+	require.NoError(t, model.DB.Select("used_quota").Where("id = ?", id).First(&channel).Error)
+	return channel.UsedQuota
+}
+
 func getTokenRemainQuota(t *testing.T, id int) int {
 	t.Helper()
 	var token model.Token
@@ -434,6 +455,24 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 	assert.Equal(t, "test-model", log.ModelName)
 	assert.Zero(t, task.Quota)
 	assert.Zero(t, getTaskQuota(t, task.ID))
+}
+
+func TestRefundTaskQuotaAdjustsCumulativeUsage(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, channelID, preConsumed = 6, 6, 1800
+	seedUser(t, userID, 10_000)
+	seedChannel(t, channelID)
+	model.UpdateUserUsedQuota(userID, preConsumed)
+	model.UpdateChannelUsedQuota(channelID, preConsumed)
+
+	task := makeTask(userID, channelID, preConsumed, 0, BillingSourceWallet, 0)
+	require.NoError(t, model.DB.Create(task).Error)
+
+	require.True(t, RefundTaskQuota(ctx, task, "task failed"))
+	assert.Zero(t, getUserUsedQuota(t, userID))
+	assert.Zero(t, getChannelUsedQuota(t, channelID))
 }
 
 func TestRefundTaskQuota_Subscription(t *testing.T) {
@@ -579,6 +618,23 @@ func TestRefundTaskQuota_FundingFailureKeepsPendingMarker(t *testing.T) {
 	assert.Equal(t, int64(0), countLogs(t))
 }
 
+func TestRefundTaskQuota_TokenFailureCompensatesFunding(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, missingTokenID, preConsumed = 7, 7007, 1200
+	const initialQuota = 5000
+	seedUser(t, userID, initialQuota)
+
+	task := makeTask(userID, 0, preConsumed, missingTokenID, BillingSourceWallet, 0)
+	require.NoError(t, model.DB.Create(task).Error)
+
+	assert.False(t, RefundTaskQuota(ctx, task, "token was deleted"))
+	assert.Equal(t, initialQuota, getUserQuota(t, userID), "funding must be compensated when token refund fails")
+	assert.Equal(t, preConsumed, getTaskQuota(t, task.ID), "pending marker must remain for retry")
+	assert.Equal(t, int64(0), countLogs(t))
+}
+
 // ===========================================================================
 // RecalculateTaskQuota tests
 // ===========================================================================
@@ -647,6 +703,25 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
 	assert.Equal(t, preConsumed-actualQuota, log.Quota)
+}
+
+func TestRecalculateAdjustsNetUsageWithoutCountingRequestAgain(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, channelID, preConsumed, actualQuota = 15, 15, 5000, 3000
+	seedUser(t, userID, 10_000)
+	seedChannel(t, channelID)
+	model.UpdateUserUsedQuota(userID, preConsumed)
+	model.UpdateChannelUsedQuota(channelID, preConsumed)
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", userID).Update("request_count", 1).Error)
+
+	task := makeTask(userID, channelID, preConsumed, 0, BillingSourceWallet, 0)
+	RecalculateTaskQuota(ctx, task, actualQuota, "token adjustment")
+
+	assert.Equal(t, actualQuota, getUserUsedQuota(t, userID))
+	assert.EqualValues(t, actualQuota, getChannelUsedQuota(t, channelID))
+	assert.Equal(t, 1, getUserRequestCount(t, userID), "settlement must not count a second request")
 }
 
 func TestRecalculate_ZeroDelta(t *testing.T) {
@@ -721,6 +796,26 @@ func TestRecalculate_Subscription_NegativeDelta(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+}
+
+func TestRecalculateTaskQuota_PersistenceFailureCompensatesAdjustments(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, preConsumed, actualQuota = 16, 5000, 7000
+	const initialQuota = 10_000
+	seedUser(t, userID, initialQuota)
+
+	// A positive ID that is not present makes UpdateQuota fail after funding has
+	// been adjusted, exercising the compensation path.
+	task := makeTask(userID, 0, preConsumed, 0, BillingSourceWallet, 0)
+	task.ID = 160016
+
+	RecalculateTaskQuota(ctx, task, actualQuota, "missing task row")
+
+	assert.Equal(t, initialQuota, getUserQuota(t, userID), "funding must be compensated when task persistence fails")
+	assert.Equal(t, preConsumed, task.Quota, "in-memory quota must remain pending")
+	assert.Equal(t, int64(0), countLogs(t))
 }
 
 // ===========================================================================

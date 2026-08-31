@@ -7,6 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func insertUserForPaymentGuardTest(t *testing.T, id int, quota int) {
@@ -100,6 +101,29 @@ func TestRechargeWaffoPancake_RejectsMismatchedPaymentMethod(t *testing.T) {
 	require.NotNil(t, topUp)
 	assert.Equal(t, common.TopUpStatusPending, topUp.Status)
 	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 101))
+}
+
+func TestCompleteEpayTopUpRollsBackWhenUserDoesNotExist(t *testing.T) {
+	truncateTables(t)
+
+	topUp := &TopUp{
+		UserId:          999999,
+		Amount:          2,
+		Money:           2,
+		TradeNo:         "epay-missing-user",
+		PaymentProvider: PaymentProviderEpay,
+		PaymentMethod:   "alipay",
+		Status:          common.TopUpStatusPending,
+		CreateTime:      time.Now().Unix(),
+	}
+	require.NoError(t, topUp.Insert())
+
+	_, _, err := CompleteEpayTopUp(topUp.TradeNo, "alipay")
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+
+	stored := GetTopUpByTradeNo(topUp.TradeNo)
+	require.NotNil(t, stored)
+	assert.Equal(t, common.TopUpStatusPending, stored.Status)
 }
 
 func TestUpdatePendingTopUpStatus_RejectsMismatchedPaymentProvider(t *testing.T) {

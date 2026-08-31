@@ -681,6 +681,7 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 		}
 		user.Quota = common.QuotaForNewUser
 		user.AffCode = common.GetRandomString(4)
+		user.InviterId = inviterId
 
 		// 初始化用户设置
 		if user.Setting == "" {
@@ -1343,6 +1344,20 @@ func UpdateUserUsedQuotaAndRequestCount(id int, quota int) {
 		return
 	}
 	updateUserUsedQuotaAndRequestCount(id, quota, 1)
+}
+
+// UpdateUserUsedQuota adjusts cumulative consumption without counting another
+// request. This is used when an asynchronous task settles or refunds its
+// existing reservation.
+func UpdateUserUsedQuota(id int, quota int) {
+	if quota == 0 {
+		return
+	}
+	if common.BatchUpdateEnabled {
+		addNewRecord(BatchUpdateTypeUsedQuota, id, quota)
+		return
+	}
+	updateUserUsedQuota(id, quota)
 }
 
 func updateUserUsedQuotaAndRequestCount(id int, quota int, count int) {

@@ -413,4 +413,8 @@ export interface UserInfo {
   aff_count?: number
   aff_quota?: number
   remark?: string
+  free_usage_limit?: number
+  free_usage_used?: number
+  free_usage_remaining?: number
+  free_usage_active?: boolean
 }

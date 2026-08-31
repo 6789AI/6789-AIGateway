@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	sqlitedriver "github.com/glebarez/go-sqlite"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -17,6 +19,7 @@ const (
 	promotionReservationRefunded = "refunded"
 	promotionMinimumAllowance    = 20
 	promotionMaximumAllowance    = 2000
+	promotionReservationAttempts = 3
 )
 
 // PromotionUsage stores the aggregate activity usage for one user and one
@@ -51,6 +54,23 @@ type PromotionUsageSummary struct {
 	Active    bool
 }
 
+func normalizePromotionActivityKeys(activityKeys []string) []string {
+	uniqueKeys := make([]string, 0, len(activityKeys))
+	seen := make(map[string]struct{}, len(activityKeys))
+	for _, activityKey := range activityKeys {
+		activityKey = strings.TrimSpace(activityKey)
+		if activityKey == "" {
+			continue
+		}
+		if _, exists := seen[activityKey]; exists {
+			continue
+		}
+		seen[activityKey] = struct{}{}
+		uniqueKeys = append(uniqueKeys, activityKey)
+	}
+	return uniqueKeys
+}
+
 // PromotionAllowanceForUsedQuota converts cumulative platform consumption to
 // activity uses: below 10 units gets 20; otherwise floor(amount*3), capped at 2000.
 func PromotionAllowanceForUsedQuota(usedQuota int) int {
@@ -73,23 +93,11 @@ func PromotionAllowanceForUsedQuota(usedQuota int) int {
 	return int(allowance.IntPart())
 }
 
-// GetPromotionUsageSummary aggregates the remaining allowance for active,
-// distinct promotion occurrences. Between activities it reports the user's
-// full per-occurrence allowance so the wallet can show the next entitlement.
+// GetPromotionUsageSummary reports one shared allowance across all currently
+// active promotions. Between activities it reports the user's full allowance
+// so the wallet can show the next entitlement.
 func GetPromotionUsageSummary(userId int, usedQuota int, activityKeys []string) (PromotionUsageSummary, error) {
-	uniqueKeys := make([]string, 0, len(activityKeys))
-	seen := make(map[string]struct{}, len(activityKeys))
-	for _, activityKey := range activityKeys {
-		activityKey = strings.TrimSpace(activityKey)
-		if activityKey == "" {
-			continue
-		}
-		if _, exists := seen[activityKey]; exists {
-			continue
-		}
-		seen[activityKey] = struct{}{}
-		uniqueKeys = append(uniqueKeys, activityKey)
-	}
+	uniqueKeys := normalizePromotionActivityKeys(activityKeys)
 	allowance := PromotionAllowanceForUsedQuota(usedQuota)
 	if len(uniqueKeys) == 0 {
 		return PromotionUsageSummary{
@@ -99,8 +107,8 @@ func GetPromotionUsageSummary(userId int, usedQuota int, activityKeys []string) 
 	}
 
 	summary := PromotionUsageSummary{
-		Limit:     allowance * len(uniqueKeys),
-		Remaining: allowance * len(uniqueKeys),
+		Limit:     allowance,
+		Remaining: allowance,
 		Active:    true,
 	}
 	var usages []PromotionUsage
@@ -113,14 +121,16 @@ func GetPromotionUsageSummary(userId int, usedQuota int, activityKeys []string) 
 			used = 0
 		}
 		summary.Used += used
-		summary.Remaining -= min(used, allowance)
 	}
+	summary.Remaining = allowance - min(summary.Used, allowance)
 	return summary, nil
 }
 
-// ReservePromotionUse atomically reserves one shared activity use. Exhaustion
-// is a normal result: callers should restore the model's regular price.
-func ReservePromotionUse(userId int, requestId string, activityKey string) (bool, error) {
+// ReservePromotionUse atomically reserves one use from the allowance shared by
+// all currently active promotions. Exhaustion is a normal result: callers
+// should restore the model's regular price. Database errors are returned so
+// callers do not silently charge a request at the wrong price.
+func ReservePromotionUse(userId int, requestId string, activityKey string, activeActivityKeys ...string) (bool, error) {
 	requestId = strings.TrimSpace(requestId)
 	activityKey = strings.TrimSpace(activityKey)
 	if userId <= 0 || requestId == "" || activityKey == "" {
@@ -129,59 +139,98 @@ func ReservePromotionUse(userId int, requestId string, activityKey string) (bool
 	if len(requestId) > 191 || len(activityKey) > 191 {
 		return false, errors.New("promotion reservation identity is too long")
 	}
+	poolKeys := make([]string, 0, len(activeActivityKeys)+1)
+	poolKeys = append(poolKeys, activityKey)
+	poolKeys = append(poolKeys, activeActivityKeys...)
+	poolKeys = normalizePromotionActivityKeys(poolKeys)
 
-	granted := false
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		var existing PromotionReservation
-		err := tx.Where("request_id = ?", requestId).Take(&existing).Error
-		if err == nil {
-			if existing.UserId != userId || existing.ActivityKey != activityKey {
-				return errors.New("promotion request id is already bound to another activity")
+	for attempt := 0; attempt < promotionReservationAttempts; attempt++ {
+		granted := false
+		err := DB.Transaction(func(tx *gorm.DB) error {
+			var existing PromotionReservation
+			err := tx.Where("request_id = ?", requestId).Take(&existing).Error
+			if err == nil {
+				if existing.UserId != userId || existing.ActivityKey != activityKey {
+					return errors.New("promotion request id is already bound to another activity")
+				}
+				granted = existing.Status == promotionReservationReserved || existing.Status == promotionReservationConsumed
+				return nil
 			}
-			granted = existing.Status == promotionReservationReserved || existing.Status == promotionReservationConsumed
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+
+			var user User
+			result := lockForUpdate(tx).Select("used_quota").Take(&user, "id = ?", userId)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return fmt.Errorf("user %d not found", userId)
+			}
+			allowance := PromotionAllowanceForUsedQuota(user.UsedQuota)
+			var activeUsages []PromotionUsage
+			if err := tx.Where("user_id = ? AND activity_key IN ?", userId, poolKeys).Find(&activeUsages).Error; err != nil {
+				return err
+			}
+			poolUsed := 0
+			for _, activeUsage := range activeUsages {
+				used := activeUsage.UsedCount + activeUsage.ReservedCount
+				if used > 0 {
+					poolUsed += used
+				}
+			}
+			if poolUsed >= allowance {
+				return nil
+			}
+
+			usage := PromotionUsage{UserId: userId, ActivityKey: activityKey}
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&usage).Error; err != nil {
+				return err
+			}
+			result = tx.Model(&PromotionUsage{}).
+				Where("user_id = ? AND activity_key = ?", userId, activityKey).
+				Update("reserved_count", gorm.Expr("reserved_count + ?", 1))
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return errors.New("promotion usage counter is missing")
+			}
+
+			reservation := PromotionReservation{
+				RequestId:   requestId,
+				UserId:      userId,
+				ActivityKey: activityKey,
+				Status:      promotionReservationReserved,
+			}
+			if err := tx.Create(&reservation).Error; err != nil {
+				return err
+			}
+			granted = true
 			return nil
+		})
+		if err == nil {
+			return granted, nil
 		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
+		if !isSQLiteBusyError(err) || attempt == promotionReservationAttempts-1 {
+			return false, err
 		}
+		// A short bounded retry handles transient SQLite writer contention while
+		// keeping the request responsive when the database is genuinely stuck.
+		time.Sleep(time.Duration(attempt+1) * 25 * time.Millisecond)
+	}
+	return false, errors.New("promotion reservation attempts exhausted")
+}
 
-		usage := PromotionUsage{UserId: userId, ActivityKey: activityKey}
-		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&usage).Error; err != nil {
-			return err
-		}
-
-		var usedQuota int
-		result := tx.Model(&User{}).Where("id = ?", userId).Select("used_quota").Scan(&usedQuota)
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected == 0 {
-			return fmt.Errorf("user %d not found", userId)
-		}
-		allowance := PromotionAllowanceForUsedQuota(usedQuota)
-		result = tx.Model(&PromotionUsage{}).
-			Where("user_id = ? AND activity_key = ? AND used_count + reserved_count < ?", userId, activityKey, allowance).
-			Update("reserved_count", gorm.Expr("reserved_count + ?", 1))
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected == 0 {
-			return nil
-		}
-
-		reservation := PromotionReservation{
-			RequestId:   requestId,
-			UserId:      userId,
-			ActivityKey: activityKey,
-			Status:      promotionReservationReserved,
-		}
-		if err := tx.Create(&reservation).Error; err != nil {
-			return err
-		}
-		granted = true
-		return nil
-	})
-	return granted, err
+func isSQLiteBusyError(err error) bool {
+	var sqliteErr *sqlitedriver.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+	code := sqliteErr.Code()
+	baseCode := code & 0xff
+	return baseCode == 5 || baseCode == 6 // SQLITE_BUSY / SQLITE_LOCKED
 }
 
 func CommitPromotionUse(requestId string) error {

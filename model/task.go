@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"gorm.io/gorm"
 )
 
 type TaskStatus string
@@ -442,7 +443,17 @@ func (Task *Task) Update() error {
 }
 
 func (t *Task) UpdateQuota() error {
-	return DB.Model(t).Update("quota", t.Quota).Error
+	// A missing task must be reported to billing callers. GORM returns a nil
+	// error for an UPDATE that matches no rows, which would otherwise make a
+	// successful refund/settlement look persisted when it was silently lost.
+	result := DB.Model(&Task{}).Where("id = ?", t.ID).Update("quota", t.Quota)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 && t.ID > 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).

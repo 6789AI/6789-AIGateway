@@ -59,6 +59,7 @@ func TestMain(m *testing.M) {
 		&SystemTaskLock{},
 		&PromotionUsage{},
 		&PromotionReservation{},
+		&AffiliateReward{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -93,6 +94,7 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM system_tasks")
 		DB.Exec("DELETE FROM promotion_reservations")
 		DB.Exec("DELETE FROM promotion_usages")
+		DB.Exec("DELETE FROM affiliate_rewards")
 	})
 }
 

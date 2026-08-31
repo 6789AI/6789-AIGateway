@@ -175,12 +175,17 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if result.RowsAffected == 0 {
 			return errors.New("该兑换码已被使用")
 		}
-		return tx.Model(&User{}).Where("id = ?", userId).Update("quota", gorm.Expr("quota + ?", redemption.Quota)).Error
+		if err := creditUserQuotaTx(tx, userId, redemption.Quota); err != nil {
+			return err
+		}
+		_, err = grantAffiliateRewardTx(tx, userId, AffiliateRewardSourceRedemption, strconv.Itoa(redemption.Id), redemption.Quota)
+		return err
 	})
 	if err != nil {
 		common.SysError("redemption failed: " + err.Error())
 		return 0, ErrRedeemFailed
 	}
+	refreshUserQuotaCacheAfterCredit(userId, redemption.Quota)
 	RecordLog(userId, LogTypeTopup, fmt.Sprintf("通过兑换码充值 %s，兑换码ID %d", logger.LogQuota(redemption.Quota), redemption.Id))
 	return redemption.Quota, nil
 }

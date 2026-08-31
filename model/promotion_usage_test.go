@@ -2,11 +2,15 @@ package model
 
 import (
 	"fmt"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestPromotionAllowanceForUsedQuotaRoundsDownAfterMultiplication(t *testing.T) {
@@ -84,6 +88,33 @@ func TestPromotionReservationSharesAllowanceAndRestoresRefundedUse(t *testing.T)
 	assert.True(t, granted, "a different activity occurrence has an independent allowance")
 }
 
+func TestPromotionReservationSharesOneAllowanceAcrossConcurrentActivities(t *testing.T) {
+	truncateTables(t)
+	originalQuotaPerUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = 500_000
+	t.Cleanup(func() {
+		common.QuotaPerUnit = originalQuotaPerUnit
+	})
+
+	user := User{Username: "promotion-shared-pool-user", UsedQuota: 0}
+	require.NoError(t, DB.Create(&user).Error)
+	activeKeys := []string{"activity-a", "activity-b"}
+	for index := 0; index < 10; index++ {
+		granted, err := ReservePromotionUse(user.Id, fmt.Sprintf("activity-a-%d", index), "activity-a", activeKeys...)
+		require.NoError(t, err)
+		assert.True(t, granted)
+	}
+	for index := 0; index < 10; index++ {
+		granted, err := ReservePromotionUse(user.Id, fmt.Sprintf("activity-b-%d", index), "activity-b", activeKeys...)
+		require.NoError(t, err)
+		assert.True(t, granted)
+	}
+
+	granted, err := ReservePromotionUse(user.Id, "shared-pool-over-limit", "activity-b", activeKeys...)
+	require.NoError(t, err)
+	assert.False(t, granted)
+}
+
 func TestPromotionAllowanceExpandsWithTotalConsumption(t *testing.T) {
 	truncateTables(t)
 	originalQuotaPerUnit := common.QuotaPerUnit
@@ -106,15 +137,71 @@ func TestPromotionAllowanceExpandsWithTotalConsumption(t *testing.T) {
 	assert.False(t, granted)
 }
 
-func TestGetPromotionUsageSummaryDeduplicatesAndAggregatesActiveActivities(t *testing.T) {
+func TestReservePromotionUseRetriesSQLiteBusy(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "promotion-lock.db")
+	lockedDB, err := gorm.Open(sqlite.Open(dbPath+"?_busy_timeout=1"), &gorm.Config{})
+	require.NoError(t, err)
+	contendingDB, err := gorm.Open(sqlite.Open(dbPath+"?_busy_timeout=1"), &gorm.Config{})
+	require.NoError(t, err)
+	for _, db := range []*gorm.DB{lockedDB, contendingDB} {
+		sqlDB, dbErr := db.DB()
+		require.NoError(t, dbErr)
+		sqlDB.SetMaxOpenConns(1)
+		require.NoError(t, db.AutoMigrate(&User{}, &PromotionUsage{}, &PromotionReservation{}))
+	}
+
+	user := User{Username: "promotion-busy-user", UsedQuota: 0}
+	require.NoError(t, lockedDB.Create(&user).Error)
+	lockTx := lockedDB.Begin()
+	require.NoError(t, lockTx.Error)
+	require.NoError(t, lockTx.Model(&User{}).Where("id = ?", user.Id).Update("used_quota", 1).Error)
+	lockedSQLDB, err := lockedDB.DB()
+	require.NoError(t, err)
+	contendingSQLDB, err := contendingDB.DB()
+	require.NoError(t, err)
+
+	previousDB := DB
+	DB = contendingDB
+	t.Cleanup(func() {
+		DB = previousDB
+		_ = lockTx.Rollback().Error
+		_ = lockedSQLDB.Close()
+		_ = contendingSQLDB.Close()
+	})
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(40 * time.Millisecond)
+		_ = lockTx.Rollback().Error
+		close(released)
+	}()
+
+	granted, err := ReservePromotionUse(user.Id, "busy-request", "busy-activity")
+	<-released
+	require.NoError(t, err)
+	assert.True(t, granted)
+}
+
+func TestGetPromotionUsageSummaryDeduplicatesAndSharesActiveAllowance(t *testing.T) {
 	truncateTables(t)
-	user := User{Username: "promotion-summary-user", UsedQuota: 0}
+	originalQuotaPerUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = 500_000
+	t.Cleanup(func() {
+		common.QuotaPerUnit = originalQuotaPerUnit
+	})
+
+	user := User{Username: "promotion-summary-user", UsedQuota: 500_000_000}
 	require.NoError(t, DB.Create(&user).Error)
 	require.NoError(t, DB.Create(&PromotionUsage{
 		UserId:        user.Id,
 		ActivityKey:   "activity-a",
 		UsedCount:     3,
 		ReservedCount: 2,
+	}).Error)
+	require.NoError(t, DB.Create(&PromotionUsage{
+		UserId:        user.Id,
+		ActivityKey:   "activity-b",
+		UsedCount:     4,
+		ReservedCount: 1,
 	}).Error)
 
 	summary, err := GetPromotionUsageSummary(user.Id, user.UsedQuota, []string{
@@ -126,9 +213,9 @@ func TestGetPromotionUsageSummaryDeduplicatesAndAggregatesActiveActivities(t *te
 
 	require.NoError(t, err)
 	assert.True(t, summary.Active)
-	assert.Equal(t, 40, summary.Limit)
-	assert.Equal(t, 5, summary.Used)
-	assert.Equal(t, 35, summary.Remaining)
+	assert.Equal(t, 2000, summary.Limit)
+	assert.Equal(t, 10, summary.Used)
+	assert.Equal(t, 1990, summary.Remaining)
 }
 
 func TestGetPromotionUsageSummaryRestoresFullAllowanceBetweenActivities(t *testing.T) {
