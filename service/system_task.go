@@ -362,12 +362,12 @@ func runLogCleanupTask(ctx context.Context, task *model.SystemTask, runnerID str
 			return
 		}
 		syncLogCleanupStateFromRemaining(&state, remaining)
+		if state.Remaining == 0 {
+			break
+		}
 		if err := model.UpdateSystemTaskState(task.TaskID, runnerID, state); err != nil {
 			logSystemTaskLockError(ctx, task, err)
 			return
-		}
-		if state.Remaining == 0 {
-			break
 		}
 
 		// Track whether this pass deleted anything so a fresh recount that still
@@ -397,6 +397,12 @@ func runLogCleanupTask(ctx context.Context, task *model.SystemTask, runnerID str
 			}
 			state.Progress = logCleanupProgress(state.Processed, state.Total)
 
+			// Keep the final 100% state together with the terminal success update
+			// below. This prevents a task from appearing complete before its lease
+			// protected status transition has succeeded.
+			if state.Remaining == 0 {
+				break
+			}
 			if err := model.UpdateSystemTaskState(task.TaskID, runnerID, state); err != nil {
 				logSystemTaskLockError(ctx, task, err)
 				return
@@ -414,13 +420,9 @@ func runLogCleanupTask(ctx context.Context, task *model.SystemTask, runnerID str
 	if state.Total < state.Processed {
 		state.Total = state.Processed
 	}
-	if err := model.UpdateSystemTaskState(task.TaskID, runnerID, state); err != nil {
-		logSystemTaskLockError(ctx, task, err)
-		return
-	}
 
 	result := LogCleanupResult{DeletedCount: state.Processed}
-	if err := model.FinishSystemTask(task.TaskID, runnerID, model.SystemTaskStatusSucceeded, result, ""); err != nil {
+	if err := model.FinishSystemTaskWithState(task.TaskID, runnerID, model.SystemTaskStatusSucceeded, state, result, ""); err != nil {
 		logSystemTaskLockError(ctx, task, err)
 	}
 }

@@ -172,6 +172,36 @@ func TestExpireStaleSystemTaskLockFailsOldRunAndAllowsNewRun(t *testing.T) {
 	require.NotEqual(t, first.TaskID, second.TaskID)
 }
 
+func TestExpireStaleSystemTaskLockRechecksLeaseBeforeFailing(t *testing.T) {
+	truncateTables(t)
+
+	task, err := CreateSystemTask(SystemTaskTypeLogCleanup, nil, nil)
+	require.NoError(t, err)
+	runnerID := "runner-a"
+	_, claimed, err := ClaimSystemTask(task.ID, SystemTaskTypeLogCleanup, runnerID, common.GetTimestamp()+60)
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	// Capture the row as if the stale scan had observed it expired, then renew
+	// the actual row before the conditional expiration update runs.
+	var staleSnapshot SystemTaskLock
+	require.NoError(t, DB.Where("task_id = ?", task.TaskID).First(&staleSnapshot).Error)
+	now := common.GetTimestamp()
+	staleSnapshot.LockedUntil = now - 1
+	require.NoError(t, DB.Model(&SystemTaskLock{}).
+		Where("task_id = ?", task.TaskID).
+		Update("locked_until", now+600).Error)
+
+	expired, err := expireSystemTaskIfStale(&staleSnapshot, now)
+	require.NoError(t, err)
+	assert.False(t, expired)
+
+	reloaded, err := GetSystemTaskByTaskID(task.TaskID)
+	require.NoError(t, err)
+	require.NotNil(t, reloaded)
+	assert.Equal(t, SystemTaskStatusRunning, reloaded.Status)
+}
+
 func TestFindEarliestPendingSystemTasks(t *testing.T) {
 	truncateTables(t)
 
@@ -305,6 +335,32 @@ func TestFinishSystemTaskRetainsExecutor(t *testing.T) {
 	var lockCount int64
 	require.NoError(t, DB.Model(&SystemTaskLock{}).Where("task_id = ?", task.TaskID).Count(&lockCount).Error)
 	assert.Equal(t, int64(0), lockCount)
+}
+
+func TestFinishSystemTaskWithStatePersistsTerminalStateAtomically(t *testing.T) {
+	truncateTables(t)
+
+	task, err := CreateSystemTask(SystemTaskTypeLogCleanup, nil, nil)
+	require.NoError(t, err)
+	runnerID := "runner-a"
+	claimedTask, claimed, err := ClaimSystemTask(task.ID, SystemTaskTypeLogCleanup, runnerID, common.GetTimestamp()+60)
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	state := map[string]any{"processed": int64(100), "progress": 100}
+	result := map[string]any{"deleted_count": int64(100)}
+	require.NoError(t, FinishSystemTaskWithState(claimedTask.TaskID, runnerID, SystemTaskStatusSucceeded, state, result, ""))
+
+	reloaded, err := GetSystemTaskByTaskID(task.TaskID)
+	require.NoError(t, err)
+	require.NotNil(t, reloaded)
+	assert.Equal(t, SystemTaskStatusSucceeded, reloaded.Status)
+	stateValue, ok := decodeSystemTaskJSONValue(reloaded.State).(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, float64(100), stateValue["progress"])
+	resultValue, ok := decodeSystemTaskJSONValue(reloaded.Result).(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, float64(100), resultValue["deleted_count"])
 }
 
 func TestSystemTaskUpdatesRequireCurrentLock(t *testing.T) {

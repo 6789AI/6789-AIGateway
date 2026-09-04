@@ -357,13 +357,38 @@ func MarkSystemTaskLeaseExpired(taskID string) error {
 	return result.Error
 }
 
+// expireSystemTaskIfStale marks a task failed only when the lock row that was
+// observed by the stale-lock scan is still present and expired. The scan and
+// the update are separate queries, so the lock may have been renewed between
+// them; rechecking ownership here prevents that renewal from being discarded.
+func expireSystemTaskIfStale(lock *SystemTaskLock, now int64) (bool, error) {
+	if lock == nil || lock.TaskID == "" {
+		return false, nil
+	}
+
+	result := DB.Model(&SystemTask{}).
+		Where("task_id = ? AND status = ?", lock.TaskID, SystemTaskStatusRunning).
+		Where("EXISTS (SELECT 1 FROM system_task_locks WHERE type = ? AND task_id = ? AND locked_by = ? AND locked_until < ?)",
+			lock.Type, lock.TaskID, lock.LockedBy, now).
+		Updates(map[string]any{
+			"status":     SystemTaskStatusFailed,
+			"active_key": nil,
+			"error":      "task lease expired",
+			"updated_at": common.GetTimestamp(),
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
 func ExpireStaleSystemTaskLocks(now int64) error {
 	var locks []*SystemTaskLock
 	if err := DB.Where("locked_until < ?", now).Find(&locks).Error; err != nil {
 		return err
 	}
 	for _, lock := range locks {
-		if err := MarkSystemTaskLeaseExpired(lock.TaskID); err != nil {
+		if _, err := expireSystemTaskIfStale(lock, now); err != nil {
 			return err
 		}
 		result := DB.Where("type = ? AND task_id = ? AND locked_by = ? AND locked_until < ?", lock.Type, lock.TaskID, lock.LockedBy, now).
@@ -381,21 +406,40 @@ func ReleaseSystemTaskLock(taskID string, lockedBy string) error {
 }
 
 func FinishSystemTask(taskID string, lockedBy string, status SystemTaskStatus, resultPayload any, errorMessage string) error {
+	return finishSystemTask(taskID, lockedBy, status, nil, resultPayload, errorMessage)
+}
+
+// FinishSystemTaskWithState persists the terminal status and the final state
+// under the same lease check. This avoids exposing a completed progress value
+// when the subsequent status update loses the lease.
+func FinishSystemTaskWithState(taskID string, lockedBy string, status SystemTaskStatus, state any, resultPayload any, errorMessage string) error {
+	stateText, err := marshalSystemTaskJSON(state)
+	if err != nil {
+		return err
+	}
+	return finishSystemTask(taskID, lockedBy, status, &stateText, resultPayload, errorMessage)
+}
+
+func finishSystemTask(taskID string, lockedBy string, status SystemTaskStatus, stateText *string, resultPayload any, errorMessage string) error {
 	resultText, err := marshalSystemTaskJSON(resultPayload)
 	if err != nil {
 		return err
 	}
 	now := common.GetTimestamp()
+	updates := map[string]any{
+		"status":     status,
+		"active_key": nil,
+		"result":     resultText,
+		"error":      errorMessage,
+		"updated_at": now,
+	}
+	if stateText != nil {
+		updates["state"] = *stateText
+	}
 	result := DB.Model(&SystemTask{}).
 		Where("task_id = ? AND status = ? AND locked_by = ?", taskID, SystemTaskStatusRunning, lockedBy).
 		Where("EXISTS (SELECT 1 FROM system_task_locks WHERE system_task_locks.task_id = system_tasks.task_id AND system_task_locks.locked_by = ? AND system_task_locks.locked_until >= ?)", lockedBy, now).
-		Updates(map[string]any{
-			"status":     status,
-			"active_key": nil,
-			"result":     resultText,
-			"error":      errorMessage,
-			"updated_at": now,
-		})
+		Updates(updates)
 	if result.Error != nil {
 		return result.Error
 	}
