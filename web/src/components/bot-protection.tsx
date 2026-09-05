@@ -66,6 +66,7 @@ type BotProtectionWidgetProps = {
   onVerify: (proof: string) => void
   onExpire?: () => void
   className?: string
+  topLayer?: boolean
 }
 
 const scriptPromises = new Map<string, Promise<void>>()
@@ -190,8 +191,66 @@ export function BotProtectionWidget(props: BotProtectionWidgetProps) {
               })
               .onError(reportExpired)
               .onClose(reportExpired)
-            instance.appendTo(widgetContainer)
-            cleanup = () => instance.destroy?.()
+
+            if (!props.topLayer) {
+              instance.appendTo(widgetContainer)
+              cleanup = () => instance.destroy?.()
+              return
+            }
+
+            const anchor = widgetContainer.parentElement ?? widgetContainer
+            const originalMinHeight = widgetContainer.style.minHeight
+            widgetContainer.style.minHeight = '50px'
+            const portalHost = document.createElement('div')
+            const scrollListenerOptions = { capture: true, passive: true }
+            portalHost.style.position = 'fixed'
+            portalHost.style.zIndex = '2147483647'
+            portalHost.style.overflow = 'visible'
+            portalHost.style.pointerEvents = 'auto'
+
+            const syncPortalPosition = () => {
+              const rect = anchor.getBoundingClientRect()
+              portalHost.style.left = `${rect.left}px`
+              portalHost.style.top = `${rect.top}px`
+              portalHost.style.width = `${rect.width}px`
+              portalHost.style.height = `${Math.max(rect.height, 50)}px`
+            }
+
+            const resizeObserver = new ResizeObserver(syncPortalPosition)
+            resizeObserver.observe(anchor)
+            window.addEventListener('resize', syncPortalPosition)
+            window.addEventListener(
+              'scroll',
+              syncPortalPosition,
+              scrollListenerOptions
+            )
+            document.body.appendChild(portalHost)
+            syncPortalPosition()
+            instance.appendTo(portalHost)
+            const geetestRoot =
+              portalHost.querySelector<HTMLElement>('.geetest_captcha') ??
+              [...document.querySelectorAll<HTMLElement>(
+                '.geetest_captcha.geetest_float'
+              )].at(-1)
+            if (geetestRoot && geetestRoot.parentElement !== portalHost) {
+              portalHost.appendChild(geetestRoot)
+            }
+            cleanup = () => {
+              resizeObserver.disconnect()
+              window.removeEventListener('resize', syncPortalPosition)
+              window.removeEventListener(
+                'scroll',
+                syncPortalPosition,
+                scrollListenerOptions
+              )
+              instance.destroy?.()
+              portalHost.remove()
+              if (originalMinHeight) {
+                widgetContainer.style.minHeight = originalMinHeight
+              } else {
+                widgetContainer.style.removeProperty('min-height')
+              }
+            }
           }
         )
         return
@@ -236,6 +295,7 @@ export function BotProtectionWidget(props: BotProtectionWidgetProps) {
     props.capAPIEndpoint,
     props.provider,
     props.siteKey,
+    props.topLayer,
     t,
   ])
 

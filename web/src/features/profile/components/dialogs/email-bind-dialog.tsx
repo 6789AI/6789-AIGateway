@@ -193,6 +193,7 @@ export function EmailBindDialog({
           <div className='flex justify-center'>
             <BotProtectionWidget
               key={botProtectionWidgetKey}
+              topLayer
               provider={botProtection.provider}
               siteKey={botProtection.siteKey}
               capAPIEndpoint={botProtection.capAPIEndpoint}

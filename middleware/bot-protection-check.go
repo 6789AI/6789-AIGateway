@@ -41,6 +41,12 @@ func BotProtectionCheck(scope string) gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		if scope == common.BotProtectionScopeRegister &&
+			common.EmailVerificationEnabled &&
+			common.BotProtectionEmailVerificationEnabled {
+			c.Next()
+			return
+		}
 
 		proof := c.Query("bot_protection")
 		if proof == "" {

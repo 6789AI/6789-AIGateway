@@ -253,6 +253,7 @@ export function CheckinCalendarCard(props: CheckinCalendarCardProps) {
         <div className='flex justify-center py-4'>
           <BotProtectionWidget
             key={botProtectionWidgetKey}
+            topLayer
             provider={botProtection.provider}
             siteKey={botProtection.siteKey}
             capAPIEndpoint={botProtection.capAPIEndpoint}

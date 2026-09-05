@@ -65,14 +65,19 @@ export function SignUpForm({
   const [wechatCode, setWeChatCode] = useState('')
   const [isWeChatDialogOpen, setIsWeChatDialogOpen] = useState(false)
   const [isWeChatSubmitting, setIsWeChatSubmitting] = useState(false)
-  const [registrationWidgetKey, setRegistrationWidgetKey] = useState(0)
-  const [emailVerificationWidgetKey, setEmailVerificationWidgetKey] =
-    useState(0)
+  const [botProtectionWidgetKey, setBotProtectionWidgetKey] = useState(0)
+  const [emailVerificationSentFor, setEmailVerificationSentFor] = useState('')
   const legalConsentErrorMessage = t('Please agree to the legal terms first')
 
   const { status } = useStatus()
-  const registrationProtection = useBotProtection('register')
-  const emailVerificationProtection = useBotProtection('email_verification')
+  const emailVerificationRequired = !!status?.email_verification
+  const emailVerificationBotProtectionEnabled =
+    emailVerificationRequired &&
+    (status?.bot_protection_email_verification_enabled ?? true)
+  const botProtectionScope = emailVerificationBotProtectionEnabled
+    ? 'email_verification'
+    : 'register'
+  const botProtection = useBotProtection(botProtectionScope)
   const { redirectToLogin, handleLoginSuccess } = useAuthRedirect()
   const {
     isSending: isSendingCode,
@@ -80,8 +85,8 @@ export function SignUpForm({
     isActive,
     sendCode,
   } = useEmailVerification({
-    botProtectionProof: emailVerificationProtection.proof,
-    validateBotProtection: emailVerificationProtection.validate,
+    botProtectionProof: botProtection.proof,
+    validateBotProtection: botProtection.validate,
   })
 
   const form = useForm<z.infer<typeof registerFormSchema>>({
@@ -95,7 +100,9 @@ export function SignUpForm({
   })
 
   const emailValue = form.watch('email')
-  const emailVerificationRequired = !!status?.email_verification
+  const normalizedEmailValue = (emailValue ?? '').trim().toLowerCase()
+  const emailVerificationSentForCurrentEmail =
+    emailVerificationSentFor === normalizedEmailValue
   const hasUserAgreement = Boolean(status?.user_agreement_enabled)
   const hasPrivacyPolicy = Boolean(status?.privacy_policy_enabled)
   const requiresLegalConsent = hasUserAgreement || hasPrivacyPolicy
@@ -105,10 +112,19 @@ export function SignUpForm({
     true
   const hasWeChatLogin = Boolean(status?.wechat_login)
   const registrationProtectionReady =
-    !registrationProtection.isEnabled || Boolean(registrationProtection.proof)
+    !botProtection.isEnabled ||
+    (botProtectionScope === 'email_verification'
+      ? emailVerificationSentForCurrentEmail
+      : Boolean(botProtection.proof))
   const emailVerificationProtectionReady =
-    !emailVerificationProtection.isEnabled ||
-    Boolean(emailVerificationProtection.proof)
+    botProtectionScope !== 'email_verification' ||
+    !botProtection.isEnabled ||
+    Boolean(botProtection.proof)
+  const showBotProtectionWidget =
+    botProtection.isEnabled &&
+    (botProtectionScope === 'register' ||
+      !emailVerificationSentForCurrentEmail ||
+      !isActive)
 
   const wechatQrCodeUrl = useMemo(() => {
     return (
@@ -157,7 +173,12 @@ export function SignUpForm({
       }
     }
 
-    if (!registrationProtection.validate()) return
+    if (
+      botProtectionScope !== 'email_verification' ||
+      !emailVerificationSentForCurrentEmail
+    ) {
+      if (!botProtection.validate()) return
+    }
 
     setIsLoading(true)
     try {
@@ -167,7 +188,7 @@ export function SignUpForm({
         email: data.email || undefined,
         verification_code: verificationCode || undefined,
         aff_code: getAffiliateCode(),
-        bot_protection: registrationProtection.proof,
+        bot_protection: botProtection.proof,
       })
 
       if (res?.success) {
@@ -179,15 +200,24 @@ export function SignUpForm({
     } catch {
       // Errors are handled by global interceptor
     } finally {
+      if (botProtectionScope === 'register' && botProtection.isEnabled) {
+        botProtection.setProof('')
+        setBotProtectionWidgetKey((current) => current + 1)
+      }
       setIsLoading(false)
     }
   }
 
   async function handleSendVerificationCode() {
-    if (await sendCode(emailValue || '')) {
-      emailVerificationProtection.setProof('')
-      setEmailVerificationWidgetKey((current) => current + 1)
+    const sent = await sendCode(emailValue || '')
+    if (sent) {
+      setEmailVerificationSentFor(normalizedEmailValue)
     }
+    if (botProtectionScope === 'email_verification' && botProtection.isEnabled) {
+      botProtection.setProof('')
+      setBotProtectionWidgetKey((current) => current + 1)
+    }
+    return sent
   }
 
   const handleOpenWeChatDialog = () => {
@@ -362,32 +392,20 @@ export function SignUpForm({
               </Button>
             </div>
 
-            {emailVerificationProtection.isEnabled && (
-              <div className='mt-2'>
-                <BotProtectionWidget
-                  key={emailVerificationWidgetKey}
-                  provider={emailVerificationProtection.provider}
-                  siteKey={emailVerificationProtection.siteKey}
-                  capAPIEndpoint={emailVerificationProtection.capAPIEndpoint}
-                  onVerify={emailVerificationProtection.setProof}
-                  onExpire={() => emailVerificationProtection.setProof('')}
-                />
-              </div>
-            )}
           </>
         )}
 
-        {registrationProtection.isEnabled && (
+        {showBotProtectionWidget && (
           <div className='mt-2'>
             <BotProtectionWidget
-              key={registrationWidgetKey}
-              provider={registrationProtection.provider}
-              siteKey={registrationProtection.siteKey}
-              capAPIEndpoint={registrationProtection.capAPIEndpoint}
-              onVerify={registrationProtection.setProof}
+              key={botProtectionWidgetKey}
+              provider={botProtection.provider}
+              siteKey={botProtection.siteKey}
+              capAPIEndpoint={botProtection.capAPIEndpoint}
+              onVerify={botProtection.setProof}
               onExpire={() => {
-                registrationProtection.setProof('')
-                setRegistrationWidgetKey((current) => current + 1)
+                botProtection.setProof('')
+                setBotProtectionWidgetKey((current) => current + 1)
               }}
             />
           </div>

@@ -46,12 +46,13 @@ export function useBotProtection(scope: BotProtectionScope) {
     : 'turnstile'
   const masterEnabled =
     status?.bot_protection_enabled ?? status?.turnstile_check ?? false
-  const scopeEnabled = status?.[`bot_protection_${scope}_enabled`] ?? true
   const siteKey =
     status?.bot_protection_site_key ?? status?.turnstile_site_key ?? ''
   const capAPIEndpoint = status?.bot_protection_cap_api_endpoint ?? ''
   const providerConfigured =
     provider === 'cap' ? Boolean(capAPIEndpoint) : Boolean(siteKey)
+
+  const scopeEnabled = status?.[`bot_protection_${scope}_enabled`] ?? true
   const isEnabled = Boolean(masterEnabled && scopeEnabled && providerConfigured)
 
   const validate = (): boolean => {

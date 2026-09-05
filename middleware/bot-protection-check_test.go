@@ -27,6 +27,9 @@ func preserveBotProtectionGlobals(t *testing.T) {
 	originalProvider := common.BotProtectionProvider
 	originalEnabled := common.TurnstileCheckEnabled
 	originalLoginEnabled := common.BotProtectionLoginEnabled
+	originalRegisterEnabled := common.BotProtectionRegisterEnabled
+	originalEmailVerificationEnabled := common.BotProtectionEmailVerificationEnabled
+	originalEmailEnabled := common.EmailVerificationEnabled
 	originalTurnstileSecret := common.TurnstileSecretKey
 	originalReCaptchaSecret := common.ReCaptchaSecretKey
 	originalGeeTestCaptchaId := common.GeeTestCaptchaId
@@ -41,6 +44,9 @@ func preserveBotProtectionGlobals(t *testing.T) {
 		common.BotProtectionProvider = originalProvider
 		common.TurnstileCheckEnabled = originalEnabled
 		common.BotProtectionLoginEnabled = originalLoginEnabled
+		common.BotProtectionRegisterEnabled = originalRegisterEnabled
+		common.BotProtectionEmailVerificationEnabled = originalEmailVerificationEnabled
+		common.EmailVerificationEnabled = originalEmailEnabled
 		common.TurnstileSecretKey = originalTurnstileSecret
 		common.ReCaptchaSecretKey = originalReCaptchaSecret
 		common.GeeTestCaptchaId = originalGeeTestCaptchaId
@@ -201,4 +207,23 @@ func TestBotProtectionCheckHonorsScopeAndLegacyParameter(t *testing.T) {
 			assert.Equal(t, http.StatusNoContent, recorder.Code)
 		})
 	}
+}
+
+func TestBotProtectionCheckSkipsRedundantRegisterCheck(t *testing.T) {
+	preserveBotProtectionGlobals(t)
+	gin.SetMode(gin.TestMode)
+	common.TurnstileCheckEnabled = true
+	common.BotProtectionProvider = common.BotProtectionProviderTurnstile
+	common.BotProtectionRegisterEnabled = true
+	common.BotProtectionEmailVerificationEnabled = true
+	common.EmailVerificationEnabled = true
+
+	router := gin.New()
+	router.POST("/", BotProtectionCheck(common.BotProtectionScopeRegister), func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/", nil))
+
+	assert.Equal(t, http.StatusNoContent, recorder.Code)
 }
