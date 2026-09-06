@@ -71,7 +71,82 @@ func TestConvertImageRequestUsesGeminiGenerateContentForImageModel(t *testing.T)
 	assert.Equal(t, "2K", imageConfig["imageSize"])
 }
 
-func TestConvertImageRequestOmitsUnsupportedGeminiImageSize(t *testing.T) {
+func TestConvertImageRequestSupportsCalculatedAspectRatioAnd4K(t *testing.T) {
+	adaptor := &Adaptor{}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+
+	converted, err := adaptor.ConvertImageRequest(c, geminiImageTestInfo("gemini-3-pro-image-preview"), dto.ImageRequest{
+		Prompt:  "a cinematic city",
+		Size:    "2048x1152",
+		Quality: "4k",
+	})
+	require.NoError(t, err)
+
+	request, ok := converted.(*dto.GeminiChatRequest)
+	require.True(t, ok)
+	var imageConfig map[string]string
+	require.NoError(t, common.Unmarshal(request.GenerationConfig.ImageConfig, &imageConfig))
+	assert.Equal(t, "16:9", imageConfig["aspectRatio"])
+	assert.Equal(t, "4K", imageConfig["imageSize"])
+}
+
+func TestConvertImageRequestUsesExplicitImageOptions(t *testing.T) {
+	tests := []struct {
+		name            string
+		payload         string
+		wantAspectRatio string
+		wantImageSize   string
+	}{
+		{
+			name: "top-level extension fields",
+			payload: `{
+				"model":"gemini-3-pro-image-preview",
+				"prompt":"a portrait",
+				"size":"1024x1024",
+				"quality":"low",
+				"aspect_ratio":"9:16",
+				"image_size":"4K"
+			}`,
+			wantAspectRatio: "9:16",
+			wantImageSize:   "4K",
+		},
+		{
+			name: "google extra body overrides top-level fields",
+			payload: `{
+				"model":"gemini-3-pro-image-preview",
+				"prompt":"a landscape",
+				"aspect_ratio":"9:16",
+				"image_size":"4K",
+				"extra_body":{"google":{"image_config":{"aspect_ratio":"16:9","image_size":"2K"}}}
+			}`,
+			wantAspectRatio: "16:9",
+			wantImageSize:   "2K",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			adaptor := &Adaptor{}
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			var imageRequest dto.ImageRequest
+			require.NoError(t, common.Unmarshal([]byte(tt.payload), &imageRequest))
+
+			converted, err := adaptor.ConvertImageRequest(c, geminiImageTestInfo("gemini-3-pro-image-preview"), imageRequest)
+			require.NoError(t, err)
+
+			request, ok := converted.(*dto.GeminiChatRequest)
+			require.True(t, ok)
+			var imageConfig map[string]string
+			require.NoError(t, common.Unmarshal(request.GenerationConfig.ImageConfig, &imageConfig))
+			assert.Equal(t, tt.wantAspectRatio, imageConfig["aspectRatio"])
+			assert.Equal(t, tt.wantImageSize, imageConfig["imageSize"])
+		})
+	}
+}
+
+func TestConvertImageRequestOmitsFixed1KImageSize(t *testing.T) {
 	adaptor := &Adaptor{}
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -79,7 +154,7 @@ func TestConvertImageRequestOmitsUnsupportedGeminiImageSize(t *testing.T) {
 	converted, err := adaptor.ConvertImageRequest(c, geminiImageTestInfo("gemini-2.5-flash-image"), dto.ImageRequest{
 		Prompt:  "a watercolor lighthouse",
 		Size:    "1024x1536",
-		Quality: "high",
+		Quality: "1K",
 	})
 	require.NoError(t, err)
 
@@ -89,6 +164,24 @@ func TestConvertImageRequestOmitsUnsupportedGeminiImageSize(t *testing.T) {
 	require.NoError(t, common.Unmarshal(request.GenerationConfig.ImageConfig, &imageConfig))
 	assert.Equal(t, "2:3", imageConfig["aspectRatio"])
 	assert.NotContains(t, imageConfig, "imageSize")
+}
+
+func TestConvertImageRequestRejectsSilentImageOptionDowngrades(t *testing.T) {
+	adaptor := &Adaptor{}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+
+	_, err := adaptor.ConvertImageRequest(c, geminiImageTestInfo("gemini-3-pro-image-preview"), dto.ImageRequest{
+		Prompt: "a panorama",
+		Size:   "panorama",
+	})
+	require.EqualError(t, err, `invalid image aspect ratio "panorama"; use a ratio such as 16:9 or dimensions such as 1920x1080`)
+
+	_, err = adaptor.ConvertImageRequest(c, geminiImageTestInfo("gemini-2.5-flash-image"), dto.ImageRequest{
+		Prompt:  "a high resolution image",
+		Quality: "4K",
+	})
+	require.EqualError(t, err, `model "gemini-2.5-flash-image" does not support adjustable image size 4K`)
 }
 
 func TestConvertImageRequestRejectsMultipleGeminiImages(t *testing.T) {

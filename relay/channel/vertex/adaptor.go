@@ -1,6 +1,7 @@
 package vertex
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -268,6 +269,11 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		if len(request.ExtraBody) > 0 {
 			var extra map[string]any
 			if err := common.Unmarshal(request.ExtraBody, &extra); err == nil {
+				// Preserve the complete extra_body so the shared Gemini image
+				// converter can read google.image_config, including image_size.
+				imgReq.Extra = map[string]json.RawMessage{
+					"extra_body": request.ExtraBody,
+				}
 				if n, ok := extra["n"].(float64); ok && n > 0 {
 					imgReq.N = lo.ToPtr(uint(n))
 				}
