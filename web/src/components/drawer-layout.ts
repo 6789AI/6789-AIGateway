@@ -21,11 +21,7 @@ import { createElement, type ReactNode } from 'react'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { cn } from '@/lib/utils'
 
-export const sideDrawerContentClassName = (className?: string) =>
-  cn(
-    'bg-background text-foreground flex h-dvh w-full flex-col gap-0 overflow-hidden p-0 shadow-none',
-    className
-  )
+export { sideDrawerContentClassName } from './drawer-layout-classes'
 
 export const sideDrawerHeaderClassName = (className?: string) =>
   cn(
