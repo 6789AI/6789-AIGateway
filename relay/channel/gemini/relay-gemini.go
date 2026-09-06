@@ -488,6 +488,64 @@ func GeminiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 	return usage, nil
 }
 
+// GeminiGenerateContentImageHandler converts Gemini image-model responses from
+// generateContent into the OpenAI Images response shape. It is intentionally
+// separate from GeminiImageHandler because Imagen uses a different upstream
+// response envelope (predict -> predictions).
+func GeminiGenerateContentImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	responseBody, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, types.NewOpenAIError(readErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+	service.CloseResponseBodyGracefully(resp)
+
+	var geminiResponse dto.GeminiChatResponse
+	if jsonErr := common.Unmarshal(responseBody, &geminiResponse); jsonErr != nil {
+		return nil, types.NewOpenAIError(jsonErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+
+	if len(geminiResponse.Candidates) == 0 {
+		if geminiResponse.PromptFeedback != nil && geminiResponse.PromptFeedback.BlockReason != nil {
+			return nil, types.NewOpenAIError(
+				fmt.Errorf("request blocked by Gemini API: %s", *geminiResponse.PromptFeedback.BlockReason),
+				types.ErrorCodePromptBlocked,
+				http.StatusBadRequest,
+			)
+		}
+		return nil, types.NewOpenAIError(errors.New("empty response from Gemini image model"), types.ErrorCodeEmptyResponse, http.StatusBadGateway)
+	}
+
+	openAIResponse := dto.ImageResponse{
+		Created: common.GetTimestamp(),
+		Data:    make([]dto.ImageData, 0),
+	}
+	for _, candidate := range geminiResponse.Candidates {
+		for _, part := range candidate.Content.Parts {
+			if part.InlineData == nil || part.InlineData.Data == "" || !strings.HasPrefix(strings.ToLower(part.InlineData.MimeType), "image/") {
+				continue
+			}
+			openAIResponse.Data = append(openAIResponse.Data, dto.ImageData{
+				B64Json: part.InlineData.Data,
+			})
+		}
+	}
+	if len(openAIResponse.Data) == 0 {
+		return nil, types.NewOpenAIError(errors.New("Gemini image model returned no image data"), types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+	}
+
+	jsonResponse, jsonErr := common.Marshal(openAIResponse)
+	if jsonErr != nil {
+		return nil, types.NewOpenAIError(jsonErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+	c.Writer.Header().Set("Content-Type", "application/json")
+	c.Writer.WriteHeader(resp.StatusCode)
+	_, _ = c.Writer.Write(jsonResponse)
+
+	usage := buildUsageFromGeminiResponse(c, info, &geminiResponse)
+	patchGeminiZeroCompletionUsage(c, info, &usage, geminiResponseUsageText(&geminiResponse), len(openAIResponse.Data))
+	return &usage, nil
+}
+
 type GeminiModelsResponse struct {
 	Models        []dto.GeminiModel `json:"models"`
 	NextPageToken string            `json:"nextPageToken"`

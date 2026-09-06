@@ -62,7 +62,7 @@
 | 20 | OpenRouter | OpenAI 兼容端点（透传，不含 Compact） | 透传 | 透传 | RT（透传）、异步图像（配置） | `APITypeOpenRouter` 不在 Compact 白名单；无视频任务 |
 | 22 | FastGPT | OpenAI 兼容端点（透传，含 Compact） | 透传 | 透传 | RT（透传）、异步图像（配置） | 实际能力由上游决定；无视频任务 |
 | 23 | Tencent | Chat | - | - | - | 腾讯混元签名请求链 |
-| 24 | Gemini | Chat、Msg、Resp、Gemini | Emb | ImgG（仅 Imagen） | Gemini/Veo Video、异步图像（配置） | 无 Compact、ImgE、Audio 和 Rank |
+| 24 | Gemini | Chat、Msg、Resp、Gemini | Emb | ImgG（Imagen、已配置的 Gemini 图片模型） | Gemini/Veo Video、异步图像（配置） | Gemini 图片模型通过 `generateContent` 返回图片；无 Compact、ImgE、Audio 和 Rank |
 | 25 | Moonshot | Chat、Comp、Msg | Emb、Rank | - | - | Responses 和 Audio 未实现 |
 | 26 | Zhipu V4 | Chat、Msg | Emb | ImgG | 异步图像（配置） | 无 Responses、Audio 和 Rank |
 | 27 | Perplexity | Chat、Msg、Resp | - | - | - | 无 Compact 及其他媒体端点 |
@@ -75,7 +75,7 @@
 | 38 | Jina | - | Emb、Rank | - | - | 仅向量和重排 |
 | 39 | Cloudflare | Chat、Resp | Emb | STT | - | Audio 仅转录/翻译；无 Img、TTS；Comp/Rank 响应链不完整 |
 | 40 | SiliconFlow | Chat、Comp、Msg | Emb、Rank | ImgG、ImgE、TTS、STT | RT（透传）、异步图像（配置） | Responses 未实现；实时能力由上游兼容性决定 |
-| 41 | Vertex AI | Chat、Msg、Gemini | - | ImgG（仅 Imagen） | Vertex/Veo Video、异步图像（配置） | 根据模型进入 Claude、Gemini 或 Open-source 模式；无 Responses、Embedding 和 Audio |
+| 41 | Vertex AI | Chat、Msg、Gemini | - | ImgG（Imagen、已配置的 Gemini 图片模型） | Vertex/Veo Video、异步图像（配置） | Gemini 图片模型通过 `generateContent` 返回图片；根据模型进入 Claude、Gemini 或 Open-source 模式；无 Responses、Embedding 和 Audio |
 | 42 | Mistral | Chat | - | - | - | Embedding、Responses、Messages 和媒体转换未实现 |
 | 43 | DeepSeek | Chat、Comp、Msg、Resp | - | - | - | Comp 用于 FIM；无 Compact、Embedding 和媒体端点 |
 | 44 | MokaAI | - | Emb | - | - | 其他端点未实现 |

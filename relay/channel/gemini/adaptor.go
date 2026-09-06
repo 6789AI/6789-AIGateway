@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
@@ -21,6 +22,63 @@ import (
 )
 
 type Adaptor struct {
+}
+
+func isImagenModel(model string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "imagen")
+}
+
+func isGeminiImageGenerationModel(model string) bool {
+	model = strings.TrimSpace(model)
+	return !isImagenModel(model) && model_setting.IsGeminiModelSupportImagine(model)
+}
+
+func imageAspectRatio(size string) string {
+	size = strings.TrimSpace(size)
+	if strings.Contains(size, ":") {
+		return size
+	}
+	switch size {
+	case "1536x1024":
+		return "3:2"
+	case "1024x1536":
+		return "2:3"
+	case "1024x1792":
+		return "9:16"
+	case "1792x1024":
+		return "16:9"
+	default:
+		return "1:1"
+	}
+}
+
+func imageSizeFromQuality(quality string) string {
+	quality = strings.TrimSpace(quality)
+	if quality == "" {
+		return ""
+	}
+	switch quality {
+	case "hd", "high", "2K":
+		return "2K"
+	case "standard", "medium", "low", "auto", "1K":
+		return "1K"
+	default:
+		return "1K"
+	}
+}
+
+func supportsGeminiImageSize(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(model, "gemini-3-pro-image") ||
+		strings.HasPrefix(model, "gemini-3.1-flash-image") ||
+		strings.HasPrefix(model, "nano-banana-pro")
+}
+
+func geminiImageSizeFromQuality(model, quality string) string {
+	if !supportsGeminiImageSize(model) {
+		return ""
+	}
+	return imageSizeFromQuality(quality)
 }
 
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
@@ -61,69 +119,61 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
-	if !strings.HasPrefix(info.UpstreamModelName, "imagen") {
-		return nil, errors.New("not supported model for image generation, only imagen models are supported")
+	if info == nil {
+		return nil, errors.New("relay info is required for image generation")
 	}
 
-	// convert size to aspect ratio but allow user to specify aspect ratio
-	aspectRatio := "1:1" // default aspect ratio
-	size := strings.TrimSpace(request.Size)
-	if size != "" {
-		if strings.Contains(size, ":") {
-			aspectRatio = size
-		} else {
-			switch size {
-			case "256x256", "512x512", "1024x1024":
-				aspectRatio = "1:1"
-			case "1536x1024":
-				aspectRatio = "3:2"
-			case "1024x1536":
-				aspectRatio = "2:3"
-			case "1024x1792":
-				aspectRatio = "9:16"
-			case "1792x1024":
-				aspectRatio = "16:9"
-			}
-		}
-	}
-
-	// build gemini imagen request
-	geminiRequest := dto.GeminiImageRequest{
-		Instances: []dto.GeminiImageInstance{
-			{
-				Prompt: request.Prompt,
+	if isImagenModel(info.UpstreamModelName) {
+		geminiRequest := dto.GeminiImageRequest{
+			Instances: []dto.GeminiImageInstance{{Prompt: request.Prompt}},
+			Parameters: dto.GeminiImageParameters{
+				SampleCount:      int(lo.FromPtrOr(request.N, uint(1))),
+				AspectRatio:      imageAspectRatio(request.Size),
+				PersonGeneration: "allow_adult",
 			},
-		},
-		Parameters: dto.GeminiImageParameters{
-			SampleCount:      int(lo.FromPtrOr(request.N, uint(1))),
-			AspectRatio:      aspectRatio,
-			PersonGeneration: "allow_adult", // default allow adult
-		},
-	}
-
-	// Set imageSize when quality parameter is specified
-	// Map quality parameter to imageSize (only supported by Standard and Ultra models)
-	// quality values: auto, high, medium, low (for gpt-image-1), hd, standard (for dall-e-3)
-	// imageSize values: 1K (default), 2K
-	// https://ai.google.dev/gemini-api/docs/imagen
-	// https://platform.openai.com/docs/api-reference/images/create
-	if request.Quality != "" {
-		imageSize := "1K" // default
-		switch request.Quality {
-		case "hd", "high":
-			imageSize = "2K"
-		case "2K":
-			imageSize = "2K"
-		case "standard", "medium", "low", "auto", "1K":
-			imageSize = "1K"
-		default:
-			// unknown quality value, default to 1K
-			imageSize = "1K"
 		}
-		geminiRequest.Parameters.ImageSize = imageSize
+		if imageSize := imageSizeFromQuality(request.Quality); imageSize != "" {
+			geminiRequest.Parameters.ImageSize = imageSize
+		}
+		return geminiRequest, nil
 	}
 
-	return geminiRequest, nil
+	if !isGeminiImageGenerationModel(info.UpstreamModelName) {
+		return nil, errors.New("not supported model for image generation, use an Imagen or configured Gemini image model")
+	}
+	if info.RelayMode == constant.RelayModeImagesEdits {
+		return nil, errors.New("Gemini image models do not support image edits through this endpoint")
+	}
+	if request.Stream != nil && *request.Stream {
+		return nil, errors.New("Gemini image models do not support streaming through this endpoint")
+	}
+	if request.N != nil && *request.N > 1 {
+		return nil, errors.New("Gemini image models only support n=1")
+	}
+
+	imageConfig := map[string]interface{}{
+		"aspect_ratio": imageAspectRatio(request.Size),
+	}
+	if imageSize := geminiImageSizeFromQuality(info.UpstreamModelName, request.Quality); imageSize != "" {
+		imageConfig["image_size"] = imageSize
+	}
+	extraBody, err := common.Marshal(map[string]interface{}{
+		"google": map[string]interface{}{
+			"image_config": imageConfig,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal Gemini image config: %w", err)
+	}
+
+	return relayconvert.OpenAIChatRequestToGeminiGenerateContent(c, dto.GeneralOpenAIRequest{
+		Model: info.UpstreamModelName,
+		Messages: []dto.Message{{
+			Role:    "user",
+			Content: request.Prompt,
+		}},
+		ExtraBody: extraBody,
+	}, info)
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
@@ -149,7 +199,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 
 	version := model_setting.GetGeminiVersionSetting(info.UpstreamModelName)
 
-	if strings.HasPrefix(info.UpstreamModelName, "imagen") {
+	if isImagenModel(info.UpstreamModelName) {
 		return fmt.Sprintf("%s/%s/models/%s:predict", info.ChannelBaseUrl, version, info.UpstreamModelName), nil
 	}
 
@@ -274,8 +324,11 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		}
 	}
 
-	if strings.HasPrefix(info.UpstreamModelName, "imagen") {
+	if isImagenModel(info.UpstreamModelName) {
 		return GeminiImageHandler(c, info, resp)
+	}
+	if info.RelayMode == constant.RelayModeImagesGenerations && isGeminiImageGenerationModel(info.UpstreamModelName) {
+		return GeminiGenerateContentImageHandler(c, info, resp)
 	}
 
 	// check if the model is an embedding model
