@@ -367,6 +367,15 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "billing_setting." + billing_setting.TaskDurationMultiplierField:
+		err = billing_setting.ValidateTaskDurationMultiplierJSON(option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "模型视频时长计费设置失败: " + err.Error(),
+			})
+			return
+		}
 	case system_setting.GlobalBannerOptionPrefix + "enabled",
 		system_setting.GlobalBannerOptionPrefix + "content",
 		system_setting.GlobalBannerOptionPrefix + "background_color",

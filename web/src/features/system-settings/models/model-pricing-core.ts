@@ -82,6 +82,7 @@ export type ModelRatioData = {
   billingExpr?: string
   requestRuleExpr?: string
   priceSchedules?: PriceSchedule[]
+  multiplyByDuration?: boolean
 }
 
 export type PreviewRow = {

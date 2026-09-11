@@ -69,6 +69,7 @@ type ChannelOtherSettings struct {
 	AzureResponsesVersion                 string                `json:"azure_responses_version,omitempty"`
 	AsyncImageEnabled                     bool                  `json:"async_image_enabled,omitempty"`
 	AsyncImageProvider                    string                `json:"async_image_provider,omitempty"` // "ali", "new_api", or "grsai"
+	VideoProtocol                         string                `json:"video_protocol,omitempty"`       // "openai" or "vinted"
 	VertexKeyType                         VertexKeyType         `json:"vertex_key_type,omitempty"`      // "json" or "api_key"
 	OpenRouterEnterprise                  *bool                 `json:"openrouter_enterprise,omitempty"`
 	ClaudeBetaQuery                       bool                  `json:"claude_beta_query,omitempty"`          // Claude 渠道是否强制追加 ?beta=true
@@ -93,6 +94,8 @@ const (
 	AsyncImageProviderAli    = "ali"
 	AsyncImageProviderNewAPI = "new_api"
 	AsyncImageProviderGrsai  = "grsai"
+	VideoProtocolOpenAI      = "openai"
+	VideoProtocolVinted      = "vinted"
 )
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {

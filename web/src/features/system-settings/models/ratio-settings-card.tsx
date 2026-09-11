@@ -119,6 +119,18 @@ const createModelSchema = (t: Translate) =>
     BillingMode: createJsonStringField(t),
     BillingExpr: createJsonStringField(t),
     PriceSchedules: createJsonStringField(t),
+    TaskDurationMultiplier: createJsonStringField(t, {
+      predicate: (parsed) =>
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        !Array.isArray(parsed) &&
+        Object.entries(parsed).every(
+          ([model, value]) =>
+            model.trim().length > 0 && typeof value === 'boolean'
+        ),
+      predicateMessage:
+        'Expected a JSON object mapping model identifiers to booleans',
+    }),
   })
 
 const createGroupSchema = (t: Translate) =>
@@ -199,6 +211,9 @@ export function RatioSettingsCard({
     BillingMode: normalizeJsonString(modelDefaults.BillingMode),
     BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
     PriceSchedules: normalizeJsonString(modelDefaults.PriceSchedules),
+    TaskDurationMultiplier: normalizeJsonString(
+      modelDefaults.TaskDurationMultiplier
+    ),
   })
   const [savedModelValues, setSavedModelValues] = useState(
     modelNormalizedDefaults.current
@@ -237,6 +252,9 @@ export function RatioSettingsCard({
       BillingMode: formatJsonForTextarea(modelDefaults.BillingMode),
       BillingExpr: formatJsonForTextarea(modelDefaults.BillingExpr),
       PriceSchedules: formatJsonForTextarea(modelDefaults.PriceSchedules),
+      TaskDurationMultiplier: formatJsonForTextarea(
+        modelDefaults.TaskDurationMultiplier
+      ),
     },
   })
 
@@ -273,6 +291,9 @@ export function RatioSettingsCard({
       BillingMode: normalizeJsonString(modelDefaults.BillingMode),
       BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
       PriceSchedules: normalizeJsonString(modelDefaults.PriceSchedules),
+      TaskDurationMultiplier: normalizeJsonString(
+        modelDefaults.TaskDurationMultiplier
+      ),
     }
     setSavedModelValues(modelNormalizedDefaults.current)
 
@@ -291,6 +312,9 @@ export function RatioSettingsCard({
       BillingMode: formatJsonForTextarea(modelDefaults.BillingMode),
       BillingExpr: formatJsonForTextarea(modelDefaults.BillingExpr),
       PriceSchedules: formatJsonForTextarea(modelDefaults.PriceSchedules),
+      TaskDurationMultiplier: formatJsonForTextarea(
+        modelDefaults.TaskDurationMultiplier
+      ),
     })
   }, [modelDefaults, modelForm])
 
@@ -337,12 +361,16 @@ export function RatioSettingsCard({
         BillingMode: normalizeJsonString(values.BillingMode),
         BillingExpr: normalizeJsonString(values.BillingExpr),
         PriceSchedules: normalizeJsonString(values.PriceSchedules),
+        TaskDurationMultiplier: normalizeJsonString(
+          values.TaskDurationMultiplier
+        ),
       }
 
       const apiKeyMap: Record<string, string> = {
         BillingMode: 'billing_setting.billing_mode',
         BillingExpr: 'billing_setting.billing_expr',
         PriceSchedules: 'billing_setting.price_schedules',
+        TaskDurationMultiplier: 'billing_setting.task_duration_multiplier',
         FreeModelBannerEnabled: 'billing_setting.free_model_banner_enabled',
       }
 
@@ -471,6 +499,8 @@ export function RatioSettingsCard({
           'billing_setting.billing_mode': modelDefaults.BillingMode,
           'billing_setting.billing_expr': modelDefaults.BillingExpr,
           'billing_setting.price_schedules': modelDefaults.PriceSchedules,
+          'billing_setting.task_duration_multiplier':
+            modelDefaults.TaskDurationMultiplier,
         }}
       />
     )

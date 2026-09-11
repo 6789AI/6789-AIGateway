@@ -34,6 +34,34 @@ type sunoFailurePollingAdaptor struct {
 	failReason string
 }
 
+type pollingSnapshotAdaptor struct {
+	videoProtocol string
+	pollingConfig *model.TaskPollingConfig
+}
+
+func (a *pollingSnapshotAdaptor) Init(info *relaycommon.RelayInfo) {
+	a.videoProtocol = info.ChannelOtherSettings.VideoProtocol
+}
+
+func (a *pollingSnapshotAdaptor) FetchTask(_ string, _ string, body map[string]any, _ string) (*http.Response, error) {
+	a.pollingConfig, _ = body["polling_config"].(*model.TaskPollingConfig)
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewBufferString(`{"id":"upstream_snapshot","status":"succeeded"}`)),
+	}, nil
+}
+
+func (a *pollingSnapshotAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+	if a.videoProtocol != dto.VideoProtocolVinted {
+		return &relaycommon.TaskInfo{}, nil
+	}
+	return &relaycommon.TaskInfo{Status: model.TaskStatusSuccess}, nil
+}
+
+func (a *pollingSnapshotAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) int {
+	return 0
+}
+
 func (a *sunoFailurePollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
 
 func (a *sunoFailurePollingAdaptor) FetchTask(_ string, _ string, body map[string]any, _ string) (*http.Response, error) {
@@ -258,6 +286,51 @@ func TestUpdateVideoTasksRefundsWhenChannelIsMissing(t *testing.T) {
 	assert.Zero(t, reloaded.Quota)
 	assert.Equal(t, initialQuota+taskQuota, getUserQuota(t, userID))
 	assert.Equal(t, int64(1), countLogs(t))
+}
+
+func TestUpdateVideoTasksRestoresProtocolFromPollingSnapshot(t *testing.T) {
+	truncate(t)
+
+	const channelID = 1099
+	baseURL := "https://changed.example.com"
+	channel := &model.Channel{
+		Id:      channelID,
+		Type:    constant.ChannelTypeSora,
+		Name:    "changed_sora_channel",
+		Key:     "changed-key",
+		Status:  common.ChannelStatusEnabled,
+		BaseURL: &baseURL,
+	}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{
+		VideoProtocol:           dto.VideoProtocolOpenAI,
+		DisableTaskPollingSleep: true,
+	})
+	require.NoError(t, model.DB.Create(channel).Error)
+
+	task := seedPollingTask(t, channelID, "task_snapshot", "upstream_snapshot")
+	task.Platform = constant.TaskPlatform("55")
+	task.PrivateData.PollingConfig = &model.TaskPollingConfig{
+		URL:           "https://original.example.com/v1/videos/upstream_snapshot",
+		Headers:       map[string][]string{"Authorization": {"Bearer original-key"}},
+		VideoProtocol: dto.VideoProtocolVinted,
+	}
+	require.NoError(t, model.DB.Save(task).Error)
+
+	adaptor := &pollingSnapshotAdaptor{}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+	err := updateVideoTasks(context.Background(), task.Platform, channelID, []string{
+		task.GetUpstreamTaskID(),
+	}, map[string]*model.Task{
+		task.GetUpstreamTaskID(): task,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, dto.VideoProtocolVinted, adaptor.videoProtocol)
+	require.NotNil(t, adaptor.pollingConfig)
+	assert.Equal(t, "https://original.example.com/v1/videos/upstream_snapshot", adaptor.pollingConfig.URL)
 }
 
 func TestRunTaskPollingOnceRefundsTaskWithoutUpstreamID(t *testing.T) {

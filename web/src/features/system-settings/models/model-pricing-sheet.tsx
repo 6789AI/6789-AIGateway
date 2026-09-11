@@ -22,6 +22,7 @@ import {
   forwardRef,
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
   useMemo,
   useState,
@@ -61,6 +62,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 
@@ -160,11 +162,14 @@ export const ModelPricingEditorPanel = forwardRef<
   const [billingExpr, setBillingExpr] = useState('')
   const [requestRuleExpr, setRequestRuleExpr] = useState('')
   const [priceSchedules, setPriceSchedules] = useState<PriceSchedule[]>([])
+  const [multiplyByDuration, setMultiplyByDuration] = useState(true)
   const [scheduleValidationError, setScheduleValidationError] = useState<
     string | null
   >(null)
   const [editorReloadToken, setEditorReloadToken] = useState(0)
   const isEditMode = !!editData
+  const durationSwitchId = useId()
+  const durationDescriptionId = `${durationSwitchId}-description`
 
   const form = useForm<ModelPricingFormValues>({
     resolver: zodResolver(createModelPricingSchema(t)),
@@ -208,6 +213,7 @@ export const ModelPricingEditorPanel = forwardRef<
       setBillingExpr(editData.billingExpr || '')
       setRequestRuleExpr(editData.requestRuleExpr || '')
       setPriceSchedules(editData.priceSchedules || [])
+      setMultiplyByDuration(editData.multiplyByDuration ?? true)
     } else {
       form.reset({
         name: '',
@@ -224,6 +230,7 @@ export const ModelPricingEditorPanel = forwardRef<
       setBillingExpr('')
       setRequestRuleExpr('')
       setPriceSchedules([])
+      setMultiplyByDuration(true)
     }
 
     setPromptPrice(nextLaneState.promptPrice)
@@ -515,10 +522,19 @@ export const ModelPricingEditorPanel = forwardRef<
       if (priceSchedules.length > 0) {
         data.priceSchedules = priceSchedules
       }
+      if (pricingMode === 'per-request') {
+        data.multiplyByDuration = multiplyByDuration
+      }
 
       return data
     },
-    [billingExpr, priceSchedules, pricingMode, requestRuleExpr]
+    [
+      billingExpr,
+      multiplyByDuration,
+      priceSchedules,
+      pricingMode,
+      requestRuleExpr,
+    ]
   )
 
   useImperativeHandle(
@@ -694,6 +710,27 @@ export const ModelPricingEditorPanel = forwardRef<
                           </FormItem>
                         )}
                       />
+                      <Field
+                        orientation='horizontal'
+                        className='rounded-md border p-3'
+                      >
+                        <div className='min-w-0 flex-1'>
+                          <FieldLabel htmlFor={durationSwitchId}>
+                            {t('Multiply fixed video price by duration')}
+                          </FieldLabel>
+                          <FieldDescription id={durationDescriptionId}>
+                            {t(
+                              'When enabled, video task charges use the fixed request price multiplied by seconds. Resolution and other ratios still apply.'
+                            )}
+                          </FieldDescription>
+                        </div>
+                        <Switch
+                          id={durationSwitchId}
+                          checked={multiplyByDuration}
+                          onCheckedChange={setMultiplyByDuration}
+                          aria-describedby={durationDescriptionId}
+                        />
+                      </Field>
                     </FieldGroup>
                   </TabsContent>
 

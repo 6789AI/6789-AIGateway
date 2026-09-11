@@ -9,7 +9,10 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/config"
 	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -32,6 +35,65 @@ func TestTaskQuotaFromFixedPriceAppliesImageCountBeforeConversion(t *testing.T) 
 
 	require.Nil(t, clamp)
 	assert.Equal(t, 1, quota)
+}
+
+func TestTaskBillingRatiosRespectsFixedPriceDurationSetting(t *testing.T) {
+	original := billing_setting.GetTaskDurationMultiplierCopy()
+	restoreJSON, err := common.Marshal(original)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+			"billing_setting." + billing_setting.TaskDurationMultiplierField: string(restoreJSON),
+		}))
+	})
+
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting." + billing_setting.TaskDurationMultiplierField: `{"fixed-video":false}`,
+	}))
+	ratioInput := map[string]float64{"seconds": 10, "resolution": 2}
+
+	t.Run("missing setting keeps duration multiplier", func(t *testing.T) {
+		assert.Equal(t, ratioInput, taskBillingRatios("default-video", true, ratioInput))
+	})
+
+	t.Run("fixed price can disable duration without removing other ratios", func(t *testing.T) {
+		assert.Equal(t, map[string]float64{"resolution": 2}, taskBillingRatios("fixed-video", true, ratioInput))
+	})
+
+	t.Run("ratio pricing always keeps duration", func(t *testing.T) {
+		assert.Equal(t, ratioInput, taskBillingRatios("fixed-video", false, ratioInput))
+	})
+}
+
+func TestTaskDurationMultiplierFiltersSubmitAdjustment(t *testing.T) {
+	original := billing_setting.GetTaskDurationMultiplierCopy()
+	restoreJSON, err := common.Marshal(original)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+			"billing_setting." + billing_setting.TaskDurationMultiplierField: string(restoreJSON),
+		}))
+	})
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting." + billing_setting.TaskDurationMultiplierField: `{"fixed-video":false}`,
+	}))
+
+	priceData := hosttypes.PriceData{UsePrice: true, ModelPrice: 0.001, Quota: 1000}
+	priceData.GroupRatioInfo.GroupRatio = 1
+	priceData.AddOtherRatio("resolution", 2)
+	priceData.Quota = 1000
+	info := &relaycommon.RelayInfo{PriceData: priceData}
+	adjusted := taskBillingRatios(
+		"fixed-video",
+		true,
+		map[string]float64{"seconds": 10, "resolution": 3},
+	)
+
+	quota, ok := recalcQuotaFromRatios(info, adjusted)
+
+	require.True(t, ok)
+	assert.Equal(t, 1500, quota)
+	assert.Equal(t, map[string]float64{"resolution": 3}, adjusted)
 }
 
 func TestGetTaskAdaptorSupportsGrsaiPlatform(t *testing.T) {

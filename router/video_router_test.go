@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestVideoContentRouteFindsTaskWithoutAuthentication(t *testing.T) {
+func TestVideoContentRouteSupportsGetAndHeadWithoutAuthentication(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.Task{}))
@@ -33,10 +33,16 @@ func TestVideoContentRouteFindsTaskWithoutAuthentication(t *testing.T) {
 	engine := gin.New()
 	SetVideoRouter(engine)
 
-	request := httptest.NewRequest(http.MethodGet, "/v1/videos/task_public_preview/content", nil)
-	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, request)
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			request := httptest.NewRequest(method, "/v1/videos/task_public_preview/content", nil)
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
 
-	assert.Equal(t, http.StatusBadRequest, response.Code)
-	assert.Contains(t, response.Body.String(), "current status: FAILURE")
+			assert.Equal(t, http.StatusBadRequest, response.Code)
+			if method == http.MethodGet {
+				assert.Contains(t, response.Body.String(), "current status: FAILURE")
+			}
+		})
+	}
 }

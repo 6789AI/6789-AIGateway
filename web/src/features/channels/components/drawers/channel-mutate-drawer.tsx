@@ -168,7 +168,9 @@ import {
   hasAdvancedSettingsErrors,
   getDefaultAsyncImageProvider,
   supportsAsyncImageConfiguration,
+  supportsVideoProtocolConfiguration,
   type AsyncImageProvider,
+  type VideoProtocol,
 } from '../../lib'
 import {
   collectInvalidStatusCodeEntries,
@@ -302,6 +304,7 @@ const SENSITIVE_FORM_FIELDS = [
   'disable_task_polling_sleep',
   'async_image_enabled',
   'async_image_provider',
+  'video_protocol',
   'upstream_model_update_check_enabled',
   'upstream_model_update_auto_sync_enabled',
   'upstream_model_update_ignored_models',
@@ -760,6 +763,7 @@ export function ChannelMutateDrawer({
   const currentAsyncImageProviderExplicit = form.watch(
     'async_image_provider_explicit'
   )
+  const currentVideoProtocol = form.watch('video_protocol')
   const currentProxy = form.watch('proxy')
   const currentHttpProtocol = form.watch('http_protocol')
   const currentHttp2ConnectionShards = form.watch('http2_connection_shards')
@@ -780,11 +784,20 @@ export function ChannelMutateDrawer({
   )
   const asyncImageConfigurationVisible =
     supportsAsyncImageConfiguration(currentType)
+  const videoProtocolConfigurationVisible =
+    supportsVideoProtocolConfiguration(currentType)
   const asyncImageProtocolItems = useMemo(
     () => [
       { value: 'ali', label: t('Ali native') },
       { value: 'new_api', label: t('New API compatible') },
       { value: 'grsai', label: t('Grsai') },
+    ],
+    [t]
+  )
+  const videoProtocolItems = useMemo(
+    () => [
+      { value: 'openai', label: t('OpenAI Compatible') },
+      { value: 'vinted', label: 'Vinted' },
     ],
     [t]
   )
@@ -1040,6 +1053,7 @@ export function ChannelMutateDrawer({
     currentThinkingToContent ||
     currentPassThroughBodyEnabled ||
     currentAsyncImageEnabled ||
+    currentVideoProtocol === 'vinted' ||
     currentDisableTaskPollingSleep ||
     currentProxy?.trim() ||
     currentSystemPrompt?.trim() ||
@@ -4285,6 +4299,53 @@ export function ChannelMutateDrawer({
                                 </>
                               )}
 
+                              {videoProtocolConfigurationVisible && (
+                                <FormField
+                                  control={form.control}
+                                  name='video_protocol'
+                                  render={({ field }) => (
+                                    <FormItem className='px-4 py-3'>
+                                      <FormLabel>
+                                        {t('Video protocol')}
+                                      </FormLabel>
+                                      <Select
+                                        items={videoProtocolItems}
+                                        value={field.value || 'openai'}
+                                        onValueChange={(value) =>
+                                          field.onChange(value as VideoProtocol)
+                                        }
+                                      >
+                                        <FormControl>
+                                          <SelectTrigger>
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent
+                                          alignItemWithTrigger={false}
+                                        >
+                                          <SelectGroup>
+                                            {videoProtocolItems.map((item) => (
+                                              <SelectItem
+                                                key={item.value}
+                                                value={item.value}
+                                              >
+                                                {item.label}
+                                              </SelectItem>
+                                            ))}
+                                          </SelectGroup>
+                                        </SelectContent>
+                                      </Select>
+                                      <FormDescription>
+                                        {t(
+                                          'Choose the upstream video submission and polling protocol used by this channel'
+                                        )}
+                                      </FormDescription>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              )}
+
                               <FormField
                                 control={form.control}
                                 name='disable_task_polling_sleep'
@@ -4374,9 +4435,7 @@ export function ChannelMutateDrawer({
                                         <SelectValue />
                                       </SelectTrigger>
                                     </FormControl>
-                                    <SelectContent
-                                      alignItemWithTrigger={false}
-                                    >
+                                    <SelectContent alignItemWithTrigger={false}>
                                       <SelectGroup>
                                         <SelectItem value='auto'>
                                           {t('Auto')}

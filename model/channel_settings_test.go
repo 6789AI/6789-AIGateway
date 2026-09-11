@@ -83,6 +83,67 @@ func TestChannelValidateSettingsValidatesAsyncImageProvider(t *testing.T) {
 	})
 }
 
+func TestChannelValidateSettingsValidatesVideoProtocol(t *testing.T) {
+	channel := &Channel{Type: constant.ChannelTypeSora}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{VideoProtocol: dto.VideoProtocolVinted})
+	require.NoError(t, channel.ValidateSettings())
+	channel.SetOtherSettings(dto.ChannelOtherSettings{VideoProtocol: dto.VideoProtocolOpenAI})
+	require.NoError(t, channel.ValidateSettings())
+
+	channel.SetOtherSettings(dto.ChannelOtherSettings{VideoProtocol: "unknown"})
+	err := channel.ValidateSettings()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "video_protocol")
+
+	channel.Type = constant.ChannelTypeAnthropic
+	channel.SetOtherSettings(dto.ChannelOtherSettings{VideoProtocol: dto.VideoProtocolVinted})
+	err = channel.ValidateSettings()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "channel type")
+}
+
+func TestIsVintedVideoChannelUsesSettingAndLegacyHostnameFallback(t *testing.T) {
+	assert.True(t, IsVintedVideoChannel(
+		constant.ChannelTypeSora,
+		"https://example.com",
+		dto.ChannelOtherSettings{VideoProtocol: dto.VideoProtocolVinted},
+	))
+	assert.True(t, IsVintedVideoChannel(
+		constant.ChannelTypeOpenAI,
+		"https://api.vinted.cam/base",
+		dto.ChannelOtherSettings{},
+	))
+	assert.False(t, IsVintedVideoChannel(
+		constant.ChannelTypeSora,
+		"https://vinted.cam",
+		dto.ChannelOtherSettings{VideoProtocol: dto.VideoProtocolOpenAI},
+	))
+	assert.False(t, IsVintedVideoChannel(
+		constant.ChannelTypeAnthropic,
+		"https://vinted.cam",
+		dto.ChannelOtherSettings{},
+	))
+	assert.False(t, IsVintedVideoChannel(
+		constant.ChannelTypeSora,
+		"https://not-vinted.example",
+		dto.ChannelOtherSettings{},
+	))
+}
+
+func TestGetKeyByIndexPreservesSingleKeyAndSelectsMultiKey(t *testing.T) {
+	single := &Channel{Key: "single-key\nwith-newline"}
+	key, err := single.GetKeyByIndex(0)
+	require.NoError(t, err)
+	assert.Equal(t, single.Key, key)
+	_, err = single.GetKeyByIndex(1)
+	require.Error(t, err)
+
+	multi := &Channel{Key: "first\nsecond", ChannelInfo: ChannelInfo{IsMultiKey: true}}
+	key, err = multi.GetKeyByIndex(1)
+	require.NoError(t, err)
+	assert.Equal(t, "second", key)
+}
+
 func TestAdvancedCustomChannelRequiresModelListRouteOnlyWhenUpdateChecksEnabled(t *testing.T) {
 	inferenceRoute := dto.AdvancedCustomRoute{
 		IncomingPath: "/v1/chat/completions",

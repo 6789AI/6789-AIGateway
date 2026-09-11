@@ -255,6 +255,7 @@ export type ModelSettings = {
   'billing_setting.billing_mode': string
   'billing_setting.billing_expr': string
   'billing_setting.price_schedules': string
+  'billing_setting.task_duration_multiplier': string
   'billing_setting.free_model_banner_enabled': boolean
   'tool_price_setting.prices': string
   TopupGroupRatio: string
@@ -312,6 +313,7 @@ export type BillingSettings = {
   'billing_setting.billing_mode': string
   'billing_setting.billing_expr': string
   'billing_setting.price_schedules': string
+  'billing_setting.task_duration_multiplier': string
   'billing_setting.free_model_banner_enabled': boolean
   'tool_price_setting.prices': string
   TopupGroupRatio: string
@@ -452,8 +454,13 @@ export type RatioType =
   | 'billing_mode'
   | 'billing_expr'
   | 'price_schedules'
+  | 'task_duration_multiplier'
 
-export type RatioSyncValue = number | string | Array<Record<string, unknown>>
+export type RatioSyncValue =
+  | number
+  | string
+  | boolean
+  | Array<Record<string, unknown>>
 
 export type RatioDifference = {
   current: RatioSyncValue | null

@@ -149,14 +149,59 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 }
 
 func taskBillingContextPriceData(bc *model.TaskBillingContext) *types.PriceData {
-	if bc == nil || len(bc.OtherRatios) == 0 {
+	if bc == nil {
+		return nil
+	}
+	ratios := taskBillingRatiosForContext(bc, bc.OtherRatios)
+	if len(ratios) == 0 {
 		return nil
 	}
 	priceData := &types.PriceData{}
-	if !priceData.ReplaceOtherRatios(bc.OtherRatios) {
+	if !priceData.ReplaceOtherRatios(ratios) {
 		return nil
 	}
 	return priceData
+}
+
+func taskBillingRatiosForContext(bc *model.TaskBillingContext, ratios map[string]float64) map[string]float64 {
+	if len(ratios) == 0 || bc == nil {
+		return ratios
+	}
+	if bc.ApplyBillingRatios != nil && !*bc.ApplyBillingRatios {
+		return nil
+	}
+	if !bc.PerCallBilling || bc.MultiplyByDuration == nil || *bc.MultiplyByDuration {
+		return ratios
+	}
+
+	filtered := make(map[string]float64, len(ratios))
+	for name, ratio := range ratios {
+		if name != "seconds" {
+			filtered[name] = ratio
+		}
+	}
+	return filtered
+}
+
+// MergeTaskBillingRatios merges upstream-observed task ratios into the
+// submission-time billing snapshot while preserving its billing policy.
+func MergeTaskBillingRatios(task *model.Task, ratios map[string]float64) {
+	if task == nil || task.PrivateData.BillingContext == nil {
+		return
+	}
+	billingContext := task.PrivateData.BillingContext
+	billingRatios := taskBillingRatiosForContext(billingContext, ratios)
+	if len(billingRatios) == 0 {
+		return
+	}
+	priceData := taskBillingContextPriceData(billingContext)
+	if priceData == nil {
+		priceData = &types.PriceData{}
+	}
+	for name, ratio := range billingRatios {
+		priceData.AddOtherRatio(name, ratio)
+	}
+	billingContext.OtherRatios = priceData.OtherRatios()
 }
 
 // taskModelName 从 BillingContext 或 Properties 中获取模型名称。

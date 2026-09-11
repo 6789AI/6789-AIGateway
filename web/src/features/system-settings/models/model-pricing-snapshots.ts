@@ -34,6 +34,7 @@ export type ModelPricingSnapshotInput = {
   billingMode: string
   billingExpr: string
   priceSchedules: string
+  taskDurationMultiplier?: string
 }
 
 export type ModelPricingSnapshot = {
@@ -50,6 +51,7 @@ export type ModelPricingSnapshot = {
   billingExpr?: string
   requestRuleExpr?: string
   priceSchedules?: PriceSchedule[]
+  multiplyByDuration?: boolean
   hasConflict: boolean
 }
 
@@ -193,6 +195,7 @@ export const buildModelSnapshots = ({
   billingMode,
   billingExpr,
   priceSchedules,
+  taskDurationMultiplier = '{}',
 }: ModelPricingSnapshotInput): ModelPricingSnapshot[] => {
   const priceMap = safeJsonParse<Record<string, number>>(modelPrice, {
     fallback: {},
@@ -238,6 +241,10 @@ export const buildModelSnapshots = ({
     priceSchedules,
     { fallback: {}, context: 'price schedules' }
   )
+  const taskDurationMultiplierMap = safeJsonParse<Record<string, boolean>>(
+    taskDurationMultiplier,
+    { fallback: {}, context: 'task duration multiplier' }
+  )
 
   const modelNames = new Set([
     ...Object.keys(priceMap),
@@ -251,6 +258,7 @@ export const buildModelSnapshots = ({
     ...Object.keys(billingModeMap),
     ...Object.keys(billingExprMap),
     ...Object.keys(priceSchedulesMap),
+    ...Object.keys(taskDurationMultiplierMap),
   ])
 
   return [...modelNames].map((name) => {
@@ -262,6 +270,11 @@ export const buildModelSnapshots = ({
     const image = imageMap[name]?.toString() || ''
     const audio = audioMap[name]?.toString() || ''
     const audioCompletion = audioCompletionMap[name]?.toString() || ''
+    const configuredDurationMultiplier = taskDurationMultiplierMap[name]
+    const multiplyByDuration =
+      typeof configuredDurationMultiplier === 'boolean'
+        ? configuredDurationMultiplier
+        : true
 
     const modeForModel = billingModeMap[name]
     if (modeForModel === 'tiered_expr') {
@@ -287,6 +300,7 @@ export const buildModelSnapshots = ({
             id: schedule.id || `${name}-${index}`,
           })
         ),
+        multiplyByDuration,
         hasConflict: false,
       }
     }
@@ -309,6 +323,7 @@ export const buildModelSnapshots = ({
             id: schedule.id || `${name}-${index}`,
           })
         ),
+        multiplyByDuration,
         hasConflict: false,
       }
     }
@@ -330,6 +345,7 @@ export const buildModelSnapshots = ({
           id: schedule.id || `${name}-${index}`,
         })
       ),
+      multiplyByDuration,
       hasConflict:
         price !== '' &&
         (ratio !== '' ||
@@ -358,5 +374,6 @@ export const getSnapshotSignature = (snapshot?: ModelPricingSnapshot) => {
     billingExpr: snapshot.billingExpr || '',
     requestRuleExpr: snapshot.requestRuleExpr || '',
     priceSchedules: snapshot.priceSchedules || [],
+    multiplyByDuration: snapshot.multiplyByDuration ?? true,
   })
 }

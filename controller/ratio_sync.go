@@ -75,6 +75,7 @@ var pricingSyncFields = []string{
 	billing_setting.BillingModeField,
 	billing_setting.BillingExprField,
 	billing_setting.PriceSchedulesField,
+	billing_setting.TaskDurationMultiplierField,
 }
 
 var numericPricingSyncFields = map[string]bool{
@@ -104,6 +105,8 @@ func valueMap(value any) map[string]any {
 		return lo.MapValues(typed, func(value string, _ string) any { return value })
 	case map[string][]billing_setting.PriceSchedule:
 		return lo.MapValues(typed, func(value []billing_setting.PriceSchedule, _ string) any { return value })
+	case map[string]bool:
+		return lo.MapValues(typed, func(value bool, _ string) any { return value })
 	default:
 		return nil
 	}
@@ -384,21 +387,22 @@ func FetchUpstreamRatios(c *gin.Context) {
 
 			// 如果不是 type1，则尝试按 type2 (/api/pricing) 解析
 			var pricingItems []struct {
-				ModelName            string                          `json:"model_name"`
-				QuotaType            int                             `json:"quota_type"`
-				ModelRatio           float64                         `json:"model_ratio"`
-				ModelPrice           float64                         `json:"model_price"`
-				CompletionRatio      float64                         `json:"completion_ratio"`
-				CacheRatio           *float64                        `json:"cache_ratio"`
-				CreateCacheRatio     *float64                        `json:"create_cache_ratio"`
-				ImageRatio           *float64                        `json:"image_ratio"`
-				AudioRatio           *float64                        `json:"audio_ratio"`
-				AudioCompletionRatio *float64                        `json:"audio_completion_ratio"`
-				BillingMode          string                          `json:"billing_mode"`
-				BillingExpr          string                          `json:"billing_expr"`
-				BaseModelPrice       *float64                        `json:"base_model_price"`
-				BaseModelRatio       *float64                        `json:"base_model_ratio"`
-				PriceSchedules       []billing_setting.PriceSchedule `json:"price_schedules"`
+				ModelName              string                          `json:"model_name"`
+				QuotaType              int                             `json:"quota_type"`
+				ModelRatio             float64                         `json:"model_ratio"`
+				ModelPrice             float64                         `json:"model_price"`
+				CompletionRatio        float64                         `json:"completion_ratio"`
+				CacheRatio             *float64                        `json:"cache_ratio"`
+				CreateCacheRatio       *float64                        `json:"create_cache_ratio"`
+				ImageRatio             *float64                        `json:"image_ratio"`
+				AudioRatio             *float64                        `json:"audio_ratio"`
+				AudioCompletionRatio   *float64                        `json:"audio_completion_ratio"`
+				BillingMode            string                          `json:"billing_mode"`
+				BillingExpr            string                          `json:"billing_expr"`
+				BaseModelPrice         *float64                        `json:"base_model_price"`
+				BaseModelRatio         *float64                        `json:"base_model_ratio"`
+				PriceSchedules         []billing_setting.PriceSchedule `json:"price_schedules"`
+				TaskDurationMultiplier *bool                           `json:"task_duration_multiplier"`
 			}
 			if err := common.Unmarshal(body.Data, &pricingItems); err != nil {
 				logger.LogWarn(c.Request.Context(), "unrecognized data format from "+chItem.Name+": "+err.Error())
@@ -417,6 +421,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 			billingModeMap := make(map[string]string)
 			billingExprMap := make(map[string]string)
 			priceSchedulesMap := make(map[string][]billing_setting.PriceSchedule)
+			taskDurationMultiplierMap := make(map[string]bool)
 
 			for _, item := range pricingItems {
 				if item.ModelName == "" {
@@ -430,6 +435,9 @@ func FetchUpstreamRatios(c *gin.Context) {
 				}
 				if len(item.PriceSchedules) > 0 {
 					priceSchedulesMap[item.ModelName] = item.PriceSchedules
+				}
+				if item.TaskDurationMultiplier != nil {
+					taskDurationMultiplierMap[item.ModelName] = *item.TaskDurationMultiplier
 				}
 				if item.QuotaType == 1 {
 					modelPrice := item.ModelPrice
@@ -511,6 +519,9 @@ func FetchUpstreamRatios(c *gin.Context) {
 			}
 			if len(priceSchedulesMap) > 0 {
 				converted[billing_setting.PriceSchedulesField] = valueMap(priceSchedulesMap)
+			}
+			if len(taskDurationMultiplierMap) > 0 {
+				converted[billing_setting.TaskDurationMultiplierField] = valueMap(taskDurationMultiplierMap)
 			}
 
 			ch <- upstreamResult{Name: uniqueName, Data: converted}

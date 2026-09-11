@@ -16,13 +16,14 @@ import (
 )
 
 const (
-	BillingModeRatio      = "ratio"
-	BillingModeTieredExpr = "tiered_expr"
-	BillingModeScheduled  = "scheduled_price"
-	BillingModeField      = "billing_mode"
-	BillingExprField      = "billing_expr"
-	PriceSchedulesField   = "price_schedules"
-	FreeModelBannerField  = "free_model_banner_enabled"
+	BillingModeRatio            = "ratio"
+	BillingModeTieredExpr       = "tiered_expr"
+	BillingModeScheduled        = "scheduled_price"
+	BillingModeField            = "billing_mode"
+	BillingExprField            = "billing_expr"
+	PriceSchedulesField         = "price_schedules"
+	TaskDurationMultiplierField = "task_duration_multiplier"
+	FreeModelBannerField        = "free_model_banner_enabled"
 
 	PriceScheduleAbsolute = "absolute"
 	PriceScheduleWeekly   = "weekly"
@@ -68,11 +69,12 @@ type ScheduledAdjustment struct {
 
 // BillingSetting is managed by config.GlobalConfig.Register.
 // DB keys: billing_setting.billing_mode, billing_setting.billing_expr,
-// billing_setting.price_schedules
+// billing_setting.price_schedules, billing_setting.task_duration_multiplier
 type BillingSetting struct {
 	BillingMode            map[string]string          `json:"billing_mode"`
 	BillingExpr            map[string]string          `json:"billing_expr"`
 	PriceSchedules         map[string][]PriceSchedule `json:"price_schedules"`
+	TaskDurationMultiplier map[string]bool            `json:"task_duration_multiplier"`
 	FreeModelBannerEnabled bool                       `json:"free_model_banner_enabled"`
 }
 
@@ -80,6 +82,7 @@ var billingSetting = BillingSetting{
 	BillingMode:            make(map[string]string),
 	BillingExpr:            make(map[string]string),
 	PriceSchedules:         make(map[string][]PriceSchedule),
+	TaskDurationMultiplier: make(map[string]bool),
 	FreeModelBannerEnabled: true,
 }
 
@@ -130,12 +133,21 @@ func GetPriceSchedulesCopy() map[string][]PriceSchedule {
 	return result
 }
 
+func ShouldMultiplyTaskDuration(model string) bool {
+	multiply, configured := billingSetting.TaskDurationMultiplier[model]
+	return !configured || multiply
+}
+
+func GetTaskDurationMultiplierCopy() map[string]bool {
+	return lo.Assign(billingSetting.TaskDurationMultiplier)
+}
+
 func IsFreeModelBannerEnabled() bool {
 	return billingSetting.FreeModelBannerEnabled
 }
 
 func GetPricingSyncData(base map[string]any) map[string]any {
-	extra := make(map[string]any, 3)
+	extra := make(map[string]any, 4)
 	if modes := GetBillingModeCopy(); len(modes) > 0 {
 		extra[BillingModeField] = modes
 	}
@@ -145,7 +157,26 @@ func GetPricingSyncData(base map[string]any) map[string]any {
 	if schedules := GetPriceSchedulesCopy(); len(schedules) > 0 {
 		extra[PriceSchedulesField] = schedules
 	}
+	if durationMultipliers := GetTaskDurationMultiplierCopy(); len(durationMultipliers) > 0 {
+		extra[TaskDurationMultiplierField] = durationMultipliers
+	}
 	return lo.Assign(base, extra)
+}
+
+func ValidateTaskDurationMultiplierJSON(value string) error {
+	var durationMultipliers map[string]bool
+	if err := common.UnmarshalJsonStr(value, &durationMultipliers); err != nil {
+		return fmt.Errorf("invalid task duration multiplier settings: %w", err)
+	}
+	if durationMultipliers == nil {
+		return fmt.Errorf("task duration multiplier settings must be a JSON object")
+	}
+	for model := range durationMultipliers {
+		if strings.TrimSpace(model) == "" {
+			return fmt.Errorf("model name cannot be empty")
+		}
+	}
+	return nil
 }
 
 func ValidatePriceSchedulesJSON(value string) error {

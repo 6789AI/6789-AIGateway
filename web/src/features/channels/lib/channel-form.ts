@@ -77,13 +77,38 @@ export const MAX_HTTP2_CONNECTION_SHARDS = 8
 export const ASYNC_IMAGE_PROTOCOLS = ['ali', 'new_api', 'grsai'] as const
 export type AsyncImageProvider = (typeof ASYNC_IMAGE_PROTOCOLS)[number]
 
+export const VIDEO_PROTOCOLS = ['openai', 'vinted'] as const
+export type VideoProtocol = (typeof VIDEO_PROTOCOLS)[number]
+
 export const ASYNC_IMAGE_CHANNEL_TYPES = new Set([
-  1, 3, 7, 8, 17, 19, 20, 22, 24, 26, 31, 35, 40, 41, 45, 47, 48, 51, 56,
-  58, 59, 60,
+  1, 3, 7, 8, 17, 19, 20, 22, 24, 26, 31, 35, 40, 41, 45, 47, 48, 51, 56, 58,
+  59, 60,
 ])
 
 export function supportsAsyncImageConfiguration(channelType: number): boolean {
   return ASYNC_IMAGE_CHANNEL_TYPES.has(channelType)
+}
+
+export function supportsVideoProtocolConfiguration(
+  channelType: number
+): boolean {
+  return channelType === 1 || channelType === 55
+}
+
+export function getDefaultVideoProtocol(
+  channelType: number,
+  baseUrl: string | undefined
+): VideoProtocol {
+  if (!supportsVideoProtocolConfiguration(channelType)) return 'openai'
+  try {
+    const hostname = new URL(baseUrl || '').hostname.toLowerCase()
+    if (hostname === 'vinted.cam' || hostname.endsWith('.vinted.cam')) {
+      return 'vinted'
+    }
+  } catch {
+    // Incomplete URLs use the OpenAI-compatible default while editing.
+  }
+  return 'openai'
 }
 
 export function getDefaultAsyncImageProvider(
@@ -310,6 +335,7 @@ export const channelFormSchema = z
     async_image_enabled: z.boolean().optional(),
     async_image_provider: z.enum(ASYNC_IMAGE_PROTOCOLS).optional(),
     async_image_provider_explicit: z.boolean().optional(),
+    video_protocol: z.enum(VIDEO_PROTOCOLS).optional(),
     // Upstream model update settings (stored in settings JSON)
     upstream_model_update_check_enabled: z.boolean().optional(),
     upstream_model_update_auto_sync_enabled: z.boolean().optional(),
@@ -501,6 +527,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   async_image_enabled: false,
   async_image_provider: 'new_api',
   async_image_provider_explicit: false,
+  video_protocol: 'openai',
   upstream_model_update_check_enabled: false,
   upstream_model_update_auto_sync_enabled: false,
   upstream_model_update_ignored_models: '',
@@ -541,8 +568,7 @@ export function transformChannelToFormDefaults(
         thinking_to_content: parsed.thinking_to_content || false,
         proxy: parsed.proxy || '',
         http_protocol: protocol,
-        http2_connection_shards:
-          protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
+        http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
@@ -572,6 +598,10 @@ export function transformChannelToFormDefaults(
     channel.type,
     channel.base_url || undefined
   )
+  let videoProtocol: VideoProtocol = getDefaultVideoProtocol(
+    channel.type,
+    channel.base_url || undefined
+  )
   let upstreamModelUpdateCheckEnabled = false
   let upstreamModelUpdateAutoSyncEnabled = false
   let upstreamModelUpdateIgnoredModels = ''
@@ -596,6 +626,9 @@ export function transformChannelToFormDefaults(
       if (isAsyncImageProvider(parsed.async_image_provider)) {
         asyncImageProvider = parsed.async_image_provider
         asyncImageProviderExplicit = true
+      }
+      if (VIDEO_PROTOCOLS.includes(parsed.video_protocol)) {
+        videoProtocol = parsed.video_protocol
       }
       upstreamModelUpdateCheckEnabled =
         parsed.upstream_model_update_check_enabled === true
@@ -658,6 +691,7 @@ export function transformChannelToFormDefaults(
     async_image_enabled: asyncImageEnabled,
     async_image_provider: asyncImageProvider,
     async_image_provider_explicit: asyncImageProviderExplicit,
+    video_protocol: videoProtocol,
     allow_safety_identifier: allowSafetyIdentifier,
     upstream_model_update_check_enabled: upstreamModelUpdateCheckEnabled,
     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
@@ -795,6 +829,16 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
   } else {
     delete settingsObj.async_image_enabled
     delete settingsObj.async_image_provider
+  }
+
+  if (
+    supportsVideoProtocolConfiguration(formData.type) &&
+    formData.video_protocol &&
+    VIDEO_PROTOCOLS.includes(formData.video_protocol)
+  ) {
+    settingsObj.video_protocol = formData.video_protocol
+  } else {
+    delete settingsObj.video_protocol
   }
 
   // Upstream model update settings (for model-fetchable channel types)

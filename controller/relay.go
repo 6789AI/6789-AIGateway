@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
@@ -515,6 +517,120 @@ func RelayImageTask(c *gin.Context) {
 	relayTask(c, relayconstant.RelayModeImageSubmit)
 }
 
+func prepareVintedTaskSubmission(c *gin.Context, relayInfo *relaycommon.RelayInfo) (bool, *taskdto.TaskError) {
+	channelSettings, _ := common.GetContextKeyType[dto.ChannelOtherSettings](c, constant.ContextKeyChannelOtherSetting)
+	if !model.IsVintedVideoChannel(
+		common.GetContextKeyInt(c, constant.ContextKeyChannelType),
+		common.GetContextKeyString(c, constant.ContextKeyChannelBaseUrl),
+		channelSettings,
+	) {
+		return false, nil
+	}
+
+	clientKey := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	if len([]rune(clientKey)) > 200 {
+		return false, service.TaskErrorWrapperLocal(errors.New("Idempotency-Key must not exceed 200 characters"), "invalid_request", http.StatusBadRequest)
+	}
+	sourceKey := clientKey
+	if sourceKey == "" {
+		sourceKey = relayInfo.RequestId
+	}
+	upstreamDigest := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%d\x00%s\x00%s", relayInfo.UserId, relayInfo.TokenId, c.Request.URL.Path, sourceKey)))
+	relayInfo.UpstreamIdempotencyKey = fmt.Sprintf("newapi-%x", upstreamDigest)
+	if clientKey == "" {
+		return false, nil
+	}
+
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		status := http.StatusBadRequest
+		if common.IsRequestBodyTooLargeError(err) || errors.Is(err, common.ErrRequestBodyTooLarge) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		return false, service.TaskErrorWrapperLocal(err, "read_request_body_failed", status)
+	}
+	reader, err := storage.NewReader()
+	if err != nil {
+		return false, service.TaskErrorWrapperLocal(err, "read_request_body_failed", http.StatusBadRequest)
+	}
+	requestHasher := sha256.New()
+	_, _ = io.WriteString(requestHasher, c.Request.Method)
+	_, _ = io.WriteString(requestHasher, "\x00"+c.Request.URL.Path+"\x00"+c.GetHeader("Content-Type")+"\x00")
+	_, copyErr := io.Copy(requestHasher, reader)
+	closeErr := reader.Close()
+	if copyErr != nil {
+		return false, service.TaskErrorWrapperLocal(copyErr, "read_request_body_failed", http.StatusBadRequest)
+	}
+	if closeErr != nil {
+		return false, service.TaskErrorWrapperLocal(closeErr, "read_request_body_failed", http.StatusBadRequest)
+	}
+
+	scopeDigest := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%d\x00%s\x00%s", relayInfo.UserId, relayInfo.TokenId, c.Request.URL.Path, clientKey)))
+	scopeHash := fmt.Sprintf("%x", scopeDigest)
+	requestHash := fmt.Sprintf("%x", requestHasher.Sum(nil))
+	if relayInfo.PublicTaskID == "" {
+		relayInfo.PublicTaskID = model.GenerateTaskID()
+	}
+	reservation, err := model.ReserveTaskSubmission(scopeHash, requestHash, relayInfo.PublicTaskID, relayInfo.UserId, relayInfo.TokenId)
+	if err != nil {
+		return false, service.TaskErrorWrapperLocal(err, "task_idempotency_failed", http.StatusInternalServerError)
+	}
+	switch reservation.State {
+	case model.TaskSubmissionConflict:
+		return false, service.TaskErrorWrapperLocal(errors.New("Idempotency-Key is already bound to a different request"), "idempotency_conflict", http.StatusConflict)
+	case model.TaskSubmissionInFlight:
+		c.Header("Retry-After", "3")
+		return false, service.TaskErrorWrapperLocal(errors.New("an operation with this Idempotency-Key is still in progress"), "idempotency_in_progress", http.StatusConflict)
+	case model.TaskSubmissionReplay:
+		task, exists, getErr := model.GetByTaskId(relayInfo.UserId, reservation.TaskID)
+		if getErr != nil {
+			return false, service.TaskErrorWrapperLocal(getErr, "task_idempotency_failed", http.StatusInternalServerError)
+		}
+		if !exists || task == nil {
+			return false, service.TaskErrorWrapperLocal(errors.New("the idempotent task no longer exists"), "idempotent_task_gone", http.StatusGone)
+		}
+		status := "queued"
+		switch task.Status {
+		case model.TaskStatusInProgress:
+			status = "running"
+		case model.TaskStatusSuccess:
+			status = "succeeded"
+		case model.TaskStatusFailure:
+			status = "failed"
+		}
+		c.JSON(http.StatusAccepted, gin.H{"id": task.TaskID, "status": status, "idempotent": "1"})
+		return true, nil
+	case model.TaskSubmissionOwner:
+	default:
+		return false, service.TaskErrorWrapperLocal(errors.New("invalid task idempotency state"), "task_idempotency_failed", http.StatusInternalServerError)
+	}
+
+	relayInfo.PublicTaskID = reservation.TaskID
+	relayInfo.TaskSubmissionScope = scopeHash
+	relayInfo.TaskSubmissionLeaseToken = reservation.LeaseToken
+	if reservation.ChannelID == 0 {
+		return false, nil
+	}
+	lockedChannel, err := model.GetChannelById(reservation.ChannelID, true)
+	if err != nil {
+		return false, service.TaskErrorWrapperLocal(err, "task_idempotency_channel_unavailable", http.StatusServiceUnavailable)
+	}
+	if setupErr := middleware.SetupContextForSelectedChannel(c, lockedChannel, relayInfo.OriginModelName); setupErr != nil {
+		return false, service.TaskErrorWrapperLocal(setupErr.Err, "task_idempotency_channel_unavailable", http.StatusServiceUnavailable)
+	}
+	key, err := lockedChannel.GetKeyByIndex(reservation.ChannelKeyIndex)
+	if err != nil {
+		return false, service.TaskErrorWrapperLocal(err, "task_idempotency_channel_unavailable", http.StatusServiceUnavailable)
+	}
+	common.SetContextKey(c, constant.ContextKeyChannelKey, key)
+	common.SetContextKey(c, constant.ContextKeyChannelMultiKeyIndex, reservation.ChannelKeyIndex)
+	common.SetContextKey(c, constant.ContextKeyChannelIsMultiKey, lockedChannel.ChannelInfo.IsMultiKey)
+	relayInfo.InitChannelMeta(c)
+	relayInfo.LockedChannel = lockedChannel
+	relayInfo.TaskSubmissionChannelBound = true
+	return false, nil
+}
+
 func relayTask(c *gin.Context, relayMode int) {
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
 	if err != nil {
@@ -528,12 +644,6 @@ func relayTask(c *gin.Context, relayMode int) {
 	if relayMode != 0 {
 		relayInfo.RelayMode = relayMode
 	}
-
-	if taskErr := relay.ResolveOriginTask(c, relayInfo); taskErr != nil {
-		respondTaskError(c, taskErr)
-		return
-	}
-
 	var result *relay.TaskSubmitResult
 	var taskErr *taskdto.TaskError
 	defer func() {
@@ -542,8 +652,28 @@ func relayTask(c *gin.Context, relayMode int) {
 		}
 		if taskErr != nil {
 			service.RefundPromotionUse(c, relayInfo)
+			if !relayInfo.TaskSubmissionCompleted {
+				if failErr := model.FailTaskSubmission(relayInfo.TaskSubmissionScope, relayInfo.PublicTaskID, relayInfo.TaskSubmissionLeaseToken); failErr != nil {
+					logger.LogError(c, "failed to release task idempotency reservation: "+failErr.Error())
+				}
+			}
 		}
 	}()
+
+	handled, taskErr := prepareVintedTaskSubmission(c, relayInfo)
+	if taskErr != nil {
+		respondTaskError(c, taskErr)
+		return
+	}
+	if handled {
+		return
+	}
+
+	if resolveErr := relay.ResolveOriginTask(c, relayInfo); resolveErr != nil {
+		taskErr = resolveErr
+		respondTaskError(c, taskErr)
+		return
+	}
 
 	requestPath := common.GetContextKeyString(c, constant.ContextKeyChannelSelectionPath)
 	if requestPath == "" {
@@ -562,7 +692,7 @@ func relayTask(c *gin.Context, relayMode int) {
 
 		if lockedCh, ok := relayInfo.LockedChannel.(*model.Channel); ok && lockedCh != nil {
 			channel = lockedCh
-			if retryParam.GetRetry() > 0 {
+			if retryParam.GetRetry() > 0 && relayInfo.TaskSubmissionScope == "" {
 				if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
 					taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
 					break
@@ -579,6 +709,30 @@ func relayTask(c *gin.Context, relayMode int) {
 		}
 
 		addUsedChannel(c, channel.Id)
+		if relayInfo.TaskSubmissionScope != "" && !relayInfo.TaskSubmissionChannelBound {
+			binding, bindErr := model.BindTaskSubmissionChannel(
+				relayInfo.TaskSubmissionScope,
+				relayInfo.PublicTaskID,
+				relayInfo.TaskSubmissionLeaseToken,
+				channel.Id,
+				common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex),
+			)
+			if bindErr != nil {
+				taskErr = service.TaskErrorWrapperLocal(bindErr, "task_idempotency_channel_failed", http.StatusInternalServerError)
+				break
+			}
+			if binding.ChannelID != channel.Id {
+				taskErr = service.TaskErrorWrapperLocal(errors.New("task idempotency channel changed concurrently"), "task_idempotency_channel_failed", http.StatusConflict)
+				break
+			}
+			lockedChannel, loadErr := model.GetChannelById(binding.ChannelID, true)
+			if loadErr != nil {
+				taskErr = service.TaskErrorWrapperLocal(loadErr, "task_idempotency_channel_unavailable", http.StatusServiceUnavailable)
+				break
+			}
+			relayInfo.LockedChannel = lockedChannel
+			relayInfo.TaskSubmissionChannelBound = true
+		}
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
 			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
@@ -631,21 +785,36 @@ func relayTask(c *gin.Context, relayMode int) {
 		if relayInfo.PromotionActivityKey != "" {
 			task.PrivateData.PromotionRequestId = relayInfo.RequestId
 		}
+		isTaskPricePatch := common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName)
+		otherRatios := relayInfo.PriceData.OtherRatios()
+		var multiplyByDuration *bool
+		if relayInfo.PriceData.UsePrice {
+			multiply := billing_setting.ShouldMultiplyTaskDuration(relayInfo.OriginModelName)
+			multiplyByDuration = &multiply
+		}
+		var applyBillingRatios *bool
+		if isTaskPricePatch {
+			apply := false
+			applyBillingRatios = &apply
+			otherRatios = nil
+		}
 		task.PrivateData.BillingContext = &model.TaskBillingContext{
-			Version:         model.TaskBillingContextVersion,
-			ModelPrice:      relayInfo.PriceData.ModelPrice,
-			GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
-			ModelRatio:      relayInfo.PriceData.ModelRatio,
-			OtherRatios:     relayInfo.PriceData.OtherRatios(),
-			OriginModelName: relayInfo.OriginModelName,
-			PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
+			Version:            model.TaskBillingContextVersion,
+			ModelPrice:         relayInfo.PriceData.ModelPrice,
+			GroupRatio:         relayInfo.PriceData.GroupRatioInfo.GroupRatio,
+			ModelRatio:         relayInfo.PriceData.ModelRatio,
+			OtherRatios:        otherRatios,
+			OriginModelName:    relayInfo.OriginModelName,
+			PerCallBilling:     isTaskPricePatch || relayInfo.PriceData.UsePrice,
+			MultiplyByDuration: multiplyByDuration,
+			ApplyBillingRatios: applyBillingRatios,
 		}
 		task.Quota = taskQuota
 		task.Data = result.TaskData
 		task.Action = relayInfo.Action
 
 		if result.ClientResponse != nil {
-			if insertErr := task.Insert(); insertErr != nil {
+			if insertErr := persistAcceptedTask(task, relayInfo); insertErr != nil {
 				taskErr = service.TaskErrorWrapperLocal(insertErr, "insert_task_failed", http.StatusInternalServerError)
 			} else {
 				relayInfo.PriceData.Quota = taskQuota
@@ -673,6 +842,24 @@ func relayTask(c *gin.Context, relayMode int) {
 					c.Data(result.ClientResponse.StatusCode, "application/json", body)
 				}
 			}
+		} else if relayInfo.TaskSubmissionScope != "" {
+			if insertErr := persistAcceptedTask(task, relayInfo); insertErr != nil {
+				taskErr = service.TaskErrorWrapperLocal(insertErr, "insert_task_failed", http.StatusInternalServerError)
+			} else {
+				if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
+					common.SysError("settle task billing error: " + settleErr.Error())
+				}
+				service.LogTaskConsumption(c, relayInfo)
+			}
+		} else if result.DeferredResponse != nil {
+			if insertErr := persistAcceptedTask(task, relayInfo); insertErr != nil {
+				taskErr = service.TaskErrorWrapperLocal(insertErr, "insert_task_failed", http.StatusInternalServerError)
+			} else {
+				if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
+					common.SysError("settle task billing error: " + settleErr.Error())
+				}
+				service.LogTaskConsumption(c, relayInfo)
+			}
 		} else {
 			if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
 				common.SysError("settle task billing error: " + settleErr.Error())
@@ -681,13 +868,34 @@ func relayTask(c *gin.Context, relayMode int) {
 			if insertErr := task.Insert(); insertErr != nil {
 				common.SysError("insert task error: " + insertErr.Error())
 			}
-			service.CommitPromotionUse(c, relayInfo)
 		}
+	}
+	if taskErr == nil && result != nil && result.DeferredResponse != nil {
+		for name, values := range result.DeferredResponse.Header {
+			for _, value := range values {
+				c.Header(name, value)
+			}
+		}
+		c.Data(result.DeferredResponse.StatusCode, "application/json", result.DeferredResponse.Body)
 	}
 
 	if taskErr != nil {
 		respondTaskError(c, taskErr)
 	}
+}
+
+func persistAcceptedTask(task *model.Task, relayInfo *relaycommon.RelayInfo) error {
+	if task == nil {
+		return errors.New("task is required")
+	}
+	if relayInfo == nil || relayInfo.TaskRelayInfo == nil || relayInfo.TaskSubmissionScope == "" {
+		return task.Insert()
+	}
+	if err := model.InsertTaskWithSubmission(task, relayInfo.TaskSubmissionScope, relayInfo.TaskSubmissionLeaseToken); err != nil {
+		return err
+	}
+	relayInfo.TaskSubmissionCompleted = true
+	return nil
 }
 
 // respondTaskError 统一输出 Task 错误响应（含 429 限流提示改写）

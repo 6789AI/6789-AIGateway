@@ -61,6 +61,7 @@ type ModelFormValues = {
   BillingMode: string
   BillingExpr: string
   PriceSchedules: string
+  TaskDurationMultiplier: string
 }
 
 type ModelRatioFormProps = {
@@ -83,6 +84,7 @@ type ModelJsonFieldName =
   | 'AudioRatio'
   | 'AudioCompletionRatio'
   | 'PriceSchedules'
+  | 'TaskDurationMultiplier'
 
 const modelJsonFields: Array<{
   name: ModelJsonFieldName
@@ -138,6 +140,12 @@ const modelJsonFields: Array<{
     labelKey: 'Time-based price schedules',
     descriptionKey:
       'JSON map of model identifiers to fixed-range or weekly per-request price schedules.',
+  },
+  {
+    name: 'TaskDurationMultiplier',
+    labelKey: 'Video duration multiplier',
+    descriptionKey:
+      'JSON map of models that control whether fixed video prices are multiplied by duration. Missing models default to true.',
   },
 ]
 
@@ -285,6 +293,7 @@ export const ModelRatioForm = memo(function ModelRatioForm({
               savedBillingMode={savedValues.BillingMode}
               savedBillingExpr={savedValues.BillingExpr}
               savedPriceSchedules={savedValues.PriceSchedules}
+              savedTaskDurationMultiplier={savedValues.TaskDurationMultiplier}
               modelPrice={form.watch('ModelPrice')}
               modelRatio={form.watch('ModelRatio')}
               cacheRatio={form.watch('CacheRatio')}
@@ -296,6 +305,7 @@ export const ModelRatioForm = memo(function ModelRatioForm({
               billingMode={form.watch('BillingMode')}
               billingExpr={form.watch('BillingExpr')}
               priceSchedules={form.watch('PriceSchedules')}
+              taskDurationMultiplier={form.watch('TaskDurationMultiplier')}
               candidateModelNames={
                 isUnsetVariant ? enabledModelsQuery.data?.data : undefined
               }
@@ -310,6 +320,8 @@ export const ModelRatioForm = memo(function ModelRatioForm({
                   'billing_setting.billing_mode': 'BillingMode',
                   'billing_setting.billing_expr': 'BillingExpr',
                   'billing_setting.price_schedules': 'PriceSchedules',
+                  'billing_setting.task_duration_multiplier':
+                    'TaskDurationMultiplier',
                 }
                 const formField =
                   fieldMap[field] || (field as keyof ModelFormValues)

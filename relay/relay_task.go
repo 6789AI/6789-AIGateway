@@ -30,12 +30,13 @@ import (
 )
 
 type TaskSubmitResult struct {
-	UpstreamTaskID string
-	TaskData       []byte
-	Platform       constant.TaskPlatform
-	Quota          int
-	ClientResponse *TaskClientResponse
-	PollingConfig  *model.TaskPollingConfig
+	UpstreamTaskID   string
+	TaskData         []byte
+	Platform         constant.TaskPlatform
+	Quota            int
+	ClientResponse   *TaskClientResponse
+	DeferredResponse *TaskClientResponse
+	PollingConfig    *model.TaskPollingConfig
 	//PerCallPrice   types.PriceData
 }
 
@@ -259,7 +260,12 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	// 5. 计费估算：让适配器根据用户请求提供 OtherRatios（时长、分辨率等）
 	//    必须在 ModelPriceHelperPerCall 之后调用（它会重建 PriceData）。
 	//    ResolveOriginTask 可能已在 remix 路径中预设了 OtherRatios，此处合并。
-	if estimatedRatios := adaptor.EstimateBilling(c, info); len(estimatedRatios) > 0 {
+	estimatedRatios := taskBillingRatios(
+		modelName,
+		info.PriceData.UsePrice,
+		adaptor.EstimateBilling(c, info),
+	)
+	if len(estimatedRatios) > 0 {
 		for k, v := range estimatedRatios {
 			info.PriceData.AddOtherRatio(k, v)
 		}
@@ -317,7 +323,12 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 
 	// 11. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios
 	finalQuota := info.PriceData.Quota
-	if adjustedRatios := adaptor.AdjustBillingOnSubmit(info, taskData); len(adjustedRatios) > 0 {
+	adjustedRatios := taskBillingRatios(
+		modelName,
+		info.PriceData.UsePrice,
+		adaptor.AdjustBillingOnSubmit(info, taskData),
+	)
+	if !common.StringsContains(constant.TaskPricePatches, modelName) && len(adjustedRatios) > 0 {
 		if adjustedQuota, ok := recalcQuotaFromRatios(info, adjustedRatios); ok {
 			// 基于调整后的 ratios 重新计算 quota
 			finalQuota = adjustedQuota
@@ -326,7 +337,20 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		}
 	}
 	var clientResponse *TaskClientResponse
+	var deferredResponse *TaskClientResponse
 	var pollingConfig *model.TaskPollingConfig
+	if len(info.TaskClientResponseBody) > 0 {
+		deferredResponse = &TaskClientResponse{
+			StatusCode: info.TaskClientResponseStatus,
+			Body:       info.TaskClientResponseBody,
+		}
+	}
+	if provider, ok := adaptor.(channel.TaskPollingConfigProvider); ok {
+		pollingConfig, err = provider.TaskPollingConfig(upstreamTaskID)
+		if err != nil {
+			return nil, service.TaskErrorWrapperLocal(err, "build_task_polling_config_failed", http.StatusInternalServerError)
+		}
+	}
 	if info.RelayMode == relayconstant.RelayModeImageSubmit {
 		clientResponse = &TaskClientResponse{
 			StatusCode: http.StatusAccepted,
@@ -335,22 +359,31 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 				"Retry-After": []string{"5"},
 			},
 		}
-		if provider, ok := adaptor.(channel.TaskPollingConfigProvider); ok {
-			pollingConfig, err = provider.TaskPollingConfig(upstreamTaskID)
-			if err != nil {
-				return nil, service.TaskErrorWrapperLocal(err, "build_task_polling_config_failed", http.StatusInternalServerError)
-			}
-		}
 	}
 
 	return &TaskSubmitResult{
-		UpstreamTaskID: upstreamTaskID,
-		TaskData:       taskData,
-		Platform:       platform,
-		Quota:          finalQuota,
-		ClientResponse: clientResponse,
-		PollingConfig:  pollingConfig,
+		UpstreamTaskID:   upstreamTaskID,
+		TaskData:         taskData,
+		Platform:         platform,
+		Quota:            finalQuota,
+		ClientResponse:   clientResponse,
+		DeferredResponse: deferredResponse,
+		PollingConfig:    pollingConfig,
 	}, nil
+}
+
+func taskBillingRatios(modelName string, usePrice bool, ratios map[string]float64) map[string]float64 {
+	if len(ratios) == 0 || !usePrice || billing_setting.ShouldMultiplyTaskDuration(modelName) {
+		return ratios
+	}
+
+	filtered := make(map[string]float64, len(ratios))
+	for name, ratio := range ratios {
+		if name != "seconds" {
+			filtered[name] = ratio
+		}
+	}
+	return filtered
 }
 
 // recalcQuotaFromRatios 根据 adjustedRatios 重新计算 quota。
@@ -595,6 +628,7 @@ func tryRealtimeFetch(ctx context.Context, task *model.Task, isOpenAIVideoAPI bo
 	}
 
 	snap := task.Snapshot()
+	service.MergeTaskBillingRatios(task, ti.BillingRatios)
 
 	// 将上游最新状态更新到 task
 	if ti.Status != "" {

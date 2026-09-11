@@ -19,7 +19,6 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
@@ -445,15 +444,27 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 	}
 	info := &relaycommon.RelayInfo{}
 	info.ChannelMeta = &relaycommon.ChannelMeta{
-		ChannelBaseUrl: cacheGetChannel.GetBaseURL(),
+		ChannelType:          cacheGetChannel.Type,
+		ChannelId:            cacheGetChannel.Id,
+		ChannelBaseUrl:       cacheGetChannel.GetBaseURL(),
+		ChannelOtherSettings: cacheGetChannel.GetOtherSettings(),
 	}
 	info.ApiKey = cacheGetChannel.Key
-	adaptor.Init(info)
-	disablePollingSleep := cacheGetChannel.GetOtherSettings().DisableTaskPollingSleep
+	channelOtherSettings := cacheGetChannel.GetOtherSettings()
+	disablePollingSleep := channelOtherSettings.DisableTaskPollingSleep
 	for i, taskId := range taskIds {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		taskOtherSettings := channelOtherSettings
+		if task := taskM[taskId]; task != nil && task.PrivateData.PollingConfig != nil {
+			switch task.PrivateData.PollingConfig.VideoProtocol {
+			case dto.VideoProtocolOpenAI, dto.VideoProtocolVinted:
+				taskOtherSettings.VideoProtocol = task.PrivateData.PollingConfig.VideoProtocol
+			}
+		}
+		info.ChannelOtherSettings = taskOtherSettings
+		adaptor.Init(info)
 		if err := updateVideoSingleTask(ctx, adaptor, cacheGetChannel, taskId, taskM); err != nil {
 			logger.LogError(ctx, fmt.Sprintf("Failed to update video task %s: %s", taskId, err.Error()))
 		}
@@ -528,16 +539,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
 		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
 	}
-	if billingContext := task.PrivateData.BillingContext; billingContext != nil && len(taskResult.BillingRatios) > 0 {
-		priceData := taskBillingContextPriceData(billingContext)
-		if priceData == nil {
-			priceData = &hosttypes.PriceData{}
-		}
-		for name, ratio := range taskResult.BillingRatios {
-			priceData.AddOtherRatio(name, ratio)
-		}
-		billingContext.OtherRatios = priceData.OtherRatios()
-	}
+	MergeTaskBillingRatios(task, taskResult.BillingRatios)
 
 	task.Data = redactVideoResponseBody(responseBody)
 
@@ -691,7 +693,7 @@ func truncateBase64(s string) string {
 func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskBillingAdjuster, task *model.Task, taskResult *relaycommon.TaskInfo) {
 	// 0. 按次计费仅在上游返回实际倍率时做差额结算。
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
-		if len(taskResult.BillingRatios) > 0 {
+		if len(taskBillingRatiosForContext(bc, taskResult.BillingRatios)) > 0 {
 			multiplier := 1.0
 			if priceData := taskBillingContextPriceData(bc); priceData != nil {
 				multiplier = priceData.OtherRatioMultiplier()

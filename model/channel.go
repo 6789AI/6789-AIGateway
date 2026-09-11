@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -194,6 +195,22 @@ func (channel *Channel) GetKeys() []string {
 	// Otherwise, fall back to splitting by newline
 	keys := strings.Split(strings.Trim(channel.Key, "\n"), "\n")
 	return keys
+}
+
+// GetKeyByIndex returns the same provider credential used by an idempotent
+// task submission, including after the channel's polling cursor has moved.
+func (channel *Channel) GetKeyByIndex(index int) (string, error) {
+	if !channel.ChannelInfo.IsMultiKey {
+		if index != 0 {
+			return "", fmt.Errorf("channel key index %d is unavailable", index)
+		}
+		return channel.Key, nil
+	}
+	keys := channel.GetKeys()
+	if index < 0 || index >= len(keys) {
+		return "", fmt.Errorf("channel key index %d is unavailable", index)
+	}
+	return keys[index], nil
 }
 
 func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
@@ -979,6 +996,17 @@ func (channel *Channel) ValidateSettings() error {
 			return fmt.Errorf("async image generation is not supported for channel type %d", channel.Type)
 		}
 	}
+	videoProtocol := strings.ToLower(strings.TrimSpace(channelOtherSettings.VideoProtocol))
+	if videoProtocol != "" &&
+		videoProtocol != dto.VideoProtocolOpenAI &&
+		videoProtocol != dto.VideoProtocolVinted {
+		return fmt.Errorf("invalid video_protocol: %s", channelOtherSettings.VideoProtocol)
+	}
+	if videoProtocol == dto.VideoProtocolVinted &&
+		channel.Type != constant.ChannelTypeOpenAI &&
+		channel.Type != constant.ChannelTypeSora {
+		return fmt.Errorf("video protocol %s is not supported for channel type %d", videoProtocol, channel.Type)
+	}
 	if channel.Type == constant.ChannelTypeAdvancedCustom {
 		if channelOtherSettings.AdvancedCustom == nil {
 			return fmt.Errorf("advanced_custom is required")
@@ -995,6 +1023,25 @@ func (channel *Channel) ValidateSettings() error {
 		}
 	}
 	return nil
+}
+
+// IsVintedVideoChannel identifies the Vinted task protocol independently of a
+// database record ID. The hostname fallback keeps existing deployments working
+// until their channel is saved with an explicit video protocol.
+func IsVintedVideoChannel(channelType int, baseURL string, settings dto.ChannelOtherSettings) bool {
+	if channelType != constant.ChannelTypeOpenAI && channelType != constant.ChannelTypeSora {
+		return false
+	}
+	protocol := strings.ToLower(strings.TrimSpace(settings.VideoProtocol))
+	if protocol != "" {
+		return protocol == dto.VideoProtocolVinted
+	}
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return false
+	}
+	hostname := strings.ToLower(parsed.Hostname())
+	return hostname == "vinted.cam" || strings.HasSuffix(hostname, ".vinted.cam")
 }
 
 func (channel *Channel) GetSetting() dto.ChannelSettings {

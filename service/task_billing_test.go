@@ -342,6 +342,129 @@ func TestTaskBillingContextPriceDataFiltersMultiplier(t *testing.T) {
 	}, priceData.OtherRatios())
 }
 
+func TestTaskBillingRatiosForContextUsesPersistedPolicy(t *testing.T) {
+	enabled := true
+	disabled := false
+	ratios := map[string]float64{"seconds": 8, "resolution": 2}
+
+	tests := []struct {
+		name    string
+		context *model.TaskBillingContext
+		want    map[string]float64
+	}{
+		{
+			name:    "legacy task defaults to duration enabled",
+			context: &model.TaskBillingContext{PerCallBilling: true},
+			want:    ratios,
+		},
+		{
+			name: "fixed price duration enabled",
+			context: &model.TaskBillingContext{
+				PerCallBilling:     true,
+				MultiplyByDuration: &enabled,
+			},
+			want: ratios,
+		},
+		{
+			name: "fixed price duration disabled preserves other ratios",
+			context: &model.TaskBillingContext{
+				PerCallBilling:     true,
+				MultiplyByDuration: &disabled,
+			},
+			want: map[string]float64{"resolution": 2},
+		},
+		{
+			name: "token billing does not use the fixed price duration policy",
+			context: &model.TaskBillingContext{
+				MultiplyByDuration: &disabled,
+			},
+			want: ratios,
+		},
+		{
+			name: "task price patch ignores every task ratio",
+			context: &model.TaskBillingContext{
+				PerCallBilling:     true,
+				ApplyBillingRatios: &disabled,
+			},
+			want: nil,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, taskBillingRatiosForContext(test.context, ratios))
+		})
+	}
+}
+
+func TestMergeTaskBillingRatiosUsesPersistedPolicy(t *testing.T) {
+	disabled := false
+	task := makeTask(1, 0, 100, 0, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.PerCallBilling = true
+	task.PrivateData.BillingContext.MultiplyByDuration = &disabled
+	task.PrivateData.BillingContext.OtherRatios = map[string]float64{"resolution": 2}
+
+	MergeTaskBillingRatios(task, map[string]float64{"seconds": 8, "resolution": 3})
+
+	assert.Equal(t, map[string]float64{"resolution": 3}, task.PrivateData.BillingContext.OtherRatios)
+}
+
+func TestSettleTaskBillingFiltersDurationAndPreservesOtherRatios(t *testing.T) {
+	truncate(t)
+
+	const (
+		userID       = 154
+		initialQuota = 10_000
+	)
+	seedUser(t, userID, initialQuota)
+	baseQuota, clamp := common.QuotaFromFloatChecked(0.001 * common.QuotaPerUnit)
+	require.Nil(t, clamp)
+	disabled := false
+	task := makeTask(userID, 0, baseQuota*2, 0, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.ModelPrice = 0.001
+	task.PrivateData.BillingContext.GroupRatio = 1
+	task.PrivateData.BillingContext.OtherRatios = map[string]float64{"resolution": 3}
+	task.PrivateData.BillingContext.PerCallBilling = true
+	task.PrivateData.BillingContext.MultiplyByDuration = &disabled
+	require.NoError(t, model.DB.Create(task).Error)
+
+	settleTaskBillingOnComplete(context.Background(), &taskPollingFetchAdaptor{}, task, &relaycommon.TaskInfo{
+		BillingRatios: map[string]float64{"seconds": 8, "resolution": 3},
+	})
+
+	assert.Equal(t, baseQuota*3, getTaskQuota(t, task.ID))
+	assert.Equal(t, initialQuota-baseQuota, getUserQuota(t, userID))
+	assert.Equal(t, int64(1), countLogs(t))
+}
+
+func TestSettleTaskBillingPreservesTaskPricePatchBehavior(t *testing.T) {
+	truncate(t)
+
+	const (
+		userID       = 155
+		initialQuota = 10_000
+	)
+	seedUser(t, userID, initialQuota)
+	baseQuota, clamp := common.QuotaFromFloatChecked(0.001 * common.QuotaPerUnit)
+	require.Nil(t, clamp)
+	disabled := false
+	task := makeTask(userID, 0, baseQuota, 0, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.ModelPrice = 0.001
+	task.PrivateData.BillingContext.GroupRatio = 1
+	task.PrivateData.BillingContext.OtherRatios = map[string]float64{"seconds": 8, "resolution": 3}
+	task.PrivateData.BillingContext.PerCallBilling = true
+	task.PrivateData.BillingContext.ApplyBillingRatios = &disabled
+	require.NoError(t, model.DB.Create(task).Error)
+
+	settleTaskBillingOnComplete(context.Background(), &taskPollingFetchAdaptor{}, task, &relaycommon.TaskInfo{
+		BillingRatios: map[string]float64{"seconds": 8, "resolution": 3},
+	})
+
+	assert.Equal(t, baseQuota, getTaskQuota(t, task.ID))
+	assert.Equal(t, initialQuota, getUserQuota(t, userID))
+	assert.Equal(t, int64(0), countLogs(t))
+}
+
 // ---------------------------------------------------------------------------
 // Read-back helpers
 // ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,11 +15,19 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
 )
+
+type vintedSignedURLResponse struct {
+	URL     string `json:"url"`
+	Quality string `json:"quality"`
+}
+
+var errVintedOriginalNotReady = errors.New("Vinted original video is not ready")
 
 // videoProxyError returns a standardized OpenAI-style error response.
 func videoProxyError(c *gin.Context, status int, errType, message string) {
@@ -28,6 +37,59 @@ func videoProxyError(c *gin.Context, status int, errType, message string) {
 			"type":    errType,
 		},
 	})
+}
+
+func resolveVintedVideoURL(ctx context.Context, client *http.Client, baseURL, apiKey, upstreamTaskID string) (string, error) {
+	requestURL := fmt.Sprintf(
+		"%s/v1/videos/%s/signed_url?download=1",
+		strings.TrimRight(baseURL, "/"),
+		url.PathEscape(upstreamTaskID),
+	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusConflict {
+		return "", fmt.Errorf("%w: signed URL endpoint returned status %d", errVintedOriginalNotReady, resp.StatusCode)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("signed URL endpoint returned status %d", resp.StatusCode)
+	}
+
+	var payload vintedSignedURLResponse
+	if err := common.DecodeJson(io.LimitReader(resp.Body, 1<<20), &payload); err != nil {
+		return "", fmt.Errorf("decode signed URL response: %w", err)
+	}
+	payload.URL = strings.TrimSpace(payload.URL)
+	if payload.URL == "" {
+		return "", fmt.Errorf("signed URL response is missing url")
+	}
+	if strings.TrimSpace(payload.Quality) != "original" {
+		return "", fmt.Errorf("%w: signed URL quality is %q", errVintedOriginalNotReady, payload.Quality)
+	}
+
+	base, err := url.Parse(strings.TrimRight(baseURL, "/") + "/")
+	if err != nil {
+		return "", fmt.Errorf("parse Vinted base URL: %w", err)
+	}
+	reference, err := url.Parse(payload.URL)
+	if err != nil {
+		return "", fmt.Errorf("parse signed video URL: %w", err)
+	}
+	return base.ResolveReference(reference).String(), nil
+}
+
+func isForwardableVideoResponseStatus(status int) bool {
+	return status == http.StatusOK ||
+		status == http.StatusPartialContent ||
+		status == http.StatusRequestedRangeNotSatisfiable
 }
 
 func VideoProxy(c *gin.Context) {
@@ -79,43 +141,56 @@ func VideoProxy(c *gin.Context) {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "", nil)
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to create request: %s", err.Error()))
-		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy request")
-		return
-	}
-
-	switch channel.Type {
-	case constant.ChannelTypeGemini:
+	isVinted := model.IsVintedVideoChannel(channel.Type, baseURL, channel.GetOtherSettings())
+	requestHeaders := make(http.Header)
+	if isVinted {
 		apiKey := task.PrivateData.Key
 		if apiKey == "" {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("Missing stored API key for Gemini task %s", taskID))
-			videoProxyError(c, http.StatusInternalServerError, "server_error", "API key not stored for task")
-			return
+			apiKey = channel.Key
 		}
-		videoURL, err = getGeminiVideoURL(channel, task, apiKey)
+		lookupCtx, cancelLookup := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		videoURL, err = resolveVintedVideoURL(lookupCtx, client, baseURL, apiKey, task.GetUpstreamTaskID())
+		cancelLookup()
 		if err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to resolve Gemini video URL for task %s: %s", taskID, err.Error()))
-			videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to resolve Gemini video URL")
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to resolve Vinted video URL for task %s: %s", taskID, err.Error()))
+			if errors.Is(err, errVintedOriginalNotReady) {
+				c.Header("Retry-After", "5")
+				videoProxyError(c, http.StatusConflict, "video_not_ready", "Original video is not ready")
+				return
+			}
+			videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to resolve video URL")
 			return
 		}
-		req.Header.Set("x-goog-api-key", apiKey)
-	case constant.ChannelTypeVertexAi:
-		videoURL, err = getVertexVideoURL(channel, task)
-		if err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to resolve Vertex video URL for task %s: %s", taskID, err.Error()))
-			videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to resolve Vertex video URL")
-			return
+	} else {
+		switch channel.Type {
+		case constant.ChannelTypeGemini:
+			apiKey := task.PrivateData.Key
+			if apiKey == "" {
+				logger.LogError(c.Request.Context(), fmt.Sprintf("Missing stored API key for Gemini task %s", taskID))
+				videoProxyError(c, http.StatusInternalServerError, "server_error", "API key not stored for task")
+				return
+			}
+			videoURL, err = getGeminiVideoURL(channel, task, apiKey)
+			if err != nil {
+				logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to resolve Gemini video URL for task %s: %s", taskID, err.Error()))
+				videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to resolve Gemini video URL")
+				return
+			}
+			requestHeaders.Set("x-goog-api-key", apiKey)
+		case constant.ChannelTypeVertexAi:
+			videoURL, err = getVertexVideoURL(channel, task)
+			if err != nil {
+				logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to resolve Vertex video URL for task %s: %s", taskID, err.Error()))
+				videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to resolve Vertex video URL")
+				return
+			}
+		case constant.ChannelTypeOpenAI, constant.ChannelTypeSora:
+			videoURL = fmt.Sprintf("%s/v1/videos/%s/content", baseURL, task.GetUpstreamTaskID())
+			requestHeaders.Set("Authorization", "Bearer "+channel.Key)
+		default:
+			// Video URL is stored in PrivateData.ResultURL (fallback to FailReason for old data)
+			videoURL = task.GetResultURL()
 		}
-	case constant.ChannelTypeOpenAI, constant.ChannelTypeSora:
-		videoURL = fmt.Sprintf("%s/v1/videos/%s/content", baseURL, task.GetUpstreamTaskID())
-		req.Header.Set("Authorization", "Bearer "+channel.Key)
-	default:
-		// Video URL is stored in PrivateData.ResultURL (fallback to FailReason for old data)
-		videoURL = task.GetResultURL()
 	}
 
 	videoURL = strings.TrimSpace(videoURL)
@@ -146,25 +221,48 @@ func VideoProxy(c *gin.Context) {
 		return
 	}
 
-	req.URL, err = url.Parse(videoURL)
+	downloadTimeout := 60 * time.Second
+	if isVinted {
+		downloadTimeout = 10 * time.Minute
+	}
+	downloadCtx, cancelDownload := context.WithTimeout(c.Request.Context(), downloadTimeout)
+	defer cancelDownload()
+	req, err := http.NewRequestWithContext(downloadCtx, c.Request.Method, videoURL, nil)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to parse URL %s: %s", videoURL, err.Error()))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to parse URL %s: %s", relaycommon.SanitizeURLForLog(videoURL), err.Error()))
 		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy request")
 		return
+	}
+	for key, values := range requestHeaders {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
+	if rangeHeader := c.GetHeader("Range"); rangeHeader != "" {
+		req.Header.Set("Range", rangeHeader)
+	}
+	if ifRangeHeader := c.GetHeader("If-Range"); ifRangeHeader != "" {
+		req.Header.Set("If-Range", ifRangeHeader)
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to fetch video from %s: %s", videoURL, err.Error()))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to fetch video from %s: %s", relaycommon.SanitizeURLForLog(videoURL), err.Error()))
 		videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to fetch video content")
 		return
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for %s", resp.StatusCode, videoURL))
+	if !isForwardableVideoResponseStatus(resp.StatusCode) {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for %s", resp.StatusCode, relaycommon.SanitizeURLForLog(videoURL)))
 		videoProxyError(c, http.StatusBadGateway, "server_error",
 			fmt.Sprintf("Upstream service returned status %d", resp.StatusCode))
+		return
+	}
+	if isVinted && strings.EqualFold(strings.TrimSpace(resp.Header.Get("X-Video-Quality")), "preview") {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Vinted returned preview video content for task %s", taskID))
+		c.Header("Retry-After", "5")
+		videoProxyError(c, http.StatusConflict, "video_not_ready", "Original video is not ready")
 		return
 	}
 
@@ -174,8 +272,13 @@ func VideoProxy(c *gin.Context) {
 		}
 	}
 
-	c.Writer.Header().Set("Cache-Control", "public, max-age=86400")
+	if resp.StatusCode != http.StatusRequestedRangeNotSatisfiable {
+		c.Writer.Header().Set("Cache-Control", "public, max-age=86400")
+	}
 	c.Writer.WriteHeader(resp.StatusCode)
+	if c.Request.Method == http.MethodHead {
+		return
+	}
 	if _, err = io.Copy(c.Writer, resp.Body); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to stream video content: %s", err.Error()))
 	}
@@ -210,6 +313,9 @@ func writeVideoDataURL(c *gin.Context, dataURL string) error {
 	c.Writer.Header().Set("Content-Type", mimeType)
 	c.Writer.Header().Set("Cache-Control", "public, max-age=86400")
 	c.Writer.WriteHeader(http.StatusOK)
+	if c.Request.Method == http.MethodHead {
+		return nil
+	}
 	_, err = c.Writer.Write(videoBytes)
 	return err
 }

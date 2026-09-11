@@ -117,7 +117,7 @@
 | `POST /v1/videos` | OpenAI、Sora、Gemini、Vertex AI、Ali、Kling、Jimeng、Vidu、VolcEngine、DoubaoVideo、MiniMax | 统一视频创建入口；按渠道任务适配器转换 |
 | `GET /v1/videos/:task_id` | 上述视频任务渠道 | 查询本系统任务并调用对应上游查询逻辑 |
 | `POST /v1/videos/:video_id/remix` | OpenAI、Sora | 只有 Sora/OpenAI 任务适配器实现真正的 remix 上游路径 |
-| `GET /v1/videos/:task_id/content` | 已完成且具有可代理内容的视频任务 | 公共内容能力 URL，由任务记录和上游结果决定 |
+| `GET /v1/videos/:task_id/content`、`HEAD /v1/videos/:task_id/content` | 已完成且具有可代理内容的视频任务 | 公共内容能力 URL；Vinted 原画代理支持 `Range` / `If-Range`，并转发 `206` / `416` 状态 |
 | `POST /v1/video/generations`、`GET /v1/video/generations/:task_id` | 与统一视频任务渠道相同 | 旧版兼容入口 |
 | `/kling/v1/videos/text2video`、`/kling/v1/videos/image2video` 及查询路由 | Kling | Kling 官方格式兼容入口 |
 | `POST /jimeng/` | Jimeng | 即梦官方格式入口 |
@@ -125,6 +125,8 @@
 | `GET /v1/images/generations/:task_id` | 异步图像任务 | 查询本系统任务；提交时已快照上游轮询 URL 与认证配置 |
 | `/mj/submit/*`、`/mj/task/*`、`/mj/insight-face/*` | MjProxy、MjProxyPlus | Midjourney 专用任务集合 |
 | `/suno/submit/:action`、`/suno/fetch` | SunoAPI | Suno 专用任务集合 |
+
+OpenAI/Sora 渠道可通过 `settings.video_protocol=vinted` 启用 Vinted 专用协议；为兼容已有配置，未设置该字段且 Base URL 主机为 `vinted.cam` 或其子域时也会自动识别，显式设置 `settings.video_protocol=openai` 可关闭该回退。该协议不支持 remix，且仅接受 `seedance2.0`、`seedance2.0fast`、`seedance2.5`、`seedance2.0mini`，模型映射完成后再校验上游模型与时长组合。请求会保留 `camera_movement` 和已有的 `image_ids`，并合并去重 `image`、`images`、`image_refs`、`image_url`、`image_urls`；URL 与 ID 按模型共享引用图上限。网关不暴露 Vinted `/v1/files` 上传路由。客户端提供 `Idempotency-Key` 时，网关按用户和令牌持久化请求占位并锁定原渠道凭据索引，重试复用公开任务 ID；发送到上游的键经过网关作用域哈希，避免共享上游密钥的不同用户互相碰撞。任务提交时会持久化轮询协议、URL 和认证请求头，后续渠道配置变更不影响在途任务。任务轮询识别 `queued/running/succeeded/failed`；内容代理只接受 `quality=original` 的签名地址，并支持原画断点下载。
 
 ## 已注册但未实现的端点
 

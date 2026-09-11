@@ -78,6 +78,7 @@ type ModelRatioVisualEditorProps = {
   savedBillingMode: string
   savedBillingExpr: string
   savedPriceSchedules: string
+  savedTaskDurationMultiplier: string
   modelPrice: string
   modelRatio: string
   cacheRatio: string
@@ -89,6 +90,7 @@ type ModelRatioVisualEditorProps = {
   billingMode: string
   billingExpr: string
   priceSchedules: string
+  taskDurationMultiplier: string
   candidateModelNames?: string[]
   candidateModelsLoading?: boolean
   filterMode?: 'all' | 'unset'
@@ -119,6 +121,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
     savedBillingMode,
     savedBillingExpr,
     savedPriceSchedules,
+    savedTaskDurationMultiplier,
     modelPrice,
     modelRatio,
     cacheRatio,
@@ -130,6 +133,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
     billingMode,
     billingExpr,
     priceSchedules,
+    taskDurationMultiplier,
     candidateModelNames,
     candidateModelsLoading,
     filterMode = 'all',
@@ -205,6 +209,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingMode: savedBillingMode,
       billingExpr: savedBillingExpr,
       priceSchedules: savedPriceSchedules,
+      taskDurationMultiplier: savedTaskDurationMultiplier,
     })
     const draftRows = buildModelSnapshots({
       modelPrice,
@@ -218,6 +223,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingMode,
       billingExpr,
       priceSchedules,
+      taskDurationMultiplier,
     })
 
     const savedByName = new Map(savedRows.map((row) => [row.name, row]))
@@ -262,6 +268,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
     savedBillingMode,
     savedBillingExpr,
     savedPriceSchedules,
+    savedTaskDurationMultiplier,
     modelPrice,
     modelRatio,
     cacheRatio,
@@ -273,6 +280,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
     billingMode,
     billingExpr,
     priceSchedules,
+    taskDurationMultiplier,
   ])
 
   const modeCounts = useMemo(
@@ -321,6 +329,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
         billingExpr: editableModel.billingExpr,
         requestRuleExpr: editableModel.requestRuleExpr,
         priceSchedules: editableModel.priceSchedules,
+        multiplyByDuration: editableModel.multiplyByDuration ?? true,
       })
       setEditorOpen(true)
       if (isMobile) setSheetOpen(true)
@@ -395,6 +404,10 @@ const ModelRatioVisualEditorComponent = forwardRef<
         priceSchedules,
         { fallback: {}, silent: true }
       )
+      const taskDurationMultiplierMap = safeJsonParse<Record<string, boolean>>(
+        taskDurationMultiplier,
+        { fallback: {}, silent: true }
+      )
 
       delete priceMap[name]
       delete ratioMap[name]
@@ -407,6 +420,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       delete billingModeMap[name]
       delete billingExprMap[name]
       delete priceSchedulesMap[name]
+      delete taskDurationMultiplierMap[name]
 
       onChange('ModelPrice', JSON.stringify(priceMap, null, 2))
       onChange('ModelRatio', JSON.stringify(ratioMap, null, 2))
@@ -431,6 +445,10 @@ const ModelRatioVisualEditorComponent = forwardRef<
         'billing_setting.price_schedules',
         JSON.stringify(priceSchedulesMap, null, 2)
       )
+      onChange(
+        'billing_setting.task_duration_multiplier',
+        JSON.stringify(taskDurationMultiplierMap, null, 2)
+      )
 
       if (editData?.name === name) {
         setEditData(null)
@@ -450,6 +468,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingMode,
       billingExpr,
       priceSchedules,
+      taskDurationMultiplier,
       onChange,
       editData,
     ]
@@ -545,6 +564,10 @@ const ModelRatioVisualEditorComponent = forwardRef<
         priceSchedules,
         { fallback: {}, silent: true }
       )
+      const taskDurationMultiplierMap = safeJsonParse<Record<string, boolean>>(
+        taskDurationMultiplier,
+        { fallback: {}, silent: true }
+      )
 
       const setIfPresent = (
         target: Record<string, number>,
@@ -568,6 +591,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
         delete billingModeMap[name]
         delete billingExprMap[name]
         delete priceSchedulesMap[name]
+        delete taskDurationMultiplierMap[name]
 
         if (data.billingMode === 'tiered_expr') {
           const combined = combineBillingExpr(
@@ -595,6 +619,9 @@ const ModelRatioVisualEditorComponent = forwardRef<
             billingModeMap[name] = 'scheduled_price'
           }
           setIfPresent(priceMap, name, data.price)
+          if (data.multiplyByDuration === false) {
+            taskDurationMultiplierMap[name] = false
+          }
         } else {
           setIfPresent(ratioMap, name, data.ratio)
           setIfPresent(cacheMap, name, data.cacheRatio)
@@ -633,6 +660,10 @@ const ModelRatioVisualEditorComponent = forwardRef<
         'billing_setting.price_schedules',
         JSON.stringify(priceSchedulesMap, null, 2)
       )
+      onChange(
+        'billing_setting.task_duration_multiplier',
+        JSON.stringify(taskDurationMultiplierMap, null, 2)
+      )
     },
     [
       modelPrice,
@@ -646,6 +677,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingMode,
       billingExpr,
       priceSchedules,
+      taskDurationMultiplier,
       onChange,
     ]
   )
@@ -880,6 +912,8 @@ export const ModelRatioVisualEditor = memo(
       prevProps.savedBillingMode === nextProps.savedBillingMode &&
       prevProps.savedBillingExpr === nextProps.savedBillingExpr &&
       prevProps.savedPriceSchedules === nextProps.savedPriceSchedules &&
+      prevProps.savedTaskDurationMultiplier ===
+        nextProps.savedTaskDurationMultiplier &&
       prevProps.modelPrice === nextProps.modelPrice &&
       prevProps.modelRatio === nextProps.modelRatio &&
       prevProps.cacheRatio === nextProps.cacheRatio &&
@@ -891,6 +925,7 @@ export const ModelRatioVisualEditor = memo(
       prevProps.billingMode === nextProps.billingMode &&
       prevProps.billingExpr === nextProps.billingExpr &&
       prevProps.priceSchedules === nextProps.priceSchedules &&
+      prevProps.taskDurationMultiplier === nextProps.taskDurationMultiplier &&
       prevProps.candidateModelNames === nextProps.candidateModelNames &&
       prevProps.candidateModelsLoading === nextProps.candidateModelsLoading &&
       prevProps.filterMode === nextProps.filterMode &&
