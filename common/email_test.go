@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -352,7 +353,48 @@ func TestSendEmailReturnsBTMailFailureMessage(t *testing.T) {
 
 	err := SendEmail("验证邮件", "receiver@example.com", "<p>123456</p>")
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "Postfix 服务未启动")
+	assert.EqualError(t, err, "发件失败：Postfix 服务未启动")
+}
+
+func TestPublicEmailFailureReasonRemovesBTMailAndSMTPEndpoints(t *testing.T) {
+	withSMTPSettings(t)
+	BTMailAPIURL = "https://192.168.1.222:18343/mail_sys/send_mail_http.json"
+	SMTPServer = "192.168.1.222"
+	SMTPPort = 587
+
+	tests := []struct {
+		name        string
+		internalErr error
+		want        string
+	}{
+		{
+			name: "BT Mail HTTP transport error",
+			internalErr: fmt.Errorf("宝塔邮局 API 请求失败: %w", &url.Error{
+				Op:  http.MethodPost,
+				URL: BTMailAPIURL,
+				Err: fmt.Errorf("dial tcp 192.168.1.222:18343: connectex: %w",
+					errors.New("A connection attempt failed because the connected host did not respond")),
+			}),
+			want: "A connection attempt failed because the connected host did not respond",
+		},
+		{
+			name: "SMTP dial error",
+			internalErr: fmt.Errorf("dial tcp 192.168.1.222:587: connectex: %w",
+				errors.New("A connection attempt failed because the connected host did not respond")),
+			want: "A connection attempt failed because the connected host did not respond",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			publicErr := fmt.Errorf("发件失败：%s", publicEmailFailureReason(tt.internalErr))
+			assert.EqualError(t, publicErr, "发件失败："+tt.want)
+			assert.NotContains(t, publicErr.Error(), "192.168.1.222")
+			assert.NotContains(t, publicErr.Error(), "18343")
+			assert.NotContains(t, publicErr.Error(), "587")
+			assert.NotContains(t, publicErr.Error(), "宝塔邮局")
+		})
+	}
 }
 
 func TestSendEmailDoesNotForwardBTMailPasswordAcrossRedirect(t *testing.T) {
@@ -374,7 +416,7 @@ func TestSendEmailDoesNotForwardBTMailPasswordAcrossRedirect(t *testing.T) {
 
 	err := SendEmail("验证邮件", "receiver@example.com", "<p>123456</p>")
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "HTTP 307")
+	assert.EqualError(t, err, "发件失败：HTTP 307")
 	assert.Equal(t, int32(0), redirectedRequests.Load())
 }
 

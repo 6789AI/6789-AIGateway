@@ -84,7 +84,7 @@ export function EmailBindDialog({
         toast.error(response.message || t('Failed to send verification code'))
       }
     } catch {
-      toast.error(t('Failed to send verification code'))
+      // Transport failures are displayed by the shared HTTP client.
     } finally {
       setSendingCode(false)
     }

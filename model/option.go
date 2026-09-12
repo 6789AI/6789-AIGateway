@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -153,6 +155,10 @@ func InitOptionMap() {
 	common.OptionMap["QuotaForNewUser"] = strconv.Itoa(common.QuotaForNewUser)
 	common.OptionMap["QuotaForInviter"] = strconv.Itoa(common.QuotaForInviter)
 	common.OptionMap["QuotaForInvitee"] = strconv.Itoa(common.QuotaForInvitee)
+	common.OptionMap["QuotaForInviterEnabled"] = strconv.FormatBool(common.QuotaForInviterEnabled)
+	common.OptionMap["QuotaForInviteeEnabled"] = strconv.FormatBool(common.QuotaForInviteeEnabled)
+	common.OptionMap["AffiliateRebateEnabled"] = strconv.FormatBool(common.AffiliateRebateEnabled)
+	common.OptionMap["AffiliateRebatePercentage"] = decimal.NewFromInt(common.AffiliateRebateBasisPoints).Shift(-2).String()
 	common.OptionMap["QuotaRemindThreshold"] = strconv.Itoa(common.QuotaRemindThreshold)
 	common.OptionMap["PreConsumedQuota"] = strconv.Itoa(common.PreConsumedQuota)
 	common.OptionMap["ModelRequestRateLimitCount"] = strconv.Itoa(setting.ModelRequestRateLimitCount)
@@ -225,6 +231,17 @@ func SyncOptions(frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	switch key {
+	case "QuotaForInviterEnabled", "QuotaForInviteeEnabled", "AffiliateRebateEnabled":
+		if value != "true" && value != "false" {
+			return errors.New("奖励开关必须为布尔值")
+		}
+	case "AffiliateRebatePercentage":
+		percentage, err := decimal.NewFromString(strings.TrimSpace(value))
+		if err != nil || percentage.IsNegative() || percentage.GreaterThan(decimal.NewFromInt(100)) || percentage.Exponent() < -2 {
+			return errors.New("返利百分比必须是 0 到 100 之间且最多包含两位小数的数字")
+		}
+	}
 	if key == operation_setting.ToolPriceOptionKey {
 		return operation_setting.ValidateToolPricesJSON(value)
 	}
@@ -418,6 +435,12 @@ func updateOptionMap(key string, value string) (err error) {
 			setting.DefaultUseAutoGroup = boolValue
 		case "ExposeRatioEnabled":
 			ratio_setting.SetExposeRatioEnabled(boolValue)
+		case "QuotaForInviterEnabled":
+			common.QuotaForInviterEnabled = boolValue
+		case "QuotaForInviteeEnabled":
+			common.QuotaForInviteeEnabled = boolValue
+		case "AffiliateRebateEnabled":
+			common.AffiliateRebateEnabled = boolValue
 		}
 	}
 	switch key {
@@ -590,6 +613,12 @@ func updateOptionMap(key string, value string) (err error) {
 		common.QuotaForInviter, _ = strconv.Atoi(value)
 	case "QuotaForInvitee":
 		common.QuotaForInvitee, _ = strconv.Atoi(value)
+	case "AffiliateRebatePercentage":
+		percentage, parseErr := decimal.NewFromString(strings.TrimSpace(value))
+		if parseErr != nil {
+			return parseErr
+		}
+		common.AffiliateRebateBasisPoints = percentage.Shift(2).IntPart()
 	case "QuotaRemindThreshold":
 		common.QuotaRemindThreshold, _ = strconv.Atoi(value)
 	case "PreConsumedQuota":

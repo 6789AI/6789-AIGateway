@@ -33,6 +33,7 @@ import type {
   AffiliateTransferResponse,
   BillingHistoryResponse,
   CompleteOrderRequest,
+  CompleteOrderResponse,
   CreemPaymentRequest,
   CreemPaymentResponse,
   WaffoPaymentRequest,
@@ -242,7 +243,7 @@ export async function getAllBillingHistory(
  */
 export async function completeOrder(
   request: CompleteOrderRequest
-): Promise<ApiResponse> {
+): Promise<CompleteOrderResponse> {
   const res = await api.post('/api/user/topup/complete', request)
   return res.data
 }

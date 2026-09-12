@@ -21,6 +21,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 
 import { useIsAdmin } from '@/hooks/use-admin'
+import { formatQuota } from '@/lib/format'
 
 import {
   getUserBillingHistory,
@@ -88,7 +89,7 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
    * Complete a pending order (admin only)
    */
   const handleCompleteOrder = useCallback(
-    async (tradeNo: string) => {
+    async (tradeNo: string, grantAffiliateRebate: boolean) => {
       if (!isAdmin) {
         toast.error(i18next.t('Admin access required'))
         return false
@@ -96,9 +97,29 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
 
       setCompleting(true)
       try {
-        const response = await completeOrder({ trade_no: tradeNo })
+        const response = await completeOrder({
+          trade_no: tradeNo,
+          grant_affiliate_rebate: grantAffiliateRebate,
+        })
         if (isApiSuccess(response)) {
-          toast.success(i18next.t('Order completed successfully'))
+          if (!grantAffiliateRebate) {
+            toast.success(
+              i18next.t('Order completed without a referral rebate')
+            )
+          } else if (response.data?.affiliate_rebate_granted) {
+            toast.success(
+              i18next.t(
+                'Order completed with a referral rebate of {{amount}}',
+                {
+                  amount: formatQuota(response.data.affiliate_rebate_quota),
+                }
+              )
+            )
+          } else {
+            toast.success(
+              i18next.t('Order completed; no referral rebate was applicable')
+            )
+          }
           // Refresh the list
           await fetchBillingHistory()
           return true

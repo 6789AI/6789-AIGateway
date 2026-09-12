@@ -198,6 +198,7 @@ export async function sendEmailVerification(
 ): Promise<ApiResponse> {
   const res = await api.get('/api/verification', {
     params: { email, bot_protection: botProtectionProof },
+    skipBusinessError: true,
   })
   return res.data
 }

@@ -3,6 +3,7 @@ package common
 import (
 	"crypto/tls"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -123,14 +124,69 @@ func newSMTPClient(addr string) (*smtp.Client, error) {
 }
 
 func SendEmail(subject string, receiver string, content string) error {
+	provider := EmailSenderProvider
+	if provider == "" {
+		provider = EmailSenderProviderSMTP
+	}
+
+	var err error
 	switch EmailSenderProvider {
 	case "", EmailSenderProviderSMTP:
-		return sendSMTPEmail(subject, receiver, content)
+		err = sendSMTPEmail(subject, receiver, content)
 	case EmailSenderProviderBTMail:
-		return sendBTMailEmail(subject, receiver, content)
+		err = sendBTMailEmail(subject, receiver, content)
 	default:
-		return fmt.Errorf("不支持的发件方式: %s", EmailSenderProvider)
+		err = fmt.Errorf("不支持的发件方式: %s", EmailSenderProvider)
 	}
+	if err == nil {
+		return nil
+	}
+
+	SysError(fmt.Sprintf("email delivery failed using provider %s: %v", provider, err))
+	return fmt.Errorf("发件失败：%s", publicEmailFailureReason(err))
+}
+
+func publicEmailFailureReason(err error) string {
+	cause := err
+	for {
+		unwrapped := errors.Unwrap(cause)
+		if unwrapped == nil {
+			break
+		}
+		cause = unwrapped
+	}
+
+	reason := strings.TrimSpace(cause.Error())
+	for _, prefix := range []string{
+		"宝塔邮局发送失败: ",
+		"宝塔邮局 API 返回 ",
+		"宝塔邮局发送失败",
+	} {
+		if strings.HasPrefix(reason, prefix) {
+			reason = strings.TrimSpace(strings.TrimPrefix(reason, prefix))
+			break
+		}
+	}
+
+	endpoints := []string{strings.TrimSpace(BTMailAPIURL)}
+	if parsed, parseErr := url.Parse(strings.TrimSpace(BTMailAPIURL)); parseErr == nil {
+		endpoints = append(endpoints, parsed.Host, parsed.Hostname())
+	}
+	if SMTPServer != "" {
+		endpoints = append(endpoints, fmt.Sprintf("%s:%d", SMTPServer, SMTPPort))
+	}
+	endpoints = append(endpoints, strings.TrimSpace(SMTPServer))
+	for _, endpoint := range endpoints {
+		if endpoint != "" {
+			reason = strings.ReplaceAll(reason, endpoint, "邮件服务器")
+		}
+	}
+
+	reason = strings.Join(strings.Fields(reason), " ")
+	if reason == "" {
+		return "邮件服务未返回失败原因"
+	}
+	return reason
 }
 
 func decorateBTMailContent(senderName string, content string) string {

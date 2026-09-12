@@ -478,7 +478,8 @@ func GetAllTopUps(c *gin.Context) {
 }
 
 type AdminCompleteTopupRequest struct {
-	TradeNo string `json:"trade_no"`
+	TradeNo              string `json:"trade_no"`
+	GrantAffiliateRebate *bool  `json:"grant_affiliate_rebate"`
 }
 
 // AdminCompleteTopUp 管理员补单接口
@@ -493,9 +494,14 @@ func AdminCompleteTopUp(c *gin.Context) {
 	LockOrder(req.TradeNo)
 	defer UnlockOrder(req.TradeNo)
 
-	if err := model.ManualCompleteTopUp(req.TradeNo, c.ClientIP()); err != nil {
+	grantAffiliateRebate := true
+	if req.GrantAffiliateRebate != nil {
+		grantAffiliateRebate = *req.GrantAffiliateRebate
+	}
+	result, err := model.ManualCompleteTopUp(req.TradeNo, c.ClientIP(), grantAffiliateRebate)
+	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, nil)
+	common.ApiSuccess(c, result)
 }

@@ -58,7 +58,7 @@ const getGroupDefaults = (settings: BillingSettings) => ({
 const BILLING_SECTIONS = [
   {
     id: 'quota',
-    titleKey: 'Quota Settings',
+    titleKey: 'Quota & Referrals',
     build: (settings: BillingSettings) => (
       <QuotaSettingsSection
         defaultValues={{
@@ -66,6 +66,10 @@ const BILLING_SECTIONS = [
           PreConsumedQuota: settings.PreConsumedQuota,
           QuotaForInviter: settings.QuotaForInviter,
           QuotaForInvitee: settings.QuotaForInvitee,
+          QuotaForInviterEnabled: settings.QuotaForInviterEnabled,
+          QuotaForInviteeEnabled: settings.QuotaForInviteeEnabled,
+          AffiliateRebateEnabled: settings.AffiliateRebateEnabled,
+          AffiliateRebatePercentage: settings.AffiliateRebatePercentage,
           TopUpLink: settings.TopUpLink,
           general_setting: {
             docs_link: settings['general_setting.docs_link'],

@@ -2,14 +2,17 @@ package model
 
 import (
 	"errors"
+	"fmt"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
 const (
 	AffiliateRewardSourcePayment    = "payment"
 	AffiliateRewardSourceRedemption = "redemption"
-	AffiliateRewardDivisor          = 10 // 10% reward, stored as whole quota units
 )
 
 // AffiliateReward records a single referral reward. The source key is unique
@@ -25,14 +28,16 @@ type AffiliateReward struct {
 	CreatedAt  int64  `json:"created_at" gorm:"autoCreateTime"`
 }
 
-// grantAffiliateRewardTx credits 10% of the quota just added to an invitee.
-// Rewards are kept in AffQuota until the inviter transfers them to normal
-// quota, matching the existing referral-reward workflow.
+// grantAffiliateRewardTx credits the configured share of quota just added to
+// an invitee. Rewards remain in AffQuota until the inviter transfers them.
 func grantAffiliateRewardTx(tx *gorm.DB, inviteeId int, sourceType string, sourceId string, creditedQuota int) (int, error) {
 	if tx == nil {
 		return 0, errors.New("nil transaction")
 	}
 	if inviteeId <= 0 || sourceType == "" || sourceId == "" || creditedQuota <= 0 {
+		return 0, nil
+	}
+	if !common.AffiliateRebateEnabled || common.AffiliateRebateBasisPoints <= 0 || !operation_setting.IsPaymentComplianceConfirmed() {
 		return 0, nil
 	}
 
@@ -59,9 +64,15 @@ func grantAffiliateRewardTx(tx *gorm.DB, inviteeId int, sourceType string, sourc
 		return 0, err
 	}
 
-	rewardQuota := creditedQuota / AffiliateRewardDivisor
-	// A positive recharge always earns a reward. The stored quota is an
-	// integer, so retain the smallest unit when 10% truncates below one.
+	rewardDecimal := decimal.NewFromInt(int64(creditedQuota)).
+		Mul(decimal.NewFromInt(common.AffiliateRebateBasisPoints)).
+		Div(decimal.NewFromInt(10_000)).
+		Floor()
+	rewardQuota, clamp := common.QuotaFromDecimalChecked(rewardDecimal)
+	if clamp != nil {
+		return 0, fmt.Errorf("affiliate rebate quota is out of range: %w", clamp)
+	}
+	// A positive eligible credit retains the smallest internal quota unit.
 	if rewardQuota == 0 {
 		rewardQuota = 1
 	}

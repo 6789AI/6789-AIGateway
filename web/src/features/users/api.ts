@@ -28,6 +28,8 @@ import type {
   ManageUserAction,
   ManageUserQuotaPayload,
   ApiResponse,
+  AffiliateLookupParams,
+  AffiliateLookupResponse,
 } from './types'
 
 // ============================================================================
@@ -78,6 +80,19 @@ export async function searchUsers(
   if (sort_by) queryParams.set('sort_by', sort_by)
   if (sort_order) queryParams.set('sort_order', sort_order)
   const res = await api.get(`/api/user/search?${queryParams.toString()}`)
+  return res.data
+}
+
+/**
+ * Look up an invitation owner and their direct invitees.
+ */
+export async function lookupAffiliateUsers(
+  params: AffiliateLookupParams
+): Promise<AffiliateLookupResponse> {
+  const { q, p = 1, page_size = 20 } = params
+  const res = await api.get('/api/user/aff/search', {
+    params: { q, p, page_size },
+  })
   return res.data
 }
 

@@ -50,6 +50,18 @@ export type ConfirmPaymentComplianceResponse = {
   }
 }
 
+export type InviteCountRecalculationResult = {
+  users_scanned: number
+  invitation_relations: number
+  users_updated: number
+}
+
+export type InviteCountRecalculationResponse = {
+  success: boolean
+  message: string
+  data?: InviteCountRecalculationResult
+}
+
 export type SystemTaskStatus = 'pending' | 'running' | 'succeeded' | 'failed'
 
 export type SystemTask<
@@ -291,6 +303,10 @@ export type BillingSettings = {
   PreConsumedQuota: number
   QuotaForInviter: number
   QuotaForInvitee: number
+  QuotaForInviterEnabled: boolean
+  QuotaForInviteeEnabled: boolean
+  AffiliateRebateEnabled: boolean
+  AffiliateRebatePercentage: number
   TopUpLink: string
   'general_setting.docs_link': string
   'quota_setting.enable_free_model_pre_consume': boolean

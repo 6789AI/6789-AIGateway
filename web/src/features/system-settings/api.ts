@@ -21,6 +21,7 @@ import { api } from '@/lib/api'
 import type {
   ConfirmPaymentComplianceResponse,
   FetchUpstreamRatiosRequest,
+  InviteCountRecalculationResponse,
   LogCleanupTask,
   SystemOptionsResponse,
   SystemTaskListResponse,
@@ -45,6 +46,13 @@ export async function confirmPaymentCompliance() {
   const res = await api.post<ConfirmPaymentComplianceResponse>(
     '/api/option/payment_compliance',
     { confirmed: true }
+  )
+  return res.data
+}
+
+export async function recalculateAffiliateInviteCounts() {
+  const res = await api.post<InviteCountRecalculationResponse>(
+    '/api/option/affiliate/recalculate-invite-counts'
   )
   return res.data
 }

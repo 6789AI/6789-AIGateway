@@ -18,3 +18,7 @@ bun run dev -- --host 0.0.0.0 --port 5173
 ```
 
 前端访问地址为 `http://localhost:5173`，后端地址为 `http://localhost:3000`。完整说明见[本地开发指南](docs/development.md)。
+
+## 运维文档
+
+- [邀请关系风控查询](docs/affiliate-risk-control.md)

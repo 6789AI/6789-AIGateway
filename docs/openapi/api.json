@@ -1658,6 +1658,165 @@
         ]
       }
     },
+    "/api/user/aff/search": {
+      "get": {
+        "summary": "查询邀请关系",
+        "deprecated": false,
+        "description": "👨‍💼 需要管理员权限（Admin）。使用邀请码或包含 aff 参数的推广链接查询归属人及其直接邀请的用户。结果实时读取主数据库并包含软删除用户。",
+        "tags": [
+          "用户管理"
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "邀请码或包含 aff 参数的推广链接",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "https://www.6789api.top/sign-up?aff=46fD"
+            }
+          },
+          {
+            "name": "p",
+            "in": "query",
+            "description": "受邀用户页码",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "description": "受邀用户每页数量，最大 100",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "查询成功或返回参数错误",
+            "headers": {},
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "aff_code": {
+                          "type": "string"
+                        },
+                        "owner": {
+                          "type": "object",
+                          "nullable": true,
+                          "properties": {
+                            "id": {
+                              "type": "integer"
+                            },
+                            "username": {
+                              "type": "string"
+                            },
+                            "display_name": {
+                              "type": "string"
+                            },
+                            "email": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "integer"
+                            },
+                            "created_at": {
+                              "type": "integer",
+                              "format": "int64"
+                            },
+                            "deleted_at": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "invitees": {
+                          "type": "object",
+                          "properties": {
+                            "items": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "integer"
+                                  },
+                                  "username": {
+                                    "type": "string"
+                                  },
+                                  "display_name": {
+                                    "type": "string"
+                                  },
+                                  "email": {
+                                    "type": "string"
+                                  },
+                                  "status": {
+                                    "type": "integer"
+                                  },
+                                  "created_at": {
+                                    "type": "integer",
+                                    "format": "int64"
+                                  },
+                                  "deleted_at": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "nullable": true
+                                  }
+                                }
+                              }
+                            },
+                            "total": {
+                              "type": "integer",
+                              "format": "int64"
+                            },
+                            "page": {
+                              "type": "integer"
+                            },
+                            "page_size": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Combination343": []
+          },
+          {
+            "Combination1243": []
+          }
+        ]
+      }
+    },
     "/api/user/aff_transfer": {
       "post": {
         "summary": "转换邀请额度",
@@ -1882,15 +2041,69 @@
       "post": {
         "summary": "管理员完成充值",
         "deprecated": false,
-        "description": "👨‍💼 需要管理员权限（Admin）",
+        "description": "👨‍💼 需要管理员权限（Admin）。手动完成真实待支付充值订单，可按单决定是否按当前全局规则发放邀请返利。省略 grant_affiliate_rebate 时默认为 true。",
         "tags": [
           "用户管理"
         ],
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "trade_no"
+                ],
+                "properties": {
+                  "trade_no": {
+                    "type": "string"
+                  },
+                  "grant_affiliate_rebate": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "成功",
-            "headers": {}
+            "headers": {},
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "completed": {
+                          "type": "boolean"
+                        },
+                        "credited_quota": {
+                          "type": "integer"
+                        },
+                        "affiliate_rebate_granted": {
+                          "type": "boolean"
+                        },
+                        "affiliate_rebate_quota": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -5143,6 +5356,60 @@
           "200": {
             "description": "成功",
             "headers": {}
+          }
+        },
+        "security": [
+          {
+            "Combination343": []
+          },
+          {
+            "Combination1243": []
+          }
+        ]
+      }
+    },
+    "/api/option/affiliate/recalculate-invite-counts": {
+      "post": {
+        "summary": "回算邀请人数",
+        "deprecated": false,
+        "description": "👑 需要超级管理员权限（Root）。根据当前直接邀请关系精确重建所有用户的 aff_count，包含软删除用户且不修改任何奖励或普通额度。",
+        "tags": [
+          "系统设置"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "回算成功",
+            "headers": {},
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "users_scanned": {
+                          "type": "integer"
+                        },
+                        "invitation_relations": {
+                          "type": "integer"
+                        },
+                        "users_updated": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [

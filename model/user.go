@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -490,6 +491,115 @@ func GetUserIdByAffCode(affCode string) (int, error) {
 	return user.Id, err
 }
 
+func GetAffiliateUserRelation(affCode string, startIdx int, num int) (*User, []*User, int64, error) {
+	tx := DB.Begin()
+	if tx.Error != nil {
+		return nil, nil, 0, tx.Error
+	}
+	defer tx.Rollback()
+
+	selectedFields := []string{
+		"id",
+		"username",
+		"display_name",
+		"email",
+		"status",
+		"created_at",
+		"deleted_at",
+	}
+	owner := &User{}
+	if err := tx.Unscoped().Select(selectedFields).First(owner, "aff_code = ?", affCode).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, 0, err
+		}
+		if err = tx.Commit().Error; err != nil {
+			return nil, nil, 0, err
+		}
+		return nil, []*User{}, 0, nil
+	}
+
+	invitees := make([]*User, 0)
+	query := tx.Unscoped().Model(&User{}).Where("inviter_id = ?", owner.Id)
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, nil, 0, err
+	}
+	if err := query.Select(selectedFields).Order("id DESC").Limit(num).Offset(startIdx).Find(&invitees).Error; err != nil {
+		return nil, nil, 0, err
+	}
+	if err := tx.Commit().Error; err != nil {
+		return nil, nil, 0, err
+	}
+	return owner, invitees, total, nil
+}
+
+type InviteCountRecalculationResult struct {
+	UsersScanned        int `json:"users_scanned"`
+	InvitationRelations int `json:"invitation_relations"`
+	UsersUpdated        int `json:"users_updated"`
+}
+
+func RecalculateInviteCounts() (InviteCountRecalculationResult, error) {
+	result := InviteCountRecalculationResult{}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var users []struct {
+			Id       int
+			AffCount int
+		}
+		if err := lockForUpdate(tx.Unscoped()).Model(&User{}).
+			Select("id", "aff_count").
+			Order("id ASC").
+			Scan(&users).Error; err != nil {
+			return err
+		}
+		result.UsersScanned = len(users)
+
+		existingUsers := make(map[int]struct{}, len(users))
+		for _, user := range users {
+			existingUsers[user.Id] = struct{}{}
+		}
+
+		var counts []struct {
+			InviterId int
+			Count     int64
+		}
+		if err := tx.Unscoped().Model(&User{}).
+			Select("inviter_id", "COUNT(*) AS count").
+			Where("inviter_id > 0 AND inviter_id <> id").
+			Group("inviter_id").
+			Scan(&counts).Error; err != nil {
+			return err
+		}
+
+		desiredCounts := make(map[int]int, len(counts))
+		for _, count := range counts {
+			if _, ok := existingUsers[count.InviterId]; !ok {
+				continue
+			}
+			if count.Count > math.MaxInt32 {
+				return errors.New("邀请人数超过数据库字段上限")
+			}
+			desiredCounts[count.InviterId] = int(count.Count)
+			result.InvitationRelations += int(count.Count)
+		}
+
+		for _, user := range users {
+			desired := desiredCounts[user.Id]
+			if user.AffCount == desired {
+				continue
+			}
+			if err := tx.Unscoped().Model(&User{}).
+				Where("id = ?", user.Id).
+				UpdateColumn("aff_count", desired).Error; err != nil {
+				return err
+			}
+			result.UsersUpdated++
+		}
+		return nil
+	})
+	return result, err
+}
+
 func DeleteUserById(id int) (err error) {
 	if id == 0 {
 		return errors.New("id 为空！")
@@ -506,9 +616,16 @@ func HardDeleteUserById(id int) error {
 	return user.HardDelete()
 }
 
-func inviteUser(inviterId int) error {
+func incrementInviterCountTx(tx *gorm.DB, inviterId int, inviteeId int) error {
+	if tx == nil || inviterId <= 0 || inviterId == inviteeId {
+		return nil
+	}
+	return tx.Model(&User{}).Where("id = ?", inviterId).
+		UpdateColumn("aff_count", gorm.Expr("aff_count + ?", 1)).Error
+}
+
+func grantInviterRegistrationReward(inviterId int) error {
 	result := DB.Model(&User{}).Where("id = ?", inviterId).Updates(map[string]interface{}{
-		"aff_count":   gorm.Expr("aff_count + ?", 1),
 		"aff_quota":   gorm.Expr("aff_quota + ?", common.QuotaForInviter),
 		"aff_history": gorm.Expr("aff_history + ?", common.QuotaForInviter),
 	})
@@ -519,6 +636,22 @@ func inviteUser(inviterId int) error {
 		return gorm.ErrRecordNotFound
 	}
 	return nil
+}
+
+func (user *User) grantInvitationRegistrationRewards(inviterId int) {
+	if inviterId <= 0 || !operation_setting.IsPaymentComplianceConfirmed() {
+		return
+	}
+	if common.QuotaForInviteeEnabled && common.QuotaForInvitee > 0 {
+		if err := IncreaseUserQuota(user.Id, common.QuotaForInvitee, true); err == nil {
+			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
+		}
+	}
+	if common.QuotaForInviterEnabled && common.QuotaForInviter > 0 {
+		if err := grantInviterRegistrationReward(inviterId); err == nil {
+			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(common.QuotaForInviter)))
+		}
+	}
 }
 
 func (user *User) TransferAffQuotaToQuota(quota int) error {
@@ -617,6 +750,7 @@ func (user *User) Insert(inviterId int) error {
 			}
 			user.Quota = common.QuotaForNewUser
 			user.AffCode = common.GetRandomString(4)
+			user.InviterId = inviterId
 
 			// 初始化用户设置，包括默认的边栏配置
 			if user.Setting == "" {
@@ -625,7 +759,10 @@ func (user *User) Insert(inviterId int) error {
 				user.SetSetting(defaultSetting)
 			}
 
-			return tx.Create(user).Error
+			if err := tx.Create(user).Error; err != nil {
+				return err
+			}
+			return incrementInviterCountTx(tx, inviterId, user.Id)
 		})
 	}); err != nil {
 		return err
@@ -654,17 +791,7 @@ func (user *User) finishInsert(inviterId int) {
 	if common.QuotaForNewUser > 0 {
 		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("新用户注册赠送 %s", logger.LogQuota(common.QuotaForNewUser)))
 	}
-	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
-		if common.QuotaForInvitee > 0 {
-			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
-			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
-		}
-		if common.QuotaForInviter > 0 {
-			//_ = IncreaseUserQuota(inviterId, common.QuotaForInviter)
-			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(common.QuotaForInviter)))
-			_ = inviteUser(inviterId)
-		}
-	}
+	user.grantInvitationRegistrationRewards(inviterId)
 }
 
 func (user *User) FinishInsert(inviterId int) {
@@ -689,7 +816,10 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 			user.SetSetting(defaultSetting)
 		}
 
-		return tx.Create(user).Error
+		if err := tx.Create(user).Error; err != nil {
+			return err
+		}
+		return incrementInviterCountTx(tx, inviterId, user.Id)
 	})
 }
 
@@ -712,16 +842,7 @@ func (user *User) FinalizeOAuthUserCreation(inviterId int) {
 	if common.QuotaForNewUser > 0 {
 		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("新用户注册赠送 %s", logger.LogQuota(common.QuotaForNewUser)))
 	}
-	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
-		if common.QuotaForInvitee > 0 {
-			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
-			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
-		}
-		if common.QuotaForInviter > 0 {
-			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(common.QuotaForInviter)))
-			_ = inviteUser(inviterId)
-		}
-	}
+	user.grantInvitationRegistrationRewards(inviterId)
 }
 
 func (user *User) Update(updatePassword bool) error {

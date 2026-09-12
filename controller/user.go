@@ -504,6 +504,127 @@ func GetAffCode(c *gin.Context) {
 	return
 }
 
+type affiliateLookupUser struct {
+	Id          int        `json:"id"`
+	Username    string     `json:"username"`
+	DisplayName string     `json:"display_name"`
+	Email       string     `json:"email"`
+	Status      int        `json:"status"`
+	CreatedAt   int64      `json:"created_at"`
+	DeletedAt   *time.Time `json:"deleted_at"`
+}
+
+type affiliateLookupPage struct {
+	Items    []affiliateLookupUser `json:"items"`
+	Total    int64                 `json:"total"`
+	Page     int                   `json:"page"`
+	PageSize int                   `json:"page_size"`
+}
+
+type affiliateLookupResponse struct {
+	AffCode  string               `json:"aff_code"`
+	Owner    *affiliateLookupUser `json:"owner"`
+	Invitees affiliateLookupPage  `json:"invitees"`
+}
+
+func parseAffiliateLookupCode(rawQuery string) (string, error) {
+	query := strings.TrimSpace(rawQuery)
+	if query == "" {
+		return "", errors.New("affiliate lookup query is empty")
+	}
+
+	affCode := query
+	if strings.Contains(query, "://") || strings.Contains(query, "?") {
+		parsedURL, err := url.ParseRequestURI(query)
+		if err != nil {
+			return "", err
+		}
+		affCode = strings.TrimSpace(parsedURL.Query().Get("aff"))
+	}
+	if affCode == "" || len(affCode) > 32 {
+		return "", errors.New("invalid affiliate code")
+	}
+	return affCode, nil
+}
+
+func toAffiliateLookupUser(user *model.User) *affiliateLookupUser {
+	if user == nil {
+		return nil
+	}
+
+	var deletedAt *time.Time
+	if user.DeletedAt.Valid {
+		value := user.DeletedAt.Time
+		deletedAt = &value
+	}
+	return &affiliateLookupUser{
+		Id:          user.Id,
+		Username:    user.Username,
+		DisplayName: user.DisplayName,
+		Email:       user.Email,
+		Status:      user.Status,
+		CreatedAt:   user.CreatedAt,
+		DeletedAt:   deletedAt,
+	}
+}
+
+func SearchAffiliateUsers(c *gin.Context) {
+	affCode, err := parseAffiliateLookupCode(c.Query("q"))
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+
+	page := 1
+	if rawPage := c.Query("p"); rawPage != "" {
+		page, err = strconv.Atoi(rawPage)
+		if err != nil || page < 1 {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+	}
+	pageSize := 20
+	if rawPageSize := c.Query("page_size"); rawPageSize != "" {
+		pageSize, err = strconv.Atoi(rawPageSize)
+		if err != nil || pageSize < 1 {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		if pageSize > 100 {
+			pageSize = 100
+		}
+	}
+	maxInt := int(^uint(0) >> 1)
+	if page-1 > maxInt/pageSize {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	owner, users, total, err := model.GetAffiliateUserRelation(
+		affCode,
+		(page-1)*pageSize,
+		pageSize,
+	)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	invitees := make([]affiliateLookupUser, 0, len(users))
+	for _, user := range users {
+		invitees = append(invitees, *toAffiliateLookupUser(user))
+	}
+	common.ApiSuccess(c, affiliateLookupResponse{
+		AffCode: affCode,
+		Owner:   toAffiliateLookupUser(owner),
+		Invitees: affiliateLookupPage{
+			Items:    invitees,
+			Total:    total,
+			Page:     page,
+			PageSize: pageSize,
+		},
+	})
+}
+
 func GetSelf(c *gin.Context) {
 	id := c.GetInt("id")
 	userRole := c.GetInt("role")

@@ -159,3 +159,31 @@ func TestManageUserDeleteReturnsImmediatelyAndUnknownActionFails(t *testing.T) {
 	assert.EqualValues(t, 1, unchanged.AuthVersion)
 	assert.Equal(t, common.UserStatusEnabled, unchanged.Status)
 }
+
+func TestManageUserDirectQuotaIncreaseDoesNotGrantAffiliateRebate(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	inviter := model.User{
+		Username: "quota-inviter", Password: "password", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, Group: "default", AffCode: "quota-inviter-code",
+	}
+	require.NoError(t, db.Create(&inviter).Error)
+	invitee := model.User{
+		Username: "quota-invitee", Password: "password", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, Group: "default", AffCode: "quota-invitee-code", InviterId: inviter.Id,
+	}
+	require.NoError(t, db.Create(&invitee).Error)
+
+	recorder := performManageUserRequest(t, fmt.Sprintf(
+		`{"id":%d,"action":"add_quota","mode":"add","value":1000}`,
+		invitee.Id,
+	))
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+
+	var updatedInviter, updatedInvitee model.User
+	require.NoError(t, db.First(&updatedInviter, inviter.Id).Error)
+	require.NoError(t, db.First(&updatedInvitee, invitee.Id).Error)
+	assert.Equal(t, 1000, updatedInvitee.Quota)
+	assert.Zero(t, updatedInviter.AffQuota)
+	assert.Zero(t, updatedInviter.AffHistoryQuota)
+}

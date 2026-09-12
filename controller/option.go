@@ -193,8 +193,13 @@ func UpdateOption(c *gin.Context) {
 		option.Value = fmt.Sprintf("%v", option.Value)
 	}
 	switch option.Key {
-	case "QuotaForInviter", "QuotaForInvitee":
+	case "QuotaForInviter", "QuotaForInvitee", "AffiliateRebatePercentage":
 		if isPositiveOptionValue(option.Value.(string)) && !operation_setting.IsPaymentComplianceConfirmed() {
+			common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
+			return
+		}
+	case "QuotaForInviterEnabled", "QuotaForInviteeEnabled", "AffiliateRebateEnabled":
+		if option.Value == "true" && !operation_setting.IsPaymentComplianceConfirmed() {
 			common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
 			return
 		}
@@ -517,4 +522,18 @@ func UpdateOption(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
+}
+
+func RecalculateAffiliateInviteCounts(c *gin.Context) {
+	result, err := model.RecalculateInviteCounts()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "affiliate.invite_count_recalculate", map[string]interface{}{
+		"users_scanned":        result.UsersScanned,
+		"invitation_relations": result.InvitationRelations,
+		"users_updated":        result.UsersUpdated,
+	})
+	common.ApiSuccess(c, result)
 }

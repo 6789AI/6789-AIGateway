@@ -117,6 +117,35 @@ export interface SearchUsersParams {
   sort_order?: UserSortOrder
 }
 
+export interface AffiliateLookupUser {
+  id: number
+  username: string
+  display_name: string
+  email: string
+  status: number
+  created_at: number
+  deleted_at: string | null
+}
+
+export interface AffiliateLookupResult {
+  aff_code: string
+  owner: AffiliateLookupUser | null
+  invitees: {
+    items: AffiliateLookupUser[]
+    total: number
+    page: number
+    page_size: number
+  }
+}
+
+export interface AffiliateLookupParams {
+  q: string
+  p?: number
+  page_size?: number
+}
+
+export type AffiliateLookupResponse = ApiResponse<AffiliateLookupResult>
+
 export interface UserFormData {
   username: string
   display_name: string
@@ -149,4 +178,8 @@ export interface ManageUserQuotaPayload {
 // Dialog Types
 // ============================================================================
 
-export type UsersDialogType = 'create' | 'update' | 'delete'
+export type UsersDialogType =
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'affiliate-lookup'

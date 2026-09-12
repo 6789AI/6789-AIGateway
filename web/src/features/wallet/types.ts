@@ -242,7 +242,7 @@ export interface UserWalletData {
   free_usage_remaining: number
   /** Whether at least one promotion is currently active */
   free_usage_active: boolean
-  /** Affiliate quota (pending rewards) */
+  /** Affiliate quota earned but not yet transferred to the main balance */
   aff_quota: number
   /** Total affiliate quota earned (historical) */
   aff_history_quota: number
@@ -294,4 +294,14 @@ export interface BillingHistoryResponse {
  */
 export interface CompleteOrderRequest {
   trade_no: string
+  grant_affiliate_rebate?: boolean
 }
+
+export interface CompleteOrderResult {
+  completed: boolean
+  credited_quota: number
+  affiliate_rebate_granted: boolean
+  affiliate_rebate_quota: number
+}
+
+export type CompleteOrderResponse = ApiResponse<CompleteOrderResult>
