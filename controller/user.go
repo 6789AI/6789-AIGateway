@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -514,6 +515,16 @@ type affiliateLookupUser struct {
 	DeletedAt   *time.Time `json:"deleted_at"`
 }
 
+type affiliateLookupOwner struct {
+	affiliateLookupUser
+	InviterId int `json:"inviter_id"`
+}
+
+type affiliateLookupInviter struct {
+	affiliateLookupUser
+	AffCode string `json:"aff_code"`
+}
+
 type affiliateLookupPage struct {
 	Items    []affiliateLookupUser `json:"items"`
 	Total    int64                 `json:"total"`
@@ -522,29 +533,79 @@ type affiliateLookupPage struct {
 }
 
 type affiliateLookupResponse struct {
-	AffCode  string               `json:"aff_code"`
-	Owner    *affiliateLookupUser `json:"owner"`
-	Invitees affiliateLookupPage  `json:"invitees"`
+	AffCode  string                  `json:"aff_code"`
+	Owner    *affiliateLookupOwner   `json:"owner"`
+	Inviter  *affiliateLookupInviter `json:"inviter"`
+	Invitees affiliateLookupPage     `json:"invitees"`
 }
 
-func parseAffiliateLookupCode(rawQuery string) (string, error) {
+const affiliateLookupAmbiguousErrorCode = "affiliate_lookup_ambiguous"
+
+func parseAffiliateLookupQuery(rawQuery string) (model.AffiliateLookupFilter, error) {
+	filter := model.AffiliateLookupFilter{}
 	query := strings.TrimSpace(rawQuery)
 	if query == "" {
-		return "", errors.New("affiliate lookup query is empty")
+		return filter, errors.New("affiliate lookup query is empty")
 	}
 
-	affCode := query
 	if strings.Contains(query, "://") || strings.Contains(query, "?") {
 		parsedURL, err := url.ParseRequestURI(query)
 		if err != nil {
-			return "", err
+			return filter, err
 		}
-		affCode = strings.TrimSpace(parsedURL.Query().Get("aff"))
+		filter.Type = model.AffiliateLookupTypeAffCode
+		filter.Value = strings.TrimSpace(parsedURL.Query().Get("aff"))
+	} else {
+		filter.Type = model.AffiliateLookupTypeAuto
+		filter.Value = query
+		if prefix, value, found := strings.Cut(query, ":"); found {
+			switch strings.ToLower(strings.TrimSpace(prefix)) {
+			case "id":
+				filter.Type = model.AffiliateLookupTypeUserId
+			case "username":
+				return filter, errors.New("username lookup is not supported")
+			case "email":
+				filter.Type = model.AffiliateLookupTypeEmail
+			case "aff":
+				filter.Type = model.AffiliateLookupTypeAffCode
+			}
+			if filter.Type != model.AffiliateLookupTypeAuto {
+				filter.Value = strings.TrimSpace(value)
+			}
+		}
 	}
-	if affCode == "" || len(affCode) > 32 {
-		return "", errors.New("invalid affiliate code")
+
+	if filter.Value == "" {
+		return filter, errors.New("affiliate lookup value is empty")
 	}
-	return affCode, nil
+	switch filter.Type {
+	case model.AffiliateLookupTypeUserId:
+		userId, err := strconv.Atoi(filter.Value)
+		if err != nil || userId <= 0 {
+			return filter, errors.New("invalid user id")
+		}
+		filter.UserId = userId
+		filter.Value = strconv.Itoa(userId)
+	case model.AffiliateLookupTypeEmail:
+		filter.Value = model.NormalizeEmail(filter.Value)
+		if utf8.RuneCountInString(filter.Value) > 50 {
+			return filter, errors.New("invalid email")
+		}
+	case model.AffiliateLookupTypeAffCode:
+		if utf8.RuneCountInString(filter.Value) > 32 {
+			return filter, errors.New("invalid affiliate code")
+		}
+	case model.AffiliateLookupTypeAuto:
+		if utf8.RuneCountInString(filter.Value) > 50 {
+			return filter, errors.New("affiliate lookup value is too long")
+		}
+		if userId, err := strconv.Atoi(filter.Value); err == nil && userId > 0 {
+			filter.UserId = userId
+		}
+	default:
+		return filter, errors.New("invalid affiliate lookup type")
+	}
+	return filter, nil
 }
 
 func toAffiliateLookupUser(user *model.User) *affiliateLookupUser {
@@ -568,8 +629,30 @@ func toAffiliateLookupUser(user *model.User) *affiliateLookupUser {
 	}
 }
 
+func toAffiliateLookupOwner(user *model.User) *affiliateLookupOwner {
+	base := toAffiliateLookupUser(user)
+	if base == nil {
+		return nil
+	}
+	return &affiliateLookupOwner{
+		affiliateLookupUser: *base,
+		InviterId:           user.InviterId,
+	}
+}
+
+func toAffiliateLookupInviter(user *model.User) *affiliateLookupInviter {
+	base := toAffiliateLookupUser(user)
+	if base == nil {
+		return nil
+	}
+	return &affiliateLookupInviter{
+		affiliateLookupUser: *base,
+		AffCode:             user.AffCode,
+	}
+}
+
 func SearchAffiliateUsers(c *gin.Context) {
-	affCode, err := parseAffiliateLookupCode(c.Query("q"))
+	filter, err := parseAffiliateLookupQuery(c.Query("q"))
 	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
@@ -599,12 +682,20 @@ func SearchAffiliateUsers(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	owner, users, total, err := model.GetAffiliateUserRelation(
-		affCode,
+	owner, inviter, users, total, err := model.GetAffiliateUserRelation(
+		filter,
 		(page-1)*pageSize,
 		pageSize,
 	)
 	if err != nil {
+		if errors.Is(err, model.ErrAffiliateLookupAmbiguous) {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"code":    affiliateLookupAmbiguousErrorCode,
+				"message": common.TranslateMessage(c, i18n.MsgUserAffiliateLookupAmbiguous),
+			})
+			return
+		}
 		common.ApiError(c, err)
 		return
 	}
@@ -613,9 +704,14 @@ func SearchAffiliateUsers(c *gin.Context) {
 	for _, user := range users {
 		invitees = append(invitees, *toAffiliateLookupUser(user))
 	}
+	affCode := ""
+	if owner != nil {
+		affCode = owner.AffCode
+	}
 	common.ApiSuccess(c, affiliateLookupResponse{
 		AffCode: affCode,
-		Owner:   toAffiliateLookupUser(owner),
+		Owner:   toAffiliateLookupOwner(owner),
+		Inviter: toAffiliateLookupInviter(inviter),
 		Invitees: affiliateLookupPage{
 			Items:    invitees,
 			Total:    total,

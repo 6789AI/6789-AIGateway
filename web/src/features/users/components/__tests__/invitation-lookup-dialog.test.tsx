@@ -242,7 +242,8 @@ describe('invitation relationship lookup dialog', () => {
           success: true,
           data: {
             aff_code: '46fD',
-            owner: user(1, 'affiliate-owner'),
+            owner: { ...user(1, 'affiliate-owner'), inviter_id: 7 },
+            inviter: { ...user(7, 'upstream-inviter'), aff_code: 'UP01' },
             invitees: {
               items: [user(22, 'deleted-invitee', '2026-09-12T00:00:00Z')],
               total: 21,
@@ -257,8 +258,20 @@ describe('invitation relationship lookup dialog', () => {
     await renderDialog()
     assert.ok(
       document.body.textContent?.includes(
-        'Search an invitation code or promotion link to view its owner and direct invitees.'
+        'Search for a user to view their invitation code, inviter, and direct invitees.'
       )
+    )
+    assert.equal(
+      document.querySelector('label[for="affiliate-lookup-query"]'),
+      null
+    )
+    assert.equal(
+      getLookupInput().placeholder,
+      'Enter a user ID, email, invitation code, or promotion link'
+    )
+    assert.equal(
+      getLookupInput().getAttribute('aria-label'),
+      'Search by user ID, email, invitation code, or promotion link.'
     )
 
     const link = 'https://www.6789api.top/sign-up?aff=46fD'
@@ -273,6 +286,8 @@ describe('invitation relationship lookup dialog', () => {
 
     assert.equal(requests[0]?.q, link)
     assert.equal(requests[0]?.p, 1)
+    assert.ok(document.body.textContent?.includes('upstream-inviter'))
+    assert.ok(document.body.textContent?.includes('UP01'))
     assert.ok(document.body.textContent?.includes('deleted-invitee'))
     assert.ok(document.body.textContent?.includes('Deleted'))
     assert.ok(document.body.textContent?.includes('Page 1 of 2'))
@@ -295,7 +310,8 @@ describe('invitation relationship lookup dialog', () => {
           success: true,
           data: {
             aff_code: '46fD',
-            owner: user(1, 'affiliate-owner'),
+            owner: { ...user(1, 'affiliate-owner'), inviter_id: 7 },
+            inviter: { ...user(7, 'upstream-inviter'), aff_code: 'UP01' },
             invitees: {
               items: [user(2, 'active-invitee')],
               total: 21,
@@ -395,6 +411,63 @@ describe('invitation relationship lookup dialog', () => {
     assert.ok(
       document.body.textContent?.includes(
         'Failed to search invitation relationships'
+      )
+    )
+  })
+
+  test('localizes ambiguous automatic matches', async () => {
+    let submittedQuery = ''
+    apiClient.get = async (_url, config) => {
+      submittedQuery = String(config?.params?.q ?? '')
+      return {
+        data: {
+          success: false,
+          code: 'affiliate_lookup_ambiguous',
+          message: 'server fallback',
+        },
+      }
+    }
+
+    await renderDialog()
+    await changeInput('collision')
+    await submitLookup()
+    await act(async () =>
+      waitForCondition(
+        () =>
+          document.body.textContent?.includes(
+            'Multiple users matched. Use id:, email:, or aff: to specify the lookup type.'
+          ) === true,
+        'ambiguous lookup guidance was not rendered'
+      )
+    )
+
+    assert.equal(submittedQuery, 'collision')
+    assert.equal(document.body.textContent?.includes('server fallback'), false)
+  })
+
+  test('shows the recorded inviter ID when the inviter was hard deleted', async () => {
+    apiClient.get = async () => ({
+      data: {
+        success: true,
+        data: {
+          aff_code: 'SELF',
+          owner: { ...user(9, 'orphaned-owner'), inviter_id: 404 },
+          inviter: null,
+          invitees: { items: [], total: 0, page: 1, page_size: 20 },
+        },
+      },
+    })
+
+    await renderDialog()
+    await changeInput('9')
+    await submitLookup()
+    await act(async () =>
+      waitForCondition(
+        () =>
+          document.body.textContent?.includes(
+            'The recorded inviter no longer exists (ID: 404).'
+          ) === true,
+        'missing inviter state was not rendered'
       )
     )
   })

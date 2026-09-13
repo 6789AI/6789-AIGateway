@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -29,12 +30,14 @@ func performAffiliateSearchRequest(t *testing.T, requestURL string) *httptest.Re
 
 func decodeAffiliateSearchResponse(t *testing.T, recorder *httptest.ResponseRecorder) struct {
 	Success bool                    `json:"success"`
+	Code    string                  `json:"code"`
 	Message string                  `json:"message"`
 	Data    affiliateLookupResponse `json:"data"`
 } {
 	t.Helper()
 	var response struct {
 		Success bool                    `json:"success"`
+		Code    string                  `json:"code"`
 		Message string                  `json:"message"`
 		Data    affiliateLookupResponse `json:"data"`
 	}
@@ -42,42 +45,59 @@ func decodeAffiliateSearchResponse(t *testing.T, recorder *httptest.ResponseReco
 	return response
 }
 
-func TestParseAffiliateLookupCode(t *testing.T) {
+func TestParseAffiliateLookupQuery(t *testing.T) {
 	tests := []struct {
-		name    string
-		query   string
-		want    string
-		wantErr bool
+		name       string
+		query      string
+		wantType   model.AffiliateLookupType
+		wantValue  string
+		wantUserId int
+		wantErr    bool
 	}{
-		{name: "raw code", query: " 46fD ", want: "46fD"},
-		{name: "absolute signup link", query: "https://www.6789api.top/sign-up?aff=46fD", want: "46fD"},
-		{name: "relative signup link", query: "/sign-up?next=%2Fconsole&aff=46fD", want: "46fD"},
+		{name: "automatic value", query: " 46fD ", wantType: model.AffiliateLookupTypeAuto, wantValue: "46fD"},
+		{name: "automatic numeric id", query: "42", wantType: model.AffiliateLookupTypeAuto, wantValue: "42", wantUserId: 42},
+		{name: "absolute signup link", query: "https://www.6789api.top/sign-up?aff=46fD", wantType: model.AffiliateLookupTypeAffCode, wantValue: "46fD"},
+		{name: "relative signup link", query: "/sign-up?next=%2Fconsole&aff=46fD", wantType: model.AffiliateLookupTypeAffCode, wantValue: "46fD"},
+		{name: "forced id", query: "ID: 42", wantType: model.AffiliateLookupTypeUserId, wantValue: "42", wantUserId: 42},
+		{name: "forced email", query: "email: OWNER@EXAMPLE.COM ", wantType: model.AffiliateLookupTypeEmail, wantValue: "owner@example.com"},
+		{name: "forced affiliate code", query: "aff: 46fD", wantType: model.AffiliateLookupTypeAffCode, wantValue: "46fD"},
 		{name: "empty", query: " ", wantErr: true},
 		{name: "link without code", query: "https://www.6789api.top/sign-up", wantErr: true},
 		{name: "link with empty code", query: "https://www.6789api.top/sign-up?aff=", wantErr: true},
-		{name: "code exceeds database limit", query: strings.Repeat("a", 33), wantErr: true},
+		{name: "forced code exceeds database limit", query: "aff:" + strings.Repeat("a", 33), wantErr: true},
+		{name: "automatic value exceeds field limits", query: strings.Repeat("a", 51), wantErr: true},
+		{name: "invalid forced id", query: "id:not-a-number", wantErr: true},
+		{name: "unsupported username prefix", query: "username:owner", wantErr: true},
 		{name: "malformed link", query: "https://%", wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseAffiliateLookupCode(tt.query)
+			got, err := parseAffiliateLookupQuery(tt.query)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.wantType, got.Type)
+			assert.Equal(t, tt.wantValue, got.Value)
+			assert.Equal(t, tt.wantUserId, got.UserId)
 		})
 	}
 }
 
 func TestSearchAffiliateUsersReturnsOwnerAndDirectInviteesFromDatabase(t *testing.T) {
 	db := setupManageUserTestDB(t)
+	inviter := model.User{
+		Username: "upstream-inviter", Password: "inviter-secret", DisplayName: "Upstream Inviter",
+		Email: "inviter@example.com", Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
+		Group: "default", AffCode: "UP01",
+	}
+	require.NoError(t, db.Create(&inviter).Error)
 	owner := model.User{
 		Username: "affiliate-owner", Password: "owner-secret", DisplayName: "Affiliate Owner",
 		Email: "owner@example.com", Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
-		Group: "default", AffCode: "46fD",
+		Group: "default", AffCode: "46fD", InviterId: inviter.Id,
 	}
 	require.NoError(t, db.Create(&owner).Error)
 	directActive := model.User{
@@ -105,6 +125,7 @@ func TestSearchAffiliateUsersReturnsOwnerAndDirectInviteesFromDatabase(t *testin
 		AffCode: "none",
 	}
 	require.NoError(t, db.Create(&unrelated).Error)
+	require.NoError(t, db.Delete(&inviter).Error)
 
 	queryCount := 0
 	callbackName := "test:count_affiliate_lookup_queries"
@@ -133,6 +154,11 @@ func TestSearchAffiliateUsersReturnsOwnerAndDirectInviteesFromDatabase(t *testin
 	require.NotNil(t, response.Data.Owner)
 	assert.Equal(t, owner.Id, response.Data.Owner.Id)
 	assert.Equal(t, "affiliate-owner", response.Data.Owner.Username)
+	assert.Equal(t, inviter.Id, response.Data.Owner.InviterId)
+	require.NotNil(t, response.Data.Inviter)
+	assert.Equal(t, inviter.Id, response.Data.Inviter.Id)
+	assert.Equal(t, "UP01", response.Data.Inviter.AffCode)
+	assert.NotNil(t, response.Data.Inviter.DeletedAt)
 	assert.Equal(t, int64(2), response.Data.Invitees.Total)
 	assert.Equal(t, 1, response.Data.Invitees.Page)
 	assert.Equal(t, 1, response.Data.Invitees.PageSize)
@@ -145,10 +171,29 @@ func TestSearchAffiliateUsersReturnsOwnerAndDirectInviteesFromDatabase(t *testin
 	assert.NotContains(t, recorder.Body.String(), `"github_id"`)
 	assert.NotContains(t, recorder.Body.String(), `"quota"`)
 
-	linkResponse := response
-	recorder = performAffiliateSearchRequest(t, "/api/user/aff/search?q=46fD&p=1&page_size=1")
+	linkResponse := response.Data
+	queries := []string{
+		"46fD",
+		"aff:46fD",
+		strconv.Itoa(owner.Id),
+		"id:" + strconv.Itoa(owner.Id),
+		"OWNER@EXAMPLE.COM",
+		"email:OWNER@EXAMPLE.COM",
+	}
+	for _, query := range queries {
+		recorder = performAffiliateSearchRequest(t, fmt.Sprintf(
+			"/api/user/aff/search?q=%s&p=1&page_size=1",
+			url.QueryEscape(query),
+		))
+		response = decodeAffiliateSearchResponse(t, recorder)
+		assert.True(t, response.Success, query)
+		assert.Equal(t, linkResponse, response.Data, query)
+	}
+
+	recorder = performAffiliateSearchRequest(t, "/api/user/aff/search?q=affiliate-owner")
 	response = decodeAffiliateSearchResponse(t, recorder)
-	assert.Equal(t, linkResponse.Data, response.Data)
+	assert.True(t, response.Success)
+	assert.Nil(t, response.Data.Owner)
 
 	recorder = performAffiliateSearchRequest(t, "/api/user/aff/search?q=46fD&p=2&page_size=1")
 	response = decodeAffiliateSearchResponse(t, recorder)
@@ -157,6 +202,36 @@ func TestSearchAffiliateUsersReturnsOwnerAndDirectInviteesFromDatabase(t *testin
 	assert.Nil(t, response.Data.Invitees.Items[0].DeletedAt)
 	assert.NotEqual(t, grandchild.Id, response.Data.Invitees.Items[0].Id)
 	assert.NotEqual(t, unrelated.Id, response.Data.Invitees.Items[0].Id)
+}
+
+func TestSearchAffiliateUsersRejectsAmbiguousAutomaticLookupAndAcceptsPrefixes(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	emailMatch := model.User{
+		Username: "email-match", Password: "password", Email: "collision@example.com", Status: common.UserStatusEnabled,
+		Group: "default", AffCode: "user-code",
+	}
+	affCodeMatch := model.User{
+		Username: "other-user", Password: "password", Status: common.UserStatusEnabled,
+		Group: "default", AffCode: "collision@example.com",
+	}
+	require.NoError(t, db.Create(&emailMatch).Error)
+	require.NoError(t, db.Create(&affCodeMatch).Error)
+
+	recorder := performAffiliateSearchRequest(t, "/api/user/aff/search?q=collision%40example.com")
+	response := decodeAffiliateSearchResponse(t, recorder)
+	assert.False(t, response.Success)
+	assert.Equal(t, affiliateLookupAmbiguousErrorCode, response.Code)
+	assert.NotEmpty(t, response.Message)
+
+	recorder = performAffiliateSearchRequest(t, "/api/user/aff/search?q=email%3Acollision%40example.com")
+	response = decodeAffiliateSearchResponse(t, recorder)
+	require.NotNil(t, response.Data.Owner)
+	assert.Equal(t, emailMatch.Id, response.Data.Owner.Id)
+
+	recorder = performAffiliateSearchRequest(t, "/api/user/aff/search?q=aff%3Acollision%40example.com")
+	response = decodeAffiliateSearchResponse(t, recorder)
+	require.NotNil(t, response.Data.Owner)
+	assert.Equal(t, affCodeMatch.Id, response.Data.Owner.Id)
 }
 
 func TestSearchAffiliateUsersReturnsEmptyResultAndRejectsInvalidInput(t *testing.T) {

@@ -33,13 +33,13 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 
 import { lookupAffiliateUsers } from '../api'
 import { InvitationLookupResults } from './invitation-lookup-results'
 
 const INVITEE_PAGE_SIZE = 20
+const AFFILIATE_LOOKUP_AMBIGUOUS_ERROR_CODE = 'affiliate_lookup_ambiguous'
 
 type InvitationLookupDialogProps = {
   open: boolean
@@ -77,8 +77,14 @@ export function InvitationLookupDialog(props: InvitationLookupDialogProps) {
         page_size: INVITEE_PAGE_SIZE,
       })
       if (!response.success || !response.data) {
+        const message =
+          response.code === AFFILIATE_LOOKUP_AMBIGUOUS_ERROR_CODE
+            ? t(
+                'Multiple users matched. Use id:, email:, or aff: to specify the lookup type.'
+              )
+            : response.message
         throw new Error(
-          response.message || t('Failed to search invitation relationships')
+          message || t('Failed to search invitation relationships')
         )
       }
       return response.data
@@ -119,7 +125,7 @@ export function InvitationLookupDialog(props: InvitationLookupDialogProps) {
           <EmptyTitle>{t('Invitation lookup')}</EmptyTitle>
           <EmptyDescription>
             {t(
-              'Search an invitation code or promotion link to view its owner and direct invitees.'
+              'Search for a user to view their invitation code, inviter, and direct invitees.'
             )}
           </EmptyDescription>
         </EmptyHeader>
@@ -150,7 +156,9 @@ export function InvitationLookupDialog(props: InvitationLookupDialogProps) {
           </EmptyMedia>
           <EmptyTitle>{t('No invitation relationship found')}</EmptyTitle>
           <EmptyDescription>
-            {t('Check the invitation code or promotion link and try again.')}
+            {t(
+              'Check the user ID, email, invitation code, or promotion link and try again.'
+            )}
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -164,27 +172,31 @@ export function InvitationLookupDialog(props: InvitationLookupDialogProps) {
       open={props.open}
       onOpenChange={handleClose}
       title={t('Invitation lookup')}
-      description={t('Search by invitation code or promotion link.')}
+      description={t(
+        'Search by user ID, email, invitation code, or promotion link.'
+      )}
       contentClassName='sm:max-w-4xl'
       contentHeight='min(68vh, 640px)'
       bodyClassName='space-y-4'
     >
       <form
-        className='flex flex-col gap-2 sm:flex-row sm:items-end'
+        className='flex flex-col gap-2 sm:flex-row sm:items-center'
         onSubmit={(event) => {
           event.preventDefault()
           runLookup(1)
         }}
       >
-        <div className='min-w-0 flex-1 space-y-2'>
-          <Label htmlFor='affiliate-lookup-query'>
-            {t('Invitation code or promotion link')}
-          </Label>
+        <div className='min-w-0 flex-1'>
           <Input
             id='affiliate-lookup-query'
             value={draft}
             autoComplete='off'
-            placeholder={t('Enter an invitation code or promotion link')}
+            aria-label={t(
+              'Search by user ID, email, invitation code, or promotion link.'
+            )}
+            placeholder={t(
+              'Enter a user ID, email, invitation code, or promotion link'
+            )}
             onChange={(event) => setDraft(event.target.value)}
           />
         </div>

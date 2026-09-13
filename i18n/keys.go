@@ -120,6 +120,7 @@ const (
 	MsgUserTelegramNotBound          = "user.telegram_not_bound"
 	MsgUserLinuxDOIdEmpty            = "user.linux_do_id_empty"
 	MsgUserQuotaChangeZero           = "user.quota_change_zero"
+	MsgUserAffiliateLookupAmbiguous  = "user.affiliate_lookup_ambiguous"
 )
 
 // Quota related messages

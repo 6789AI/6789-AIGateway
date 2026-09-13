@@ -1662,7 +1662,7 @@
       "get": {
         "summary": "查询邀请关系",
         "deprecated": false,
-        "description": "👨‍💼 需要管理员权限（Admin）。使用邀请码或包含 aff 参数的推广链接查询归属人及其直接邀请的用户。结果实时读取主数据库并包含软删除用户。",
+        "description": "👨‍💼 需要管理员权限（Admin）。使用用户 ID、邮箱、邀请码或包含 aff 参数的推广链接查询用户、上级邀请人及其直接邀请的用户。支持 id:、email:、aff: 前缀；自动查询跨字段命中不同用户时返回歧义错误。结果实时读取主数据库并包含软删除用户。",
         "tags": [
           "用户管理"
         ],
@@ -1670,11 +1670,11 @@
           {
             "name": "q",
             "in": "query",
-            "description": "邀请码或包含 aff 参数的推广链接",
+            "description": "用户 ID、邮箱、邀请码、包含 aff 参数的推广链接，或带类型前缀的精确查询",
             "required": true,
             "schema": {
               "type": "string",
-              "example": "https://www.6789api.top/sign-up?aff=46fD"
+              "example": "id:3"
             }
           },
           {
@@ -1716,6 +1716,10 @@
                     "message": {
                       "type": "string"
                     },
+                    "code": {
+                      "type": "string",
+                      "description": "发生跨字段歧义时为 affiliate_lookup_ambiguous"
+                    },
                     "data": {
                       "type": "object",
                       "properties": {
@@ -1749,6 +1753,44 @@
                               "type": "string",
                               "format": "date-time",
                               "nullable": true
+                            },
+                            "inviter_id": {
+                              "type": "integer",
+                              "description": "记录的上级邀请人 ID；为 0 表示没有上级邀请人"
+                            }
+                          }
+                        },
+                        "inviter": {
+                          "type": "object",
+                          "nullable": true,
+                          "description": "上级邀请人；inviter_id 大于 0 但此处为 null 时表示原账号已硬删除或关系无效",
+                          "properties": {
+                            "id": {
+                              "type": "integer"
+                            },
+                            "username": {
+                              "type": "string"
+                            },
+                            "display_name": {
+                              "type": "string"
+                            },
+                            "email": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "integer"
+                            },
+                            "created_at": {
+                              "type": "integer",
+                              "format": "int64"
+                            },
+                            "deleted_at": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "aff_code": {
+                              "type": "string"
                             }
                           }
                         },

@@ -22,10 +22,8 @@ import {
   UserGroupIcon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 
-import { StatusBadge } from '@/components/status-badge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -46,95 +44,18 @@ import {
 } from '@/components/ui/table'
 import { formatTimestamp } from '@/lib/format'
 
-import { USER_STATUS, USER_STATUSES } from '../constants'
-import type { AffiliateLookupResult, AffiliateLookupUser } from '../types'
+import type { AffiliateLookupOwner, AffiliateLookupResult } from '../types'
+import {
+  AffiliateLookupStatus,
+  InvitationLookupInviterDetails,
+  InvitationLookupUserDetails,
+} from './invitation-lookup-user-details'
 
 type InvitationLookupResultsProps = {
   result: AffiliateLookupResult
-  owner: AffiliateLookupUser
+  owner: AffiliateLookupOwner
   isFetching: boolean
   onPageChange: (page: number) => void
-}
-
-function AffiliateStatus(props: { user: AffiliateLookupUser; t: TFunction }) {
-  const status = props.user.deleted_at ? USER_STATUS.DELETED : props.user.status
-  const config = USER_STATUSES[status as keyof typeof USER_STATUSES]
-
-  if (!config) {
-    return (
-      <StatusBadge
-        label={props.t('Unknown')}
-        variant='neutral'
-        copyable={false}
-      />
-    )
-  }
-  return (
-    <StatusBadge
-      label={props.t(config.labelKey)}
-      variant={config.variant}
-      copyable={false}
-    />
-  )
-}
-
-function OwnerDetails(props: {
-  owner: AffiliateLookupUser
-  affCode: string
-  t: TFunction
-}) {
-  return (
-    <section aria-labelledby='invitation-owner-heading' className='space-y-3'>
-      <div className='flex flex-wrap items-center justify-between gap-2'>
-        <h3 id='invitation-owner-heading' className='text-sm font-semibold'>
-          {props.t('Invitation link owner')}
-        </h3>
-        <Badge variant='outline'>{props.affCode}</Badge>
-      </div>
-      <dl className='grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4'>
-        <div className='min-w-0'>
-          <dt className='text-muted-foreground text-xs'>{props.t('ID')}</dt>
-          <dd className='mt-1 text-sm font-medium tabular-nums'>
-            {props.owner.id}
-          </dd>
-        </div>
-        <div className='min-w-0'>
-          <dt className='text-muted-foreground text-xs'>
-            {props.t('Username')}
-          </dt>
-          <dd className='mt-1 min-w-0 text-sm font-medium break-words'>
-            {props.owner.username}
-            {props.owner.display_name &&
-              props.owner.display_name !== props.owner.username && (
-                <span className='text-muted-foreground ms-1 font-normal'>
-                  ({props.owner.display_name})
-                </span>
-              )}
-          </dd>
-        </div>
-        <div className='min-w-0'>
-          <dt className='text-muted-foreground text-xs'>{props.t('Email')}</dt>
-          <dd className='mt-1 text-sm break-all'>{props.owner.email || '-'}</dd>
-        </div>
-        <div className='min-w-0'>
-          <dt className='text-muted-foreground text-xs'>{props.t('Status')}</dt>
-          <dd className='mt-1'>
-            <AffiliateStatus user={props.owner} t={props.t} />
-          </dd>
-        </div>
-        <div className='min-w-0 sm:col-span-2 lg:col-span-4'>
-          <dt className='text-muted-foreground text-xs'>
-            {props.t('Created At')}
-          </dt>
-          <dd className='mt-1 text-sm tabular-nums'>
-            {props.owner.created_at
-              ? formatTimestamp(props.owner.created_at)
-              : '-'}
-          </dd>
-        </div>
-      </dl>
-    </section>
-  )
 }
 
 export function InvitationLookupResults(props: InvitationLookupResultsProps) {
@@ -145,10 +66,23 @@ export function InvitationLookupResults(props: InvitationLookupResultsProps) {
   )
 
   return (
-    <div className='space-y-4'>
-      <OwnerDetails owner={props.owner} affCode={props.result.aff_code} t={t} />
+    <div className='flex flex-col gap-4'>
+      <InvitationLookupUserDetails
+        user={props.owner}
+        affCode={props.result.aff_code}
+        heading={t('Invitation link owner')}
+        headingId='invitation-owner-heading'
+      />
       <Separator />
-      <section aria-labelledby='direct-invitees-heading' className='space-y-3'>
+      <InvitationLookupInviterDetails
+        owner={props.owner}
+        inviter={props.result.inviter}
+      />
+      <Separator />
+      <section
+        aria-labelledby='direct-invitees-heading'
+        className='flex flex-col gap-3'
+      >
         <div className='flex items-center justify-between gap-2'>
           <h3 id='direct-invitees-heading' className='text-sm font-semibold'>
             {t('Direct invitees')}
@@ -203,7 +137,7 @@ export function InvitationLookupResults(props: InvitationLookupResultsProps) {
                       </span>
                     </TableCell>
                     <TableCell>
-                      <AffiliateStatus user={user} t={t} />
+                      <AffiliateLookupStatus user={user} />
                     </TableCell>
                     <TableCell className='tabular-nums'>
                       {user.created_at ? formatTimestamp(user.created_at) : '-'}

@@ -6,14 +6,22 @@
 
 1. 进入管理后台的“用户管理”页面。
 2. 点击“邀请关系查询”。
-3. 输入邀请码（例如 `46fD`）或包含 `aff` 参数的推广链接（例如 `https://www.6789api.top/sign-up?aff=46fD`）。
+3. 输入用户 ID、邮箱、邀请码（例如 `46fD`），或包含 `aff` 参数的推广链接（例如 `https://www.6789api.top/sign-up?aff=46fD`）。
 4. 点击“搜索”或按 Enter，查看邀请链接归属人和直接受邀用户。
 
-结果包含软删除用户并按用户 ID 倒序分页。查询只展示邀请码对应的直接受邀用户，不递归展示二级或更深层邀请关系。受邀用户总数根据实际的 `inviter_id` 关系计算，不依赖邀请奖励或累计邀请次数字段。
+查询结果以匹配到的用户为主体，保留并展示该用户自己的邀请码，同时展示其上级邀请人和直接受邀用户。上级邀请人被软删除时仍展示并标记“已删除”；如果记录中存在 `inviter_id`，但对应账号已经硬删除或无效，则保留显示该邀请人 ID 并提示记录已不存在。没有 `inviter_id` 时显示该用户不是通过邀请注册的。
+
+结果包含软删除用户，直接受邀用户按用户 ID 倒序分页。查询不递归展示二级或更深层邀请关系。受邀用户总数根据实际的 `inviter_id` 关系计算，不依赖邀请奖励或累计邀请次数字段。
+
+查询默认对 ID、规范化邮箱和邀请码执行精确匹配，不进行模糊搜索，也不支持按用户名查询。同一个输入如果只命中一个用户就直接返回；如果跨字段命中多个不同用户，则返回歧义提示。管理员可以通过以下前缀强制指定查询类型：
+
+- `id:123`
+- `email:owner@example.com`
+- `aff:46fD`
 
 ## 数据与缓存
 
-查询直接使用现有的 `users.aff_code` 唯一索引和 `users.inviter_id` 索引，不需要数据库迁移或数据回填。
+查询直接使用现有的 `users.id`、`users.email`、`users.aff_code` 和 `users.inviter_id` 索引，不需要数据库迁移或数据回填。
 
 该功能不使用 Redis 或服务端内存缓存。每次搜索和翻页都会读取主数据库，以便及时反映新注册、账号状态变化和软删除操作。已经被管理员硬删除的用户及其邀请归属数据无法恢复或查询。
 
@@ -49,11 +57,11 @@ Authorization: Bearer <root-access-token>
 ## 管理员接口
 
 ```http
-GET /api/user/aff/search?q=46fD&p=1&page_size=20
+GET /api/user/aff/search?q=id%3A3&p=1&page_size=20
 Authorization: Bearer <admin-access-token>
 ```
 
-`q` 也可以传入完整推广链接。`p` 是受邀用户页码，`page_size` 最大为 100。
+`q` 支持裸用户 ID、邮箱、邀请码、完整推广链接以及 `id:`、`email:`、`aff:` 前缀。`p` 是受邀用户页码，`page_size` 最大为 100。
 
 查询成功时返回精简的用户信息，不包含密码、访问令牌、OAuth 标识、余额或其他无关敏感字段：
 
@@ -70,7 +78,18 @@ Authorization: Bearer <admin-access-token>
       "email": "owner@example.com",
       "status": 1,
       "created_at": 1700000000,
-      "deleted_at": null
+      "deleted_at": null,
+      "inviter_id": 8
+    },
+    "inviter": {
+      "id": 8,
+      "username": "inviter",
+      "display_name": "Inviter",
+      "email": "inviter@example.com",
+      "status": 1,
+      "created_at": 1690000000,
+      "deleted_at": null,
+      "aff_code": "AB12"
     },
     "invitees": {
       "items": [],
@@ -82,4 +101,6 @@ Authorization: Bearer <admin-access-token>
 }
 ```
 
-邀请码不存在时仍返回成功响应，其中 `owner` 为 `null`，`invitees.items` 为空数组。空输入、缺少 `aff` 参数的链接或超过 32 个字符的邀请码会返回参数错误。
+没有任何用户匹配时仍返回成功响应，其中 `owner` 和 `inviter` 为 `null`，`invitees.items` 为空数组。空输入、缺少 `aff` 参数的链接、无效前缀值、超过字段长度上限的输入会返回参数错误。
+
+自动查询跨字段命中多个不同用户时返回 `code: "affiliate_lookup_ambiguous"`。此时使用上述前缀即可精确指定目标用户。

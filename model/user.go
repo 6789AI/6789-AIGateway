@@ -491,14 +491,31 @@ func GetUserIdByAffCode(affCode string) (int, error) {
 	return user.Id, err
 }
 
-func GetAffiliateUserRelation(affCode string, startIdx int, num int) (*User, []*User, int64, error) {
+type AffiliateLookupType string
+
+const (
+	AffiliateLookupTypeAuto    AffiliateLookupType = "auto"
+	AffiliateLookupTypeUserId  AffiliateLookupType = "user_id"
+	AffiliateLookupTypeEmail   AffiliateLookupType = "email"
+	AffiliateLookupTypeAffCode AffiliateLookupType = "aff_code"
+)
+
+var ErrAffiliateLookupAmbiguous = errors.New("multiple users matched the affiliate lookup")
+
+type AffiliateLookupFilter struct {
+	Type   AffiliateLookupType
+	Value  string
+	UserId int
+}
+
+func GetAffiliateUserRelation(filter AffiliateLookupFilter, startIdx int, num int) (*User, *User, []*User, int64, error) {
 	tx := DB.Begin()
 	if tx.Error != nil {
-		return nil, nil, 0, tx.Error
+		return nil, nil, nil, 0, tx.Error
 	}
 	defer tx.Rollback()
 
-	selectedFields := []string{
+	ownerFields := []string{
 		"id",
 		"username",
 		"display_name",
@@ -506,31 +523,71 @@ func GetAffiliateUserRelation(affCode string, startIdx int, num int) (*User, []*
 		"status",
 		"created_at",
 		"deleted_at",
-	}
-	owner := &User{}
-	if err := tx.Unscoped().Select(selectedFields).First(owner, "aff_code = ?", affCode).Error; err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil, 0, err
-		}
-		if err = tx.Commit().Error; err != nil {
-			return nil, nil, 0, err
-		}
-		return nil, []*User{}, 0, nil
+		"aff_code",
+		"inviter_id",
 	}
 
+	var owners []User
+	ownerQuery := tx.Unscoped().Select(ownerFields).Limit(2)
+	switch filter.Type {
+	case AffiliateLookupTypeUserId:
+		ownerQuery = ownerQuery.Where("id = ?", filter.UserId)
+	case AffiliateLookupTypeEmail:
+		ownerQuery = ownerQuery.Where("LOWER(email) = ?", NormalizeEmail(filter.Value))
+	case AffiliateLookupTypeAffCode:
+		ownerQuery = ownerQuery.Where("aff_code = ?", filter.Value)
+	case AffiliateLookupTypeAuto:
+		ownerQuery = ownerQuery.Where(
+			"aff_code = ? OR LOWER(email) = ?",
+			filter.Value,
+			NormalizeEmail(filter.Value),
+		)
+		if filter.UserId > 0 {
+			ownerQuery = ownerQuery.Or("id = ?", filter.UserId)
+		}
+	default:
+		return nil, nil, nil, 0, errors.New("invalid affiliate lookup type")
+	}
+	if err := ownerQuery.Find(&owners).Error; err != nil {
+		return nil, nil, nil, 0, err
+	}
+	if len(owners) > 1 {
+		return nil, nil, nil, 0, ErrAffiliateLookupAmbiguous
+	}
+	if len(owners) == 0 {
+		if err := tx.Commit().Error; err != nil {
+			return nil, nil, nil, 0, err
+		}
+		return nil, nil, []*User{}, 0, nil
+	}
+	owner := &owners[0]
+
+	var inviter *User
+	if owner.InviterId > 0 {
+		candidate := &User{}
+		if err := tx.Unscoped().Select(ownerFields).First(candidate, "id = ?", owner.InviterId).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, nil, nil, 0, err
+			}
+		} else {
+			inviter = candidate
+		}
+	}
+
+	selectedFields := ownerFields[:7]
 	invitees := make([]*User, 0)
 	query := tx.Unscoped().Model(&User{}).Where("inviter_id = ?", owner.Id)
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
-		return nil, nil, 0, err
+		return nil, nil, nil, 0, err
 	}
 	if err := query.Select(selectedFields).Order("id DESC").Limit(num).Offset(startIdx).Find(&invitees).Error; err != nil {
-		return nil, nil, 0, err
+		return nil, nil, nil, 0, err
 	}
 	if err := tx.Commit().Error; err != nil {
-		return nil, nil, 0, err
+		return nil, nil, nil, 0, err
 	}
-	return owner, invitees, total, nil
+	return owner, inviter, invitees, total, nil
 }
 
 type InviteCountRecalculationResult struct {

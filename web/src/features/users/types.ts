@@ -127,9 +127,18 @@ export interface AffiliateLookupUser {
   deleted_at: string | null
 }
 
+export interface AffiliateLookupOwner extends AffiliateLookupUser {
+  inviter_id: number
+}
+
+export interface AffiliateLookupInviter extends AffiliateLookupUser {
+  aff_code: string
+}
+
 export interface AffiliateLookupResult {
   aff_code: string
-  owner: AffiliateLookupUser | null
+  owner: AffiliateLookupOwner | null
+  inviter: AffiliateLookupInviter | null
   invitees: {
     items: AffiliateLookupUser[]
     total: number
@@ -144,7 +153,9 @@ export interface AffiliateLookupParams {
   page_size?: number
 }
 
-export type AffiliateLookupResponse = ApiResponse<AffiliateLookupResult>
+export type AffiliateLookupResponse = ApiResponse<AffiliateLookupResult> & {
+  code?: string
+}
 
 export interface UserFormData {
   username: string
