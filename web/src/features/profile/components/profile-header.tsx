@@ -16,11 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Activity, BarChart3, WalletCards } from 'lucide-react'
+import { Activity, BarChart3, Settings, WalletCards } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -38,9 +39,14 @@ import type { UserProfile } from '../types'
 interface ProfileHeaderProps {
   profile: UserProfile | null
   loading: boolean
+  onSettingsClick?: () => void
 }
 
-export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
+export function ProfileHeader({
+  profile,
+  loading,
+  onSettingsClick,
+}: ProfileHeaderProps) {
   const { t } = useTranslation()
 
   if (loading) {
@@ -160,6 +166,18 @@ export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
               )}
             </div>
           </div>
+          {onSettingsClick && (
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              className='shrink-0'
+              onClick={onSettingsClick}
+            >
+              <Settings className='size-4' />
+              <span className='hidden sm:inline'>{t('Settings')}</span>
+            </Button>
+          )}
         </div>
       </CardContent>
       <div className='border-t'>

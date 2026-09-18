@@ -25,7 +25,7 @@ import {
   ChevronUp,
   Sparkles,
 } from 'lucide-react'
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -63,8 +63,7 @@ export function CheckinCalendarCard(props: CheckinCalendarCardProps) {
   const [botProtectionModalVisible, setBotProtectionModalVisible] =
     useState(false)
   const [botProtectionWidgetKey, setBotProtectionWidgetKey] = useState(0)
-  const [initialLoaded, setInitialLoaded] = useState(false)
-  const [collapsed, setCollapsed] = useState<boolean>(false)
+  const [collapsed, setCollapsed] = useState(true)
   const botProtection = useBotProtection('checkin')
 
   const currentMonthStr = useMemo(() => {
@@ -117,14 +116,6 @@ export function CheckinCalendarCard(props: CheckinCalendarCardProps) {
 
   const checkedToday = checkinData?.stats?.checked_in_today === true
   const todayAward = checkinRecordsMap[todayString]
-
-  useEffect(() => {
-    if (initialLoaded) return
-    if (isLoading) return
-    if (!checkinData) return
-    setCollapsed(checkedToday)
-    setInitialLoaded(true)
-  }, [checkinData, checkedToday, initialLoaded, isLoading])
 
   const doCheckin = useCallback(
     async (proof?: string) => {
