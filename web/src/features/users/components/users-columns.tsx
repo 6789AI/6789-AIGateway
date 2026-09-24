@@ -32,15 +32,11 @@ import {
 } from '@/components/ui/tooltip'
 import { formatQuota, formatTimestamp } from '@/lib/format'
 
-import {
-  USER_STATUS,
-  USER_STATUSES,
-  USER_ROLES,
-  isUserDeleted,
-} from '../constants'
+import { USER_ROLES, getUserStatusConfig } from '../constants'
 import type { User } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
 import { UserQuotaCell } from './user-quota-cell'
+import { UserStatusIndicator } from './user-status-indicator'
 
 export function useUsersColumns(): ColumnDef<User>[] {
   const { t } = useTranslation()
@@ -71,12 +67,20 @@ export function useUsersColumns(): ColumnDef<User>[] {
     {
       accessorKey: 'id',
       header: t('ID'),
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
+        const isStatusHidden = !table.getColumn('status')?.getIsVisible()
+        const isUsernameHidden = !table.getColumn('username')?.getIsVisible()
+
         return (
-          <TableId
-            value={row.getValue('id') as number}
-            className='w-[60px] text-sm'
-          />
+          <div className='flex w-fit items-end gap-1'>
+            <TableId
+              value={row.getValue('id') as number}
+              className='w-[60px] text-sm'
+            />
+            {isStatusHidden && isUsernameHidden ? (
+              <UserStatusIndicator user={row.original} />
+            ) : null}
+          </div>
         )
       },
       size: 80,
@@ -85,17 +89,23 @@ export function useUsersColumns(): ColumnDef<User>[] {
     {
       accessorKey: 'username',
       header: t('Username'),
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
         const username = row.getValue('username') as string
         const displayName = row.original.display_name
         const remark = row.original.remark
+        const isStatusHidden = !table.getColumn('status')?.getIsVisible()
 
         return (
           <div className='flex min-w-[160px] flex-col gap-1'>
             <div className='flex items-center gap-2'>
-              <LongText className='max-w-[140px] font-medium'>
-                {username}
-              </LongText>
+              <div className='flex min-w-0 items-end gap-1'>
+                <LongText className='max-w-[140px] font-medium'>
+                  {username}
+                </LongText>
+                {isStatusHidden ? (
+                  <UserStatusIndicator user={row.original} />
+                ) : null}
+              </div>
               {remark && (
                 <Tooltip>
                   <TooltipTrigger
@@ -117,9 +127,24 @@ export function useUsersColumns(): ColumnDef<User>[] {
           </div>
         )
       },
-      enableHiding: false,
       size: 220,
       meta: { mobileTitle: true },
+    },
+    {
+      accessorKey: 'email',
+      header: t('Email'),
+      cell: ({ row }) => {
+        const email = row.getValue('email') as string | undefined
+
+        return email ? (
+          <LongText className='max-w-[240px] text-sm'>{email}</LongText>
+        ) : (
+          <span className='text-muted-foreground text-sm'>-</span>
+        )
+      },
+      enableSorting: false,
+      size: 260,
+      meta: { mobileOrder: 25 },
     },
     {
       accessorKey: 'status',
@@ -128,9 +153,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
         const user = row.original
         const requestCount = user.request_count
 
-        const statusConfig = isUserDeleted(user)
-          ? USER_STATUSES[USER_STATUS.DELETED]
-          : USER_STATUSES[user.status as keyof typeof USER_STATUSES]
+        const statusConfig = getUserStatusConfig(user)
 
         if (!statusConfig) {
           return null

@@ -56,6 +56,11 @@ export const USER_STATUSES = {
   },
 } as const
 
+export const getUserStatusConfig = (user: UserType) => {
+  const status = isUserDeleted(user) ? USER_STATUS.DELETED : user.status
+  return USER_STATUSES[status as keyof typeof USER_STATUSES]
+}
+
 export const getUserStatusOptions = (t: (key: string) => string) => [
   { label: t('Enabled'), value: String(USER_STATUS.ENABLED) },
   { label: t('Disabled'), value: String(USER_STATUS.DISABLED) },
