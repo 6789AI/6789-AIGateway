@@ -42,7 +42,10 @@ import {
   SettingsSwitchContent,
   SettingsSwitchItem,
 } from '../components/settings-form-layout'
-import { SettingsPageFormActions } from '../components/settings-page-context'
+import {
+  SettingsPageFormActions,
+  useSuppressSettingsSectionHeader,
+} from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 import { RateLimitVisualEditor } from './rate-limit-visual-editor'
@@ -88,6 +91,7 @@ type RateLimitSectionProps = {
 
 export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
   const { t } = useTranslation()
+  const suppressHeader = useSuppressSettingsSectionHeader()
   const updateOption = useUpdateOption()
   const [useVisualEditor, setUseVisualEditor] = useState(true)
 
@@ -115,7 +119,10 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
   }
 
   return (
-    <SettingsSection title={t('Rate Limiting')}>
+    <SettingsSection title={t('Model request limits')}>
+      {suppressHeader && (
+        <h3 className='text-base font-semibold'>{t('Model request limits')}</h3>
+      )}
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
           <SettingsPageFormActions
@@ -132,7 +139,7 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                   <FormLabel>{t('Enable rate limiting')}</FormLabel>
                   <FormDescription>
                     {t(
-                      'This controls model request rate limiting. Web/API route throttling is configured by environment variables and may still return 429.'
+                      'This controls model request rate limiting. Website request limits are configured above.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>

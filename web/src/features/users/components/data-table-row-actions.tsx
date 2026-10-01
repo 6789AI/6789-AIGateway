@@ -135,7 +135,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const isAdmin = user.role >= USER_ROLE.ADMIN
   const isRoot = user.role === USER_ROLE.ROOT
 
-  if (isUserDeleted(user)) {
+  if (isUserDeleted(user) || isRoot) {
     return null
   }
 

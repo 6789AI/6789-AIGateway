@@ -73,6 +73,60 @@ func TestRedisIPRateLimiterThresholdTTLAndNamespace(t *testing.T) {
 	assert.True(t, redisServer.Exists(legacyKey), "the v2 counter must not touch an old list key")
 }
 
+func TestRedisLoginAndSessionLimitsSeparateAfterOptIn(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	_, _ = useRateLimitMiniRedis(t)
+	previous := common.GetGatewayRateLimits()
+	t.Cleanup(func() { common.SetGatewayRateLimits(previous) })
+	config := previous
+	config.Critical = common.GatewayRateLimitRule{Enabled: true, Limit: 1, WindowSeconds: 30}
+	config.Login = common.GatewayRateLimitRule{Enabled: false, Limit: 2, WindowSeconds: 30}
+	config.Session = common.GatewayRateLimitRule{Enabled: false, Limit: 2, WindowSeconds: 30}
+	common.SetGatewayRateLimits(config)
+
+	router := gin.New()
+	require.NoError(t, router.SetTrustedProxies(nil))
+	router.GET("/login", LoginRateLimit(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.GET("/refresh", SessionRateLimit(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	ip := "192.0.2.71:12345"
+	assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/login", ip).Code)
+	assert.Equal(t, http.StatusTooManyRequests, performRateLimitRequest(router, "/refresh", ip).Code,
+		"both routes share CT until separate rules are enabled")
+
+	config.Login.Enabled = true
+	config.Session.Enabled = true
+	common.SetGatewayRateLimits(config)
+	for range 2 {
+		assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/login", ip).Code)
+		assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/refresh", ip).Code)
+	}
+	assert.Equal(t, http.StatusTooManyRequests, performRateLimitRequest(router, "/login", ip).Code)
+	assert.Equal(t, http.StatusTooManyRequests, performRateLimitRequest(router, "/refresh", ip).Code)
+}
+
+func TestMemoryGatewayLimitUsesUpdatedSnapshotWithoutRouterRestart(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previous := common.GetGatewayRateLimits()
+	previousRedis := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() {
+		common.RedisEnabled = previousRedis
+		common.SetGatewayRateLimits(previous)
+	})
+	config := previous
+	config.API = common.GatewayRateLimitRule{Enabled: true, Limit: 1, WindowSeconds: 30}
+	common.SetGatewayRateLimits(config)
+	router := gin.New()
+	require.NoError(t, router.SetTrustedProxies(nil))
+	router.GET("/api", GlobalAPIRateLimit(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	ip := "192.0.2.72:12345"
+	assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/api", ip).Code)
+	assert.Equal(t, http.StatusTooManyRequests, performRateLimitRequest(router, "/api", ip).Code)
+	config.API.Limit = 2
+	common.SetGatewayRateLimits(config)
+	assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/api", ip).Code)
+}
+
 func TestRedisUserRateLimiterUsesSharedFixedWindow(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	redisServer, _ := useRateLimitMiniRedis(t)

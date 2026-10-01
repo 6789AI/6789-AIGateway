@@ -1509,6 +1509,14 @@ func GetRootUser() (user *User) {
 	return user
 }
 
+func GetEnabledRootUsers() ([]User, error) {
+	var users []User
+	err := DB.Select("id", "email", "role", "status", "setting").
+		Where("role = ? AND status = ?", common.RoleRootUser, common.UserStatusEnabled).
+		Order("id ASC").Find(&users).Error
+	return users, err
+}
+
 func UpdateUserLastLoginAt(id int) {
 	if err := DB.Model(&User{}).Where("id = ?", id).Update("last_login_at", common.GetTimestamp()).Error; err != nil {
 		common.SysLog("failed to update user last_login_at: " + err.Error())

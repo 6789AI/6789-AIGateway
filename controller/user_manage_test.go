@@ -88,6 +88,21 @@ func TestManageUserDisableAdvancesAuthVersionOnceAndRevokesSession(t *testing.T)
 	assert.Equal(t, model.UserSessionStatusRevoked, session.Status)
 }
 
+func TestManageUserCannotChangeAnotherRootAccount(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	root := model.User{
+		Username: "peer-root", Password: "password", Role: common.RoleRootUser,
+		Status: common.UserStatusEnabled, AuthVersion: 1,
+	}
+	require.NoError(t, db.Create(&root).Error)
+	recorder := performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"disable"}`, root.Id))
+	assert.Contains(t, recorder.Body.String(), `"success":false`)
+	var stored model.User
+	require.NoError(t, db.First(&stored, root.Id).Error)
+	assert.Equal(t, common.UserStatusEnabled, stored.Status)
+	assert.Equal(t, common.RoleRootUser, stored.Role)
+}
+
 func TestManageUserDemoteAdvancesAuthVersionAndRevokesSessionsOnce(t *testing.T) {
 	db := setupManageUserTestDB(t)
 	previousMaster := common.IsMasterNode

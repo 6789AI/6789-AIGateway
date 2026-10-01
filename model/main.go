@@ -168,7 +168,17 @@ func chooseDB(envName string, isLog bool) (*gorm.DB, common.DatabaseType, error)
 	return db, common.DatabaseTypeSQLite, err
 }
 
-func InitDB() (err error) {
+func InitDB() error {
+	return initDB(common.IsMasterNode)
+}
+
+// InitDBForMaintenance opens the configured primary database without running
+// migrations or creating bootstrap accounts. Local admin commands use this.
+func InitDBForMaintenance() error {
+	return initDB(false)
+}
+
+func initDB(runMigrations bool) (err error) {
 	db, dbType, err := chooseDB("SQL_DSN", false)
 	if err == nil {
 		common.SetMainDatabaseType(dbType)
@@ -194,7 +204,7 @@ func InitDB() (err error) {
 		sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
 		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
 
-		if !common.IsMasterNode {
+		if !runMigrations {
 			return nil
 		}
 		if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
@@ -209,7 +219,16 @@ func InitDB() (err error) {
 	return err
 }
 
-func InitLogDB() (err error) {
+func InitLogDB() error {
+	return initLogDB(common.IsMasterNode)
+}
+
+// InitLogDBForMaintenance opens the configured audit database without migrations.
+func InitLogDBForMaintenance() error {
+	return initLogDB(false)
+}
+
+func initLogDB(runMigrations bool) (err error) {
 	if os.Getenv("LOG_SQL_DSN") == "" {
 		LOG_DB = DB
 		common.SetLogDatabaseType(common.MainDatabaseType())
@@ -238,7 +257,7 @@ func InitLogDB() (err error) {
 		sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
 		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
 
-		if !common.IsMasterNode {
+		if !runMigrations {
 			return nil
 		}
 		common.SysLog("database migration started")

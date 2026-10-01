@@ -158,35 +158,82 @@ func rateLimitFactory(maxRequestNum int, duration int64, mark string) func(c *gi
 }
 
 func GlobalWebRateLimit() func(c *gin.Context) {
-	if common.GlobalWebRateLimitEnable {
-		return rateLimitFactory(common.GlobalWebRateLimitNum, common.GlobalWebRateLimitDuration, "GW")
+	return func(c *gin.Context) {
+		configuredIPRateLimit(c, common.GetGatewayRateLimits().Web, "GW")
 	}
-	return defNext
 }
 
 func GlobalAPIRateLimit() func(c *gin.Context) {
-	if common.GlobalApiRateLimitEnable {
-		return rateLimitFactory(common.GlobalApiRateLimitNum, common.GlobalApiRateLimitDuration, "GA")
+	return func(c *gin.Context) {
+		configuredIPRateLimit(c, common.GetGatewayRateLimits().API, "GA")
 	}
-	return defNext
 }
 
 func CriticalRateLimit() func(c *gin.Context) {
-	if common.CriticalRateLimitEnable {
-		return rateLimitFactory(common.CriticalRateLimitNum, common.CriticalRateLimitDuration, "CT")
+	return func(c *gin.Context) {
+		configuredIPRateLimit(c, common.GetGatewayRateLimits().Critical, "CT")
 	}
-	return defNext
+}
+
+func configuredIPRateLimit(c *gin.Context, rule common.GatewayRateLimitRule, mark string) {
+	if !rule.Enabled {
+		return
+	}
+	if common.RedisEnabled {
+		redisRateLimiter(c, rule.Limit, rule.WindowSeconds, mark)
+		return
+	}
+	inMemoryRateLimiter.Init(common.RateLimitKeyExpirationDuration)
+	memoryRateLimiter(c, rule.Limit, rule.WindowSeconds, mark)
+}
+
+// LoginRateLimit and SessionRateLimit fall back to the existing shared CT
+// bucket until their separate rules are enabled by an operator.
+func LoginRateLimit() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		config := common.GetGatewayRateLimits()
+		if config.Login.Enabled {
+			configuredIPRateLimit(c, config.Login, "LG")
+			return
+		}
+		configuredIPRateLimit(c, config.Critical, "CT")
+	}
+}
+
+func SessionRateLimit() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		config := common.GetGatewayRateLimits()
+		if config.Session.Enabled {
+			configuredIPRateLimit(c, config.Session, "AS")
+			return
+		}
+		configuredIPRateLimit(c, config.Critical, "CT")
+	}
 }
 
 func UserCriticalRateLimit(scope string) func(c *gin.Context) {
-	if !common.CriticalRateLimitEnable {
-		return defNext
+	return func(c *gin.Context) {
+		rule := common.GetGatewayRateLimits().Critical
+		if !rule.Enabled {
+			return
+		}
+		userID := c.GetInt("id")
+		if userID == 0 {
+			c.Status(http.StatusUnauthorized)
+			c.Abort()
+			return
+		}
+		mark := "UC:" + scope
+		if common.RedisEnabled {
+			userRedisRateLimiter(c, rule.Limit, rule.WindowSeconds, redisUserRateLimitKey(mark, userID))
+			return
+		}
+		inMemoryRateLimiter.Init(common.RateLimitKeyExpirationDuration)
+		key := fmt.Sprintf("%s:user:%d", mark, userID)
+		if !inMemoryRateLimiter.Request(key, rule.Limit, rule.WindowSeconds) {
+			writeRateLimited(c, rule.WindowSeconds)
+		}
 	}
-	return userRateLimitFactory(
-		common.CriticalRateLimitNum,
-		common.CriticalRateLimitDuration,
-		"UC:"+scope,
-	)
 }
 
 func DownloadRateLimit() func(c *gin.Context) {

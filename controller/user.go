@@ -371,7 +371,7 @@ func SearchUsers(c *gin.Context) {
 }
 
 func canManageTargetRole(myRole int, targetRole int) bool {
-	return myRole == common.RoleRootUser || myRole > targetRole
+	return myRole > targetRole
 }
 
 type userDetailsResponse struct {
