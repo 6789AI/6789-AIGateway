@@ -72,6 +72,55 @@ func TestGetAndValidOpenAIImageRequestMultipartStream(t *testing.T) {
 	})
 }
 
+func TestGetAndValidOpenAIImageRequestMultipartPreservesProviderOptions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("model", "grok-imagine-image"))
+	require.NoError(t, writer.WriteField("prompt", "edit this image"))
+	require.NoError(t, writer.WriteField("aspect_ratio", "16:9"))
+	require.NoError(t, writer.WriteField("aspectRatio", "3:2"))
+	require.NoError(t, writer.WriteField("resolution", "2K"))
+	require.NoError(t, writer.WriteField("extra_body", `{"aspect_ratio":"1:1","resolution":"1k"}`))
+	for fieldName, fileName := range map[string]string{
+		"image[0]": "first.png",
+		"image[]":  "second.png",
+	} {
+		part, err := writer.CreateFormFile(fieldName, fileName)
+		require.NoError(t, err)
+		_, err = part.Write([]byte("fake image"))
+		require.NoError(t, err)
+	}
+	require.NoError(t, writer.Close())
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", &body)
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+
+	request, err := GetAndValidOpenAIImageRequest(c, relayconstant.RelayModeImagesEdits)
+	require.NoError(t, err)
+	require.Equal(t, "16:9", stringValueFromRaw(t, request.Extra["aspect_ratio"]))
+	require.Equal(t, "3:2", stringValueFromRaw(t, request.Extra["aspectRatio"]))
+	require.Equal(t, "2K", stringValueFromRaw(t, request.Extra["resolution"]))
+
+	var extraBody map[string]string
+	require.NoError(t, common.Unmarshal(request.Extra["extra_body"], &extraBody))
+	require.Equal(t, map[string]string{
+		"aspect_ratio": "1:1",
+		"resolution":   "1k",
+	}, extraBody)
+	require.Len(t, c.Request.MultipartForm.File["image[0]"], 1)
+	require.Len(t, c.Request.MultipartForm.File["image[]"], 1)
+}
+
+func stringValueFromRaw(t *testing.T, raw []byte) string {
+	t.Helper()
+	var value string
+	require.NoError(t, common.Unmarshal(raw, &value))
+	return value
+}
+
 // TestGetAndValidOpenAIImageRequestNBounds guards the billing invariant that
 // the image generation count can never reach quota calculation with a value
 // large enough to overflow int64 into a negative charge.

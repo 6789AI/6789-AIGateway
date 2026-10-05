@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -49,8 +50,9 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	}
 
 	var image json.RawMessage
+	var images json.RawMessage
 	if info != nil && info.RelayMode == constant.RelayModeImagesEdits {
-		image, err = xAIEditImage(c, request)
+		image, images, err = xAIEditImages(c, request)
 		if err != nil {
 			return nil, err
 		}
@@ -64,6 +66,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		Resolution:     resolution,
 		ResponseFormat: request.ResponseFormat,
 		Image:          image,
+		Images:         images,
 	}
 	return xaiRequest, nil
 }
@@ -218,72 +221,189 @@ func gcdUint32(a, b uint64) uint64 {
 	return a
 }
 
-func xAIEditImage(c *gin.Context, request dto.ImageRequest) (json.RawMessage, error) {
-	if len(request.Image) > 0 && common.GetJsonType(request.Image) != "null" {
-		return normalizeXAIImage(request.Image)
+func xAIEditImages(c *gin.Context, request dto.ImageRequest) (json.RawMessage, json.RawMessage, error) {
+	hasImage := len(request.Image) > 0 && common.GetJsonType(request.Image) != "null"
+	hasImages := len(request.Images) > 0 && common.GetJsonType(request.Images) != "null"
+	if hasImage && hasImages {
+		return nil, nil, errors.New("provide either image or images, but not both")
 	}
-	if len(request.Images) > 0 && common.GetJsonType(request.Images) != "null" {
-		var images []json.RawMessage
-		if err := common.Unmarshal(request.Images, &images); err != nil {
-			return nil, fmt.Errorf("invalid xAI images: %w", err)
+	if hasImage {
+		image, err := normalizeXAIImage(request.Image)
+		return image, nil, err
+	}
+	if hasImages {
+		var imageList []json.RawMessage
+		if err := common.Unmarshal(request.Images, &imageList); err != nil {
+			return nil, nil, fmt.Errorf("invalid xAI images: %w", err)
 		}
-		if len(images) > 0 {
-			return normalizeXAIImage(images[0])
-		}
+		return normalizeXAIImageList(imageList)
 	}
 
 	if c == nil || c.Request == nil || c.Request.MultipartForm == nil {
-		return nil, errors.New("image is required for xAI image edits")
+		return nil, nil, errors.New("image is required for xAI image edits")
 	}
 	multipartForm := c.Request.MultipartForm
-	if values := multipartForm.Value["image"]; len(values) > 0 && strings.TrimSpace(values[0]) != "" {
-		raw, err := common.Marshal(values[0])
-		if err != nil {
-			return nil, fmt.Errorf("failed to encode xAI image URL: %w", err)
+	rawImages := make([]json.RawMessage, 0)
+	fieldNames := make([]string, 0, len(multipartForm.Value)+len(multipartForm.File))
+	seenFields := make(map[string]struct{}, len(multipartForm.Value)+len(multipartForm.File))
+	for fieldName := range multipartForm.Value {
+		if isXAIImageMultipartField(fieldName) {
+			seenFields[fieldName] = struct{}{}
+			fieldNames = append(fieldNames, fieldName)
 		}
-		return normalizeXAIImage(raw)
 	}
-	files := multipartForm.File["image"]
-	if len(files) == 0 {
-		files = multipartForm.File["image[]"]
+	for fieldName := range multipartForm.File {
+		if isXAIImageMultipartField(fieldName) {
+			if _, ok := seenFields[fieldName]; !ok {
+				fieldNames = append(fieldNames, fieldName)
+			}
+		}
 	}
-	if len(files) == 0 {
-		return nil, errors.New("image is required for xAI image edits")
+	sort.Slice(fieldNames, func(i, j int) bool {
+		return xAIImageMultipartFieldOrder(fieldNames[i]) < xAIImageMultipartFieldOrder(fieldNames[j])
+	})
+	for _, fieldName := range fieldNames {
+		for _, value := range multipartForm.Value[fieldName] {
+			if strings.TrimSpace(value) == "" {
+				continue
+			}
+			raw, err := common.Marshal(value)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to encode xAI image URL: %w", err)
+			}
+			rawImages = append(rawImages, raw)
+		}
+		for _, fileHeader := range multipartForm.File[fieldName] {
+			file, err := fileHeader.Open()
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to open xAI image: %w", err)
+			}
+			data, readErr := io.ReadAll(file)
+			closeErr := file.Close()
+			if readErr != nil {
+				return nil, nil, fmt.Errorf("failed to read xAI image: %w", readErr)
+			}
+			if closeErr != nil {
+				return nil, nil, fmt.Errorf("failed to close xAI image: %w", closeErr)
+			}
+			mimeType := http.DetectContentType(data)
+			encoded := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data)
+			raw, err := common.Marshal(encoded)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to encode xAI image: %w", err)
+			}
+			rawImages = append(rawImages, raw)
+		}
 	}
-	file, err := files[0].Open()
+	return normalizeXAIImageList(rawImages)
+}
+
+func isXAIImageMultipartField(fieldName string) bool {
+	if fieldName == "image" || fieldName == "image[]" {
+		return true
+	}
+	if !strings.HasPrefix(fieldName, "image[") || !strings.HasSuffix(fieldName, "]") {
+		return false
+	}
+	index := strings.TrimSuffix(strings.TrimPrefix(fieldName, "image["), "]")
+	if index == "" {
+		return false
+	}
+	_, err := strconv.ParseUint(index, 10, 32)
+	return err == nil
+}
+
+func xAIImageMultipartFieldOrder(fieldName string) uint64 {
+	switch fieldName {
+	case "image":
+		return 0
+	case "image[]":
+		return 1
+	default:
+		index := strings.TrimSuffix(strings.TrimPrefix(fieldName, "image["), "]")
+		parsed, err := strconv.ParseUint(index, 10, 32)
+		if err != nil {
+			return ^uint64(0)
+		}
+		return parsed + 2
+	}
+}
+
+func normalizeXAIImageList(rawImages []json.RawMessage) (json.RawMessage, json.RawMessage, error) {
+	if len(rawImages) == 0 {
+		return nil, nil, errors.New("image is required for xAI image edits")
+	}
+	normalized := make([]json.RawMessage, 0, len(rawImages))
+	for index, raw := range rawImages {
+		image, err := normalizeXAIImage(raw)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid xAI image %d: %w", index+1, err)
+		}
+		normalized = append(normalized, image)
+	}
+	if len(normalized) == 1 {
+		return normalized[0], nil, nil
+	}
+	images, err := common.Marshal(normalized)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open xAI image: %w", err)
+		return nil, nil, fmt.Errorf("failed to encode xAI images: %w", err)
 	}
-	defer file.Close()
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read xAI image: %w", err)
-	}
-	mimeType := http.DetectContentType(data)
-	encoded := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data)
-	raw, err := common.Marshal(encoded)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode xAI image: %w", err)
-	}
-	return normalizeXAIImage(raw)
+	return nil, images, nil
 }
 
 func normalizeXAIImage(raw json.RawMessage) (json.RawMessage, error) {
-	if common.GetJsonType(raw) == "string" {
-		var value string
-		if err := common.Unmarshal(raw, &value); err != nil {
+	switch common.GetJsonType(raw) {
+	case "string":
+		return normalizeXAIImageReference("url", raw)
+	case "object":
+		var image map[string]json.RawMessage
+		if err := common.Unmarshal(raw, &image); err != nil {
 			return nil, fmt.Errorf("invalid xAI image: %w", err)
 		}
-		value = strings.TrimSpace(value)
-		if value == "" {
-			return nil, errors.New("image is required for xAI image edits")
+		url, hasURL := image["url"]
+		fileID, hasFileID := image["file_id"]
+		if hasURL && hasFileID {
+			return nil, errors.New("xAI image must contain either url or file_id, not both")
 		}
-		return common.Marshal(map[string]string{"url": value, "type": "image_url"})
-	}
-	if common.GetJsonType(raw) != "object" {
+		if hasURL {
+			return normalizeXAIImageReference("url", url)
+		}
+		if hasFileID {
+			return normalizeXAIImageReference("file_id", fileID)
+		}
+		if imageURL, ok := image["image_url"]; ok {
+			switch common.GetJsonType(imageURL) {
+			case "string":
+				return normalizeXAIImageReference("url", imageURL)
+			case "object":
+				var imageURLObject map[string]json.RawMessage
+				if err := common.Unmarshal(imageURL, &imageURLObject); err != nil {
+					return nil, fmt.Errorf("invalid xAI image_url: %w", err)
+				}
+				if imageURLValue, ok := imageURLObject["url"]; ok {
+					return normalizeXAIImageReference("url", imageURLValue)
+				}
+			}
+		}
+		return nil, errors.New("xAI image must contain url or file_id")
+	default:
 		return nil, errors.New("xAI image must be an object or URL string")
 	}
-	return raw, nil
+}
+
+func normalizeXAIImageReference(key string, raw json.RawMessage) (json.RawMessage, error) {
+	if common.GetJsonType(raw) != "string" {
+		return nil, fmt.Errorf("xAI image %s must be a string", key)
+	}
+	var value string
+	if err := common.Unmarshal(raw, &value); err != nil {
+		return nil, fmt.Errorf("invalid xAI image %s: %w", key, err)
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, errors.New("image is required for xAI image edits")
+	}
+	return common.Marshal(map[string]string{key: value})
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {

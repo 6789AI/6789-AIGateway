@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -212,6 +213,47 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 			}
 			if imageValue := formData.Get("image"); imageValue != "" {
 				imageRequest.Image, _ = common.Marshal(imageValue)
+			}
+
+			// Multipart form values are otherwise parsed field by field above,
+			// which would drop provider-specific options. Keep unknown values in
+			// ImageRequest.Extra so adaptors such as xAI can read them just like
+			// they do for JSON requests.
+			imageRequest.Extra = make(map[string]json.RawMessage)
+			for key, values := range form.Value {
+				if len(values) == 0 {
+					continue
+				}
+				if key == "model" || key == "prompt" || key == "n" || key == "quality" ||
+					key == "size" || key == "stream" || key == "image" || key == "watermark" {
+					continue
+				}
+
+				value := values[0]
+				var raw json.RawMessage
+				if key == "extra_body" {
+					// extra_body is a JSON object carried as a multipart string;
+					// preserve its JSON shape instead of encoding it as a string.
+					if err := common.UnmarshalJsonStr(value, &raw); err != nil {
+						raw, err = common.Marshal(value)
+						if err != nil {
+							return nil, err
+						}
+					}
+				} else if len(values) > 1 {
+					var err error
+					raw, err = common.Marshal(values)
+					if err != nil {
+						return nil, err
+					}
+				} else {
+					var err error
+					raw, err = common.Marshal(value)
+					if err != nil {
+						return nil, err
+					}
+				}
+				imageRequest.Extra[key] = raw
 			}
 
 			if imageRequest.Model == "gpt-image-1" {
