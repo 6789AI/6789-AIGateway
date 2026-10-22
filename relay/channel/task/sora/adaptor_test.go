@@ -100,6 +100,133 @@ func TestSoraBuildRequestBodyKeepsMinimaxH3ImagesArrayUnchanged(t *testing.T) {
 	assert.NotContains(t, request, "reference_images")
 }
 
+func TestSoraDoResponseAcceptsNumericAndStringSeconds(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		wantSeconds any
+	}{
+		{
+			name:        "numeric seconds",
+			body:        `{"id":"vidtask_upstream","status":"queued","seconds":10,"video_available":false}`,
+			wantSeconds: float64(10),
+		},
+		{
+			name:        "string seconds",
+			body:        `{"id":"vidtask_upstream","status":"queued","seconds":"10"}`,
+			wantSeconds: "10",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			info := &relaycommon.RelayInfo{
+				TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "task_public"},
+			}
+
+			upstreamID, taskData, taskErr := (&TaskAdaptor{}).DoResponse(c, &http.Response{
+				StatusCode: http.StatusAccepted,
+				Body:       io.NopCloser(bytes.NewBufferString(tt.body)),
+			}, info)
+
+			require.Nil(t, taskErr)
+			assert.Equal(t, "vidtask_upstream", upstreamID)
+			assert.JSONEq(t, tt.body, string(taskData))
+			assert.Equal(t, http.StatusOK, recorder.Code)
+			var clientResponse map[string]any
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &clientResponse))
+			assert.Equal(t, "task_public", clientResponse["id"])
+			assert.Equal(t, "task_public", clientResponse["task_id"])
+			assert.Equal(t, tt.wantSeconds, clientResponse["seconds"])
+		})
+	}
+}
+
+func TestSoraParseTaskResultWaitsForVideoAvailability(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus string
+	}{
+		{
+			name:       "numeric seconds while queued",
+			body:       `{"id":"vidtask_upstream","status":"queued","seconds":10,"video_available":false}`,
+			wantStatus: model.TaskStatusQueued,
+		},
+		{
+			name:       "string seconds while processing",
+			body:       `{"id":"vidtask_upstream","status":"processing","seconds":"10"}`,
+			wantStatus: model.TaskStatusInProgress,
+		},
+		{
+			name:       "completed before content is ready",
+			body:       `{"id":"vidtask_upstream","status":"completed","seconds":10,"asset_state":"generating","video_available":false}`,
+			wantStatus: model.TaskStatusInProgress,
+		},
+		{
+			name:       "completed with content ready",
+			body:       `{"id":"vidtask_upstream","status":"completed","seconds":10,"video_available":true}`,
+			wantStatus: model.TaskStatusSuccess,
+		},
+		{
+			name:       "completed without availability field",
+			body:       `{"id":"task_other_provider","status":"completed","seconds":"10"}`,
+			wantStatus: model.TaskStatusSuccess,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(tt.body))
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.wantStatus, result.Status)
+		})
+	}
+}
+
+func TestSoraConvertToOpenAIVideoDoesNotExposePrematureCompletion(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     model.TaskStatus
+		body       string
+		wantStatus string
+	}{
+		{
+			name:       "content still generating",
+			status:     model.TaskStatusInProgress,
+			body:       `{"id":"vidtask_upstream","status":"completed","video_available":false}`,
+			wantStatus: "processing",
+		},
+		{
+			name:       "content ready",
+			status:     model.TaskStatusSuccess,
+			body:       `{"id":"vidtask_upstream","status":"completed","video_available":true}`,
+			wantStatus: "completed",
+		},
+		{
+			name:       "other provider without availability field",
+			status:     model.TaskStatusSuccess,
+			body:       `{"id":"video_upstream","status":"completed"}`,
+			wantStatus: "completed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task := &model.Task{TaskID: "task_public", Status: tt.status, Data: []byte(tt.body)}
+			responseBody, err := (&TaskAdaptor{}).ConvertToOpenAIVideo(task)
+			require.NoError(t, err)
+			var response map[string]any
+			require.NoError(t, common.Unmarshal(responseBody, &response))
+			assert.Equal(t, "task_public", response["id"])
+			assert.Equal(t, tt.wantStatus, response["status"])
+		})
+	}
+}
+
 func TestSoraParseTaskResultKeepsMinimaxH3UnknownTaskInProgress(t *testing.T) {
 	taskResult, err := (&TaskAdaptor{}).ParseTaskResult([]byte(`{
 		"id":"task_minimax_h3",

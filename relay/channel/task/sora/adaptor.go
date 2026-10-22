@@ -3,6 +3,7 @@ package sora
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -44,18 +45,19 @@ type ImageURL struct {
 }
 
 type responseTask struct {
-	ID                 string `json:"id"`
-	TaskID             string `json:"task_id,omitempty"` //兼容旧接口
-	Object             string `json:"object"`
-	Model              string `json:"model"`
-	Status             string `json:"status"`
-	Progress           int    `json:"progress"`
-	CreatedAt          int64  `json:"created_at"`
-	CompletedAt        int64  `json:"completed_at,omitempty"`
-	ExpiresAt          int64  `json:"expires_at,omitempty"`
-	Seconds            string `json:"seconds,omitempty"`
-	Size               string `json:"size,omitempty"`
-	RemixedFromVideoID string `json:"remixed_from_video_id,omitempty"`
+	ID                 string          `json:"id"`
+	TaskID             string          `json:"task_id,omitempty"` //兼容旧接口
+	Object             string          `json:"object"`
+	Model              string          `json:"model"`
+	Status             string          `json:"status"`
+	Progress           int             `json:"progress"`
+	CreatedAt          int64           `json:"created_at"`
+	CompletedAt        int64           `json:"completed_at,omitempty"`
+	ExpiresAt          int64           `json:"expires_at,omitempty"`
+	Seconds            json.RawMessage `json:"seconds,omitempty"`
+	VideoAvailable     *bool           `json:"video_available,omitempty"`
+	Size               string          `json:"size,omitempty"`
+	RemixedFromVideoID string          `json:"remixed_from_video_id,omitempty"`
 	Error              *struct {
 		Message string `json:"message"`
 		Code    string `json:"code"`
@@ -675,8 +677,12 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 			taskResult.Status = model.TaskStatusInProgress
 		}
 	case "completed":
-		taskResult.Status = model.TaskStatusSuccess
-		// Url intentionally left empty — the caller constructs the proxy URL using the public task ID
+		if resTask.VideoAvailable != nil && !*resTask.VideoAvailable {
+			taskResult.Status = model.TaskStatusInProgress
+		} else {
+			taskResult.Status = model.TaskStatusSuccess
+			// Url intentionally left empty — the caller constructs the proxy URL using the public task ID
+		}
 	case "failed", "cancelled":
 		taskResult.Status = model.TaskStatusFailure
 		if resTask.Error != nil {
@@ -698,6 +704,19 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	var err error
 	if data, err = sjson.SetBytes(data, "id", task.TaskID); err != nil {
 		return nil, errors.Wrap(err, "set id failed")
+	}
+	if task.Status == model.TaskStatusInProgress {
+		var availability struct {
+			Status         string `json:"status"`
+			VideoAvailable *bool  `json:"video_available"`
+		}
+		if common.Unmarshal(data, &availability) == nil &&
+			availability.Status == "completed" &&
+			availability.VideoAvailable != nil && !*availability.VideoAvailable {
+			if data, err = sjson.SetBytes(data, "status", "processing"); err != nil {
+				return nil, errors.Wrap(err, "set pending video status failed")
+			}
+		}
 	}
 	return data, nil
 }

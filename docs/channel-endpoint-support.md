@@ -89,7 +89,7 @@
 | 52 | Vidu | - | - | - | Vidu Video | 支持文生、图生、首尾帧和参考图任务模式 |
 | 53 | Submodel | Chat | - | - | - | 代码明确拒绝其他转换器 |
 | 54 | DoubaoVideo | - | - | - | Doubao Video | 仅视频任务 |
-| 55 | Sora | - | - | - | OpenAI Video | 支持创建、查询、内容代理和 remix |
+| 55 | Sora | - | - | - | OpenAI Video | 支持创建、查询、内容代理和 remix；上游返回 `video_available:false` 时继续轮询 |
 | 56 | Replicate | - | - | ImgG、ImgE | 异步图像（配置） | 其他转换器明确未实现 |
 | 57 | ChatGPT Subscription (Codex) | Resp、Compact、Alpha | - | - | - | 明确拒绝 Chat、Msg、Gemini、Embedding、Image、Audio 和 Rank |
 | 58 | Advanced Custom | 按 route/converter 配置 | 按配置 | 按配置 | RT（按配置）、异步图像（配置） | 可覆盖已注册同步路由和 Alpha；无视频 TaskAdaptor |
@@ -127,6 +127,8 @@
 | `/suno/submit/:action`、`/suno/fetch` | SunoAPI | Suno 专用任务集合 |
 
 OpenAI/Sora 渠道可通过 `settings.video_protocol=vinted` 启用 Vinted 专用协议；为兼容已有配置，未设置该字段且 Base URL 主机为 `vinted.cam` 或其子域时也会自动识别，显式设置 `settings.video_protocol=openai` 可关闭该回退。该协议不支持 remix，且仅接受 `seedance2.0`、`seedance2.0fast`、`seedance2.5`、`seedance2.0mini`，模型映射完成后再校验上游模型与时长组合。请求会保留 `camera_movement` 和已有的 `image_ids`，并合并去重 `image`、`images`、`image_refs`、`image_url`、`image_urls`；URL 与 ID 按模型共享引用图上限。网关不暴露 Vinted `/v1/files` 上传路由。客户端提供 `Idempotency-Key` 时，网关按用户和令牌持久化请求占位并锁定原渠道凭据索引，重试复用公开任务 ID；发送到上游的键经过网关作用域哈希，避免共享上游密钥的不同用户互相碰撞。任务提交时会持久化轮询协议、URL 和认证请求头，后续渠道配置变更不影响在途任务。任务轮询识别 `queued/running/succeeded/failed`；内容代理只接受 `quality=original` 的签名地址，并支持原画断点下载。
+
+普通 OpenAI/Sora 视频渠道按兼容协议转发请求，上游实现仍需自行验证。创建和查询响应中的 `seconds` 可为 JSON 数字或字符串；若上游明确返回 `status:"completed"` 且 `video_available:false`，任务继续轮询，对客户端暂报 `processing`，直到文件可下载。没有 `video_available` 字段的上游仍按 `completed` 判定成功。
 
 ## 已注册但未实现的端点
 
