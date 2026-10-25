@@ -65,6 +65,7 @@ await i18n.use(initReactI18next).init({
     en: {
       translation: {
         'Free offer': 'Free',
+        'Pricing details hidden': 'Pricing details hidden',
         '{{percent}}% off': '{{percent}}% off',
       },
     },
@@ -185,6 +186,17 @@ describe('model card promotions', () => {
       rendered.container.querySelector('[data-model-promotion-badge]'),
       null
     )
+
+    await act(async () => rendered.root.unmount())
+    rendered.container.remove()
+  })
+
+  test('hides configured prices from the public card by default', async () => {
+    const rendered = await renderCard()
+    const text = rendered.container.textContent ?? ''
+
+    assert.match(text, /Pricing details hidden/)
+    assert.doesNotMatch(text, /0\.1/)
 
     await act(async () => rendered.root.unmount())
     rendered.container.remove()

@@ -79,6 +79,7 @@ import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
 import { ModelDetailsPerformance } from './model-details-performance'
+import { PublicPricingNotice } from './public-pricing-notice'
 
 // ----------------------------------------------------------------------------
 // Local UI helpers
@@ -572,8 +573,18 @@ function PriceSection(props: {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice: boolean
+  showPrices: boolean
 }) {
   const { t } = useTranslation()
+  if (!props.showPrices) {
+    return (
+      <section>
+        <SectionTitle>{t('Base Price')}</SectionTitle>
+        <PublicPricingNotice />
+      </section>
+    )
+  }
+
   const isTokenBased = isTokenBasedModel(props.model)
   const tokenUnitLabel = props.tokenUnit === 'K' ? '1K' : '1M'
   const baseGroupKey = '_base'
@@ -858,6 +869,7 @@ function GroupPricingSection(props: {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice?: boolean
+  showPrices: boolean
 }) {
   const { t } = useTranslation()
   const showRechargePrice = props.showRechargePrice ?? false
@@ -892,6 +904,15 @@ function GroupPricingSection(props: {
     }
     return types
   }, [props.model, t])
+
+  if (!props.showPrices) {
+    return (
+      <section>
+        <SectionTitle>{t('Pricing by Group')}</SectionTitle>
+        <PublicPricingNotice />
+      </section>
+    )
+  }
 
   if (availableGroups.length === 0) {
     return (
@@ -1135,13 +1156,16 @@ export interface ModelDetailsContentProps {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice?: boolean
+  showPrices?: boolean
 }
 
 export function ModelDetailsContent(props: ModelDetailsContentProps) {
   const { t } = useTranslation()
   const showRechargePrice = props.showRechargePrice ?? false
+  const showPrices = props.showPrices ?? false
 
   const isDynamic =
+    showPrices &&
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
 
@@ -1177,6 +1201,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               usdExchangeRate={props.usdExchangeRate}
               tokenUnit={props.tokenUnit}
               showRechargePrice={showRechargePrice}
+              showPrices={showPrices}
             />
             {isDynamic && (
               <DynamicPricingBreakdown billingExpr={props.model.billing_expr} />
@@ -1190,6 +1215,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               usdExchangeRate={props.usdExchangeRate}
               tokenUnit={props.tokenUnit}
               showRechargePrice={showRechargePrice}
+              showPrices={showPrices}
             />
           </section>
 

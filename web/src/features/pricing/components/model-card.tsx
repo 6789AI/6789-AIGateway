@@ -37,6 +37,7 @@ import { formatPrice, formatRequestPrice } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
+import { PublicPricingNotice } from './public-pricing-notice'
 
 export interface ModelCardProps {
   model: PricingModel
@@ -47,6 +48,7 @@ export interface ModelCardProps {
   showRechargePrice?: boolean
   selectedGroup?: string
   perf?: ModelPerfBadgeData
+  showPrices?: boolean
 }
 
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
@@ -212,6 +214,10 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         / {t('request')}
       </span>
     )
+  }
+
+  if (!props.showPrices) {
+    priceSummary = <PublicPricingNotice />
   }
 
   return (

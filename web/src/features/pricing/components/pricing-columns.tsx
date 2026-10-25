@@ -42,6 +42,7 @@ import {
 } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
+import { PublicPricingNotice } from './public-pricing-notice'
 
 // ----------------------------------------------------------------------------
 // Pricing Table Columns
@@ -53,6 +54,7 @@ export interface PricingColumnsOptions {
   usdExchangeRate?: number
   showRechargePrice?: boolean
   selectedGroup?: string
+  showPrices?: boolean
 }
 
 export function usePricingColumns(
@@ -65,6 +67,7 @@ export function usePricingColumns(
     usdExchangeRate = 1,
     showRechargePrice = false,
     selectedGroup,
+    showPrices = false,
   } = options
 
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
@@ -114,6 +117,9 @@ export function usePricingColumns(
       ),
       cell: ({ row }) => {
         const model = row.original
+        if (!showPrices) {
+          return <PublicPricingNotice />
+        }
         const dynamicSummary = getDynamicPricingSummary(model, {
           tokenUnit,
           showRechargePrice,
@@ -243,6 +249,9 @@ export function usePricingColumns(
       header: t('Cached'),
       cell: ({ row }) => {
         const model = row.original
+        if (!showPrices) {
+          return <PublicPricingNotice />
+        }
         const dynamicSummary = getDynamicPricingSummary(model, {
           tokenUnit,
           showRechargePrice,
