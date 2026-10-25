@@ -33,11 +33,15 @@ import {
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
 import { isTokenBasedModel } from '../lib/model-helpers'
-import { formatPrice, formatRequestPrice } from '../lib/price'
+import {
+  formatPrice,
+  formatRequestPrice,
+  formatVideoResolutionPrice,
+  getVideoResolutionPrices,
+} from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
-import { PublicPricingNotice } from './public-pricing-notice'
 
 export interface ModelCardProps {
   model: PricingModel
@@ -48,7 +52,6 @@ export interface ModelCardProps {
   showRechargePrice?: boolean
   selectedGroup?: string
   perf?: ModelPerfBadgeData
-  showPrices?: boolean
 }
 
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
@@ -70,6 +73,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
   const hasCachedPrice = isTokenBased && props.model.cache_ratio != null
+  const videoResolutionPrices = getVideoResolutionPrices(props.model)
   const dynamicSummary = isDynamicPricing
     ? getDynamicPricingSummary(props.model, {
         tokenUnit,
@@ -201,23 +205,44 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     )
   } else {
     priceSummary = (
-      <span className='text-muted-foreground whitespace-nowrap'>
-        <span className='text-foreground font-mono font-semibold'>
-          {formatRequestPrice(
-            props.model,
-            showRechargePrice,
-            priceRate,
-            usdExchangeRate,
-            props.selectedGroup
-          )}
-        </span>{' '}
-        / {t('request')}
-      </span>
+      <>
+        <span className='text-muted-foreground whitespace-nowrap'>
+          <span className='text-foreground font-mono font-semibold'>
+            {formatRequestPrice(
+              props.model,
+              showRechargePrice,
+              priceRate,
+              usdExchangeRate,
+              props.selectedGroup
+            )}
+          </span>{' '}
+          / {t('request')}
+        </span>
+        {videoResolutionPrices.length > 0 && (
+          <span className='text-muted-foreground basis-full text-[11px] leading-tight'>
+            <span className='me-1'>{t('Video quality prices')}:</span>
+            {videoResolutionPrices.map((entry, index) => (
+              <span key={entry.resolution} className='whitespace-nowrap'>
+                {index > 0 && (
+                  <span className='text-muted-foreground/40 mx-1'>·</span>
+                )}
+                <span className='font-mono'>{entry.resolution}</span>{' '}
+                <span className='text-foreground font-mono font-semibold'>
+                  {formatVideoResolutionPrice(
+                    props.model,
+                    entry.resolution,
+                    showRechargePrice,
+                    priceRate,
+                    usdExchangeRate,
+                    props.selectedGroup
+                  )}
+                </span>
+              </span>
+            ))}
+          </span>
+        )}
+      </>
     )
-  }
-
-  if (!props.showPrices) {
-    priceSummary = <PublicPricingNotice />
   }
 
   return (

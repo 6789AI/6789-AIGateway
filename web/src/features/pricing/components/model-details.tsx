@@ -68,7 +68,12 @@ import {
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
 import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
-import { formatFixedPrice, formatGroupPrice } from '../lib/price'
+import {
+  formatFixedPrice,
+  formatGroupPrice,
+  formatVideoResolutionPriceForGroup,
+  getVideoResolutionPrices,
+} from '../lib/price'
 import type {
   ModelCapability,
   PriceType,
@@ -79,7 +84,6 @@ import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
 import { ModelDetailsPerformance } from './model-details-performance'
-import { PublicPricingNotice } from './public-pricing-notice'
 
 // ----------------------------------------------------------------------------
 // Local UI helpers
@@ -573,18 +577,8 @@ function PriceSection(props: {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice: boolean
-  showPrices: boolean
 }) {
   const { t } = useTranslation()
-  if (!props.showPrices) {
-    return (
-      <section>
-        <SectionTitle>{t('Base Price')}</SectionTitle>
-        <PublicPricingNotice />
-      </section>
-    )
-  }
-
   const isTokenBased = isTokenBasedModel(props.model)
   const tokenUnitLabel = props.tokenUnit === 'K' ? '1K' : '1M'
   const baseGroupKey = '_base'
@@ -714,6 +708,7 @@ function PriceSection(props: {
   }
 
   if (!isTokenBased) {
+    const videoResolutionPrices = getVideoResolutionPrices(props.model)
     return (
       <section>
         <SectionTitle>{t('Base Price')}</SectionTitle>
@@ -732,6 +727,36 @@ function PriceSection(props: {
             )}
           </span>
         </div>
+        {videoResolutionPrices.length > 0 && (
+          <div className='bg-muted/20 mt-3 rounded-lg border px-3 py-2.5'>
+            <div className='text-muted-foreground mb-2 text-xs font-medium'>
+              {t('Video quality prices')}
+            </div>
+            <div className='grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3'>
+              {videoResolutionPrices.map((entry) => (
+                <div
+                  key={entry.resolution}
+                  className='flex items-baseline justify-between gap-2 text-sm'
+                >
+                  <span className='text-muted-foreground font-mono'>
+                    {entry.resolution}
+                  </span>
+                  <span className='text-foreground font-mono font-semibold tabular-nums'>
+                    {formatVideoResolutionPriceForGroup(
+                      props.model,
+                      entry.resolution,
+                      baseGroupKey,
+                      props.showRechargePrice,
+                      props.priceRate,
+                      props.usdExchangeRate,
+                      baseGroupRatioMap
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
     )
   }
@@ -869,7 +894,6 @@ function GroupPricingSection(props: {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice?: boolean
-  showPrices: boolean
 }) {
   const { t } = useTranslation()
   const showRechargePrice = props.showRechargePrice ?? false
@@ -904,15 +928,6 @@ function GroupPricingSection(props: {
     }
     return types
   }, [props.model, t])
-
-  if (!props.showPrices) {
-    return (
-      <section>
-        <SectionTitle>{t('Pricing by Group')}</SectionTitle>
-        <PublicPricingNotice />
-      </section>
-    )
-  }
 
   if (availableGroups.length === 0) {
     return (
@@ -1062,6 +1077,31 @@ function GroupPricingSection(props: {
       props.usdExchangeRate,
       props.groupRatio
     )
+  const renderVideoResolutionPrices = (group: string) => {
+    const videoResolutionPrices = getVideoResolutionPrices(props.model)
+    if (videoResolutionPrices.length === 0) return null
+
+    return (
+      <div className='mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] leading-tight'>
+        {videoResolutionPrices.map((entry) => (
+          <span key={entry.resolution} className='whitespace-nowrap'>
+            <span className='text-muted-foreground'>{entry.resolution}</span>{' '}
+            <span className='font-mono'>
+              {formatVideoResolutionPriceForGroup(
+                props.model,
+                entry.resolution,
+                group,
+                showRechargePrice,
+                props.priceRate,
+                props.usdExchangeRate,
+                props.groupRatio
+              )}
+            </span>
+          </span>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <section>
@@ -1118,7 +1158,12 @@ function GroupPricingSection(props: {
                   header: t('Price'),
                   className: `${thClass} text-right`,
                   cellClassName: 'py-2.5 text-right font-mono',
-                  cell: renderFixedGroupPrice,
+                  cell: (group: string) => (
+                    <>
+                      <div>{renderFixedGroupPrice(group)}</div>
+                      {renderVideoResolutionPrices(group)}
+                    </>
+                  ),
                 },
               ]),
         ]}
@@ -1156,16 +1201,13 @@ export interface ModelDetailsContentProps {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice?: boolean
-  showPrices?: boolean
 }
 
 export function ModelDetailsContent(props: ModelDetailsContentProps) {
   const { t } = useTranslation()
   const showRechargePrice = props.showRechargePrice ?? false
-  const showPrices = props.showPrices ?? false
 
   const isDynamic =
-    showPrices &&
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
 
@@ -1201,7 +1243,6 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               usdExchangeRate={props.usdExchangeRate}
               tokenUnit={props.tokenUnit}
               showRechargePrice={showRechargePrice}
-              showPrices={showPrices}
             />
             {isDynamic && (
               <DynamicPricingBreakdown billingExpr={props.model.billing_expr} />
@@ -1215,7 +1256,6 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               usdExchangeRate={props.usdExchangeRate}
               tokenUnit={props.tokenUnit}
               showRechargePrice={showRechargePrice}
-              showPrices={showPrices}
             />
           </section>
 

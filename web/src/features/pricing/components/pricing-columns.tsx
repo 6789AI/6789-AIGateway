@@ -39,10 +39,11 @@ import {
   formatPrice,
   formatRequestPrice,
   stripTrailingZeros,
+  formatVideoResolutionPrice,
+  getVideoResolutionPrices,
 } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
-import { PublicPricingNotice } from './public-pricing-notice'
 
 // ----------------------------------------------------------------------------
 // Pricing Table Columns
@@ -54,7 +55,6 @@ export interface PricingColumnsOptions {
   usdExchangeRate?: number
   showRechargePrice?: boolean
   selectedGroup?: string
-  showPrices?: boolean
 }
 
 export function usePricingColumns(
@@ -67,7 +67,6 @@ export function usePricingColumns(
     usdExchangeRate = 1,
     showRechargePrice = false,
     selectedGroup,
-    showPrices = false,
   } = options
 
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
@@ -117,9 +116,6 @@ export function usePricingColumns(
       ),
       cell: ({ row }) => {
         const model = row.original
-        if (!showPrices) {
-          return <PublicPricingNotice />
-        }
         const dynamicSummary = getDynamicPricingSummary(model, {
           tokenUnit,
           showRechargePrice,
@@ -229,6 +225,7 @@ export function usePricingColumns(
             selectedGroup
           )
         )
+        const videoResolutionPrices = getVideoResolutionPrices(model)
 
         return (
           <div className='max-w-full min-w-0'>
@@ -236,6 +233,30 @@ export function usePricingColumns(
             <div className='text-muted-foreground/50 text-[10px]'>
               / {t('request')}
             </div>
+            {videoResolutionPrices.length > 0 && (
+              <div className='text-muted-foreground mt-1 max-w-52 text-[10px] leading-tight'>
+                <div>{t('Video quality prices')}</div>
+                <div className='flex flex-wrap gap-x-1.5 gap-y-0.5'>
+                  {videoResolutionPrices.map((entry) => (
+                    <span key={entry.resolution} className='whitespace-nowrap'>
+                      <span className='font-mono'>{entry.resolution}</span>{' '}
+                      <span className='text-foreground font-mono'>
+                        {stripTrailingZeros(
+                          formatVideoResolutionPrice(
+                            model,
+                            entry.resolution,
+                            showRechargePrice,
+                            priceRate,
+                            usdExchangeRate,
+                            selectedGroup
+                          )
+                        )}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )
       },
@@ -249,9 +270,6 @@ export function usePricingColumns(
       header: t('Cached'),
       cell: ({ row }) => {
         const model = row.original
-        if (!showPrices) {
-          return <PublicPricingNotice />
-        }
         const dynamicSummary = getDynamicPricingSummary(model, {
           tokenUnit,
           showRechargePrice,

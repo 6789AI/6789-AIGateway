@@ -26,6 +26,34 @@ import { getConfiguredGroupRatio, getDisplayGroupRatio } from './model-helpers'
 // Price Calculation Utilities
 // ----------------------------------------------------------------------------
 
+export const VIDEO_RESOLUTION_ORDER = [
+  '480p',
+  '720p',
+  '768p',
+  '1080p',
+  '2k',
+] as const
+
+export type VideoResolution = (typeof VIDEO_RESOLUTION_ORDER)[number]
+
+/** Return configured, finite video resolution prices in display order. */
+export function getVideoResolutionPrices(
+  model: PricingModel
+): Array<{ resolution: VideoResolution; price: number }> {
+  if (model.quota_type !== QUOTA_TYPE_VALUES.REQUEST) return []
+
+  const prices = model.video_resolution_prices
+  if (!prices) return []
+
+  return VIDEO_RESOLUTION_ORDER.flatMap((resolution) => {
+    const price = prices[resolution]
+    if (typeof price !== 'number' || !Number.isFinite(price) || price < 0) {
+      return []
+    }
+    return [{ resolution, price }]
+  })
+}
+
 /**
  * Strip trailing zeros from formatted price string while preserving currency symbols
  */
@@ -136,6 +164,27 @@ function applyRechargeRate(
 ): number {
   if (!showWithRecharge) return price
   return (price * priceRate) / usdExchangeRate
+}
+
+function formatFixedVideoResolutionPrice(
+  price: number,
+  ratio: number,
+  showWithRecharge: boolean,
+  priceRate: number,
+  usdExchangeRate: number
+): string {
+  const priceInUSD = applyRechargeRate(
+    price * ratio,
+    showWithRecharge,
+    priceRate,
+    usdExchangeRate
+  )
+
+  return formatCurrencyFromUSD(priceInUSD, {
+    digitsLarge: 4,
+    digitsSmall: 4,
+    abbreviate: false,
+  })
 }
 
 /**
@@ -269,4 +318,62 @@ export function formatRequestPrice(
     digitsSmall: 4,
     abbreviate: false,
   })
+}
+
+/** Format a configured fixed price for one video resolution. */
+export function formatVideoResolutionPrice(
+  model: PricingModel,
+  resolution: VideoResolution,
+  showWithRecharge = false,
+  priceRate = 1,
+  usdExchangeRate = 1,
+  selectedGroup?: string
+): string {
+  const configuredPrice = model.video_resolution_prices?.[resolution]
+  if (
+    model.quota_type !== QUOTA_TYPE_VALUES.REQUEST ||
+    typeof configuredPrice !== 'number' ||
+    !Number.isFinite(configuredPrice) ||
+    configuredPrice < 0
+  ) {
+    return '-'
+  }
+
+  const displayGroupRatio = getDisplayGroupRatio(model, selectedGroup)
+  return formatFixedVideoResolutionPrice(
+    configuredPrice,
+    displayGroupRatio,
+    showWithRecharge,
+    priceRate,
+    usdExchangeRate
+  )
+}
+
+/** Format a configured resolution price for an explicit group. */
+export function formatVideoResolutionPriceForGroup(
+  model: PricingModel,
+  resolution: VideoResolution,
+  group: string,
+  showWithRecharge = false,
+  priceRate = 1,
+  usdExchangeRate = 1,
+  groupRatio: Record<string, number>
+): string {
+  const configuredPrice = model.video_resolution_prices?.[resolution]
+  if (
+    model.quota_type !== QUOTA_TYPE_VALUES.REQUEST ||
+    typeof configuredPrice !== 'number' ||
+    !Number.isFinite(configuredPrice) ||
+    configuredPrice < 0
+  ) {
+    return '-'
+  }
+
+  return formatFixedVideoResolutionPrice(
+    configuredPrice,
+    getConfiguredGroupRatio(groupRatio, group),
+    showWithRecharge,
+    priceRate,
+    usdExchangeRate
+  )
 }

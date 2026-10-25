@@ -65,7 +65,6 @@ await i18n.use(initReactI18next).init({
     en: {
       translation: {
         'Free offer': 'Free',
-        'Pricing details hidden': 'Pricing details hidden',
         '{{percent}}% off': '{{percent}}% off',
       },
     },
@@ -88,7 +87,10 @@ const model: PricingModel = {
   enable_groups: ['default'],
 }
 
-async function renderCard(promotion?: ModelPromotion) {
+async function renderCard(
+  promotion?: ModelPromotion,
+  overrides: Partial<PricingModel> = {}
+) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -97,7 +99,7 @@ async function renderCard(promotion?: ModelPromotion) {
     root.render(
       <I18nextProvider i18n={i18n}>
         <ModelCard
-          model={{ ...model, active_promotion: promotion }}
+          model={{ ...model, ...overrides, active_promotion: promotion }}
           onClick={() => {}}
         />
       </I18nextProvider>
@@ -191,12 +193,16 @@ describe('model card promotions', () => {
     rendered.container.remove()
   })
 
-  test('hides configured prices from the public card by default', async () => {
-    const rendered = await renderCard()
-    const text = rendered.container.textContent ?? ''
+  test('shows configured video quality prices including a free tier', async () => {
+    const rendered = await renderCard(undefined, {
+      video_resolution_prices: { '480p': 0, '1080p': 0.2 },
+    })
 
-    assert.match(text, /Pricing details hidden/)
-    assert.doesNotMatch(text, /0\.1/)
+    const text = rendered.container.textContent ?? ''
+    assert.match(text, /0\.1/)
+    assert.match(text, /Video quality prices/)
+    assert.match(text, /480p/)
+    assert.match(text, /1080p/)
 
     await act(async () => rendered.root.unmount())
     rendered.container.remove()

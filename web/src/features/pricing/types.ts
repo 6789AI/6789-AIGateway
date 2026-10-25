@@ -52,6 +52,8 @@ export type PricingModel = {
   supported_endpoint_types?: string[]
   key?: string
   group_ratio?: Record<string, number>
+  /** Fixed per-request prices configured for each supported video resolution. */
+  video_resolution_prices?: Record<string, number>
   /** Billing mode (e.g. "tiered_expr") used to flag dynamic pricing */
   billing_mode?: string
   /** Raw expression describing dynamic / tiered billing */
