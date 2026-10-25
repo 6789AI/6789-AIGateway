@@ -62,6 +62,7 @@ type ModelFormValues = {
   BillingExpr: string
   PriceSchedules: string
   TaskDurationMultiplier: string
+  VideoResolutionPrices: string
 }
 
 type ModelRatioFormProps = {
@@ -85,6 +86,7 @@ type ModelJsonFieldName =
   | 'AudioCompletionRatio'
   | 'PriceSchedules'
   | 'TaskDurationMultiplier'
+  | 'VideoResolutionPrices'
 
 const modelJsonFields: Array<{
   name: ModelJsonFieldName
@@ -140,6 +142,12 @@ const modelJsonFields: Array<{
     labelKey: 'Time-based price schedules',
     descriptionKey:
       'JSON map of model identifiers to fixed-range or weekly per-request price schedules.',
+  },
+  {
+    name: 'VideoResolutionPrices',
+    labelKey: 'Video quality prices',
+    descriptionKey:
+      'JSON map of model identifiers to video quality prices in USD.',
   },
   {
     name: 'TaskDurationMultiplier',
@@ -294,6 +302,7 @@ export const ModelRatioForm = memo(function ModelRatioForm({
               savedBillingExpr={savedValues.BillingExpr}
               savedPriceSchedules={savedValues.PriceSchedules}
               savedTaskDurationMultiplier={savedValues.TaskDurationMultiplier}
+              savedVideoResolutionPrices={savedValues.VideoResolutionPrices}
               modelPrice={form.watch('ModelPrice')}
               modelRatio={form.watch('ModelRatio')}
               cacheRatio={form.watch('CacheRatio')}
@@ -306,6 +315,7 @@ export const ModelRatioForm = memo(function ModelRatioForm({
               billingExpr={form.watch('BillingExpr')}
               priceSchedules={form.watch('PriceSchedules')}
               taskDurationMultiplier={form.watch('TaskDurationMultiplier')}
+              videoResolutionPrices={form.watch('VideoResolutionPrices')}
               candidateModelNames={
                 isUnsetVariant ? enabledModelsQuery.data?.data : undefined
               }
@@ -320,6 +330,8 @@ export const ModelRatioForm = memo(function ModelRatioForm({
                   'billing_setting.billing_mode': 'BillingMode',
                   'billing_setting.billing_expr': 'BillingExpr',
                   'billing_setting.price_schedules': 'PriceSchedules',
+                  'billing_setting.video_resolution_prices':
+                    'VideoResolutionPrices',
                   'billing_setting.task_duration_multiplier':
                     'TaskDurationMultiplier',
                 }

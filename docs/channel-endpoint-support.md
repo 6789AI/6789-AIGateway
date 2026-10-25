@@ -46,7 +46,7 @@
 
 | ID | 渠道类型 | 文本与协议 | 向量与排序 | 图像与音频 | 实时与任务 | 关键限制 |
 | ---: | --- | --- | --- | --- | --- | --- |
-| 1 | OpenAI | Chat、Comp、Msg、Resp、Compact、Gemini、Mod | Emb、Rank（透传） | ImgG、ImgE、TTS、STT | RT、OpenAI Video、异步图像（配置） | 官方上游是否实现 Rank 由上游决定；支持完整 OpenAI 视频任务 |
+| 1 | OpenAI | Chat、Comp、Msg、Resp、Compact、Gemini、Mod | Emb、Rank（透传） | ImgG、ImgE、TTS、STT | RT、OpenAI Video、Vinted Video（配置）、异步图像（配置） | 官方上游是否实现 Rank 由上游决定；Vinted 按映射模型及实时目录转换，不支持 remix |
 | 2 | MjProxy | - | - | - | Midjourney | 仅使用 `/mj` 专用任务路由 |
 | 3 | Azure | Chat、Comp、Msg、Resp、Compact、Gemini、Mod | Emb、Rank（透传） | ImgG、ImgE、TTS、STT（条件） | RT、异步图像（配置） | 使用 Azure deployment 和 API version URL；无视频任务适配器 |
 | 4 | Ollama | Chat、Comp、Msg | Emb | - | - | 分别映射到 `/api/chat`、`/api/generate`、`/api/embed` |
@@ -89,7 +89,7 @@
 | 52 | Vidu | - | - | - | Vidu Video | 支持文生、图生、首尾帧和参考图任务模式 |
 | 53 | Submodel | Chat | - | - | - | 代码明确拒绝其他转换器 |
 | 54 | DoubaoVideo | - | - | - | Doubao Video | 仅视频任务 |
-| 55 | Sora | - | - | - | OpenAI Video | 支持创建、查询、内容代理和 remix；上游返回 `video_available:false` 时继续轮询 |
+| 55 | Sora | - | - | - | OpenAI Video、Vinted Video（配置） | OpenAI 协议支持 remix；Vinted 按映射模型及实时目录转换，不支持 remix；未就绪成片继续轮询 |
 | 56 | Replicate | - | - | ImgG、ImgE | 异步图像（配置） | 其他转换器明确未实现 |
 | 57 | ChatGPT Subscription (Codex) | Resp、Compact、Alpha | - | - | - | 明确拒绝 Chat、Msg、Gemini、Embedding、Image、Audio 和 Rank |
 | 58 | Advanced Custom | 按 route/converter 配置 | 按配置 | 按配置 | RT（按配置）、异步图像（配置） | 可覆盖已注册同步路由和 Alpha；无视频 TaskAdaptor |
@@ -114,9 +114,9 @@
 
 | 客户端入口 | 支持的渠道类型 | 说明 |
 | --- | --- | --- |
-| `POST /v1/videos` | OpenAI、Sora、Gemini、Vertex AI、Ali、Kling、Jimeng、Vidu、VolcEngine、DoubaoVideo、MiniMax | 统一视频创建入口；按渠道任务适配器转换 |
+| `POST /v1/videos` | OpenAI、Sora、Gemini、Vertex AI、Ali、Kling、Jimeng、Vidu、VolcEngine、DoubaoVideo、MiniMax | 统一视频创建入口；Vinted 配置将现有平铺请求转换为实时目录、图库资产和报价合同 |
 | `GET /v1/videos/:task_id` | 上述视频任务渠道 | 查询本系统任务并调用对应上游查询逻辑 |
-| `POST /v1/videos/:video_id/remix` | OpenAI、Sora | 只有 Sora/OpenAI 任务适配器实现真正的 remix 上游路径 |
+| `POST /v1/videos/:video_id/remix` | OpenAI、Sora | 只有 OpenAI 协议的 Sora/OpenAI 任务适配器实现真正的 remix 上游路径；Vinted 配置拒绝 remix |
 | `GET /v1/videos/:task_id/content`、`HEAD /v1/videos/:task_id/content` | 已完成且具有可代理内容的视频任务 | 公共内容能力 URL；Vinted 原画代理支持 `Range` / `If-Range`，并转发 `206` / `416` 状态 |
 | `POST /v1/video/generations`、`GET /v1/video/generations/:task_id` | 与统一视频任务渠道相同 | 旧版兼容入口 |
 | `/kling/v1/videos/text2video`、`/kling/v1/videos/image2video` 及查询路由 | Kling | Kling 官方格式兼容入口 |
@@ -126,9 +126,15 @@
 | `/mj/submit/*`、`/mj/task/*`、`/mj/insight-face/*` | MjProxy、MjProxyPlus | Midjourney 专用任务集合 |
 | `/suno/submit/:action`、`/suno/fetch` | SunoAPI | Suno 专用任务集合 |
 
-OpenAI/Sora 渠道可通过 `settings.video_protocol=vinted` 启用 Vinted 专用协议；为兼容已有配置，未设置该字段且 Base URL 主机为 `vinted.cam` 或其子域时也会自动识别，显式设置 `settings.video_protocol=openai` 可关闭该回退。该协议不支持 remix，且仅接受 `seedance2.0`、`seedance2.0fast`、`seedance2.5`、`seedance2.0mini`，模型映射完成后再校验上游模型与时长组合。请求会保留 `camera_movement` 和已有的 `image_ids`，并合并去重 `image`、`images`、`image_refs`、`image_url`、`image_urls`；URL 与 ID 按模型共享引用图上限。网关不暴露 Vinted `/v1/files` 上传路由。客户端提供 `Idempotency-Key` 时，网关按用户和令牌持久化请求占位并锁定原渠道凭据索引，重试复用公开任务 ID；发送到上游的键经过网关作用域哈希，避免共享上游密钥的不同用户互相碰撞。任务提交时会持久化轮询协议、URL 和认证请求头，后续渠道配置变更不影响在途任务。任务轮询识别 `queued/running/succeeded/failed`；内容代理只接受 `quality=original` 的签名地址，并支持原画断点下载。
+OpenAI/Sora 渠道可通过 `settings.video_protocol=vinted` 启用 Vinted 专用协议；为兼容已有配置，未设置该字段且 Base URL 主机为 `vinted.cam` 或其子域时也会识别。客户端继续使用平铺 JSON（`model/prompt/duration/ratio/resolution/image_urls` 及既有图片别名）；网关以渠道映射后的模型 ID 查询 `/v1/catalog`，仅接受当前目录中可用的模型，不内置旧模型白名单。目录未就绪或过期时停止新建。参数默认值、枚举、范围、提示词长度、输入模式和图片组合按目录校验，未声明的画质字段不会发给上游；显式非法值不会被静默替换。参考图片通过受保护下载器读取原字节，按带 `name/image_b64` 的 `/v1/files` 合同换取 `asset_id`；旧 `image_ids` 先读取原图片再上传，不能冒充图库资产。网关不对外暴露 `/v1/files`，也不添加视频或音频参考入口。
+
+网关构造 `model_id/catalog_revision/input_mode/input/parameters`，在本地计费预扣前以完整正文请求 `/v1/videos/quote`，创建时使用相同正文并携带 `Expected-Quote-Id`。一次适配器执行内复用素材、报价和请求正文；报价失败不创建视频，不自动换报价重试。网关对客户端的价格仍按已配置的模型计费规则计算，不直接将上游积分当成本地额度。客户端提供 `Idempotency-Key` 时，继续按用户和令牌持久化请求占位、锁定原渠道凭据索引、复用公开任务 ID，并向上游发送作用域哈希后的幂等键。目录变更导致请求正文变化时，上游的同键冲突保护仍适用，不能通过换键自动重新生成。
+
+任务提交时会持久化轮询协议、URL 和认证请求头，后续渠道配置变更不影响在途任务。任务轮询识别 `queued/running/succeeded/failed`；明确返回 `has_file:false` 的成功任务继续等待归档。内容代理通过无旧查询参数的 `/signed_url` 获取地址，兼容当前无 `quality` 字段的响应，同时拒绝明确标记的预览文件；支持相对地址、匿名成片下载和 `Range` / `If-Range`。兼容画布 `seconds/aspect_ratio/reference_images` 和 `metadata.ratio/resolution` 字段别名，详见 [Vinted 渠道适配](vinted-video-adapter.md)。
 
 普通 OpenAI/Sora 视频渠道按兼容协议转发请求，上游实现仍需自行验证。创建和查询响应中的 `seconds` 可为 JSON 数字或字符串；若上游明确返回 `status:"completed"` 且 `video_available:false`，任务继续轮询，对客户端暂报 `processing`，直到文件可下载。没有 `video_available` 字段的上游仍按 `completed` 判定成功。
+
+统一视频任务的按次定价可配置 480p、720p、768p、1080p、2K 单价；OpenAI/Sora（含 Vinted）、Ali、Gemini/Vertex、Vidu、Hailuo、DoubaoVideo 按有效上游画质匹配，未配置档位保留原计费。命中画质价格后不重复应用内置分辨率倍率，计费与结算策略见 [按次视频画质定价](video-resolution-pricing.md)。
 
 ## 已注册但未实现的端点
 

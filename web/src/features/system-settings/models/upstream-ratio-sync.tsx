@@ -83,6 +83,7 @@ type UpstreamRatioSyncProps = {
     'billing_setting.billing_expr': string
     'billing_setting.price_schedules': string
     'billing_setting.task_duration_multiplier': string
+    'billing_setting.video_resolution_prices': string
   }
 }
 
@@ -106,6 +107,7 @@ function optionKeyBySyncField(ratioType: string): string {
     billing_expr: 'billing_setting.billing_expr',
     price_schedules: 'billing_setting.price_schedules',
     task_duration_multiplier: 'billing_setting.task_duration_multiplier',
+    video_resolution_prices: 'billing_setting.video_resolution_prices',
   }
   if (explicit[ratioType]) return explicit[ratioType]
   return ratioType
@@ -317,6 +319,9 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       'billing_setting.price_schedules': parseJsonRecord<RatioSyncValue>(
         modelRatios['billing_setting.price_schedules']
       ),
+      'billing_setting.video_resolution_prices': parseJsonRecord<
+        Record<string, number>
+      >(modelRatios['billing_setting.video_resolution_prices']),
       'billing_setting.task_duration_multiplier': parseJsonRecord<boolean>(
         modelRatios['billing_setting.task_duration_multiplier']
       ),
@@ -364,6 +369,9 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         'billing_setting.price_schedules': {
           ...currentRatios['billing_setting.price_schedules'],
         },
+        'billing_setting.video_resolution_prices': {
+          ...currentRatios['billing_setting.video_resolution_prices'],
+        },
         'billing_setting.task_duration_multiplier': {
           ...currentRatios['billing_setting.task_duration_multiplier'],
         },
@@ -398,6 +406,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
           delete finalRatios['billing_setting.billing_mode'][model]
           delete finalRatios['billing_setting.billing_expr'][model]
           delete finalRatios['billing_setting.task_duration_multiplier'][model]
+          delete finalRatios['billing_setting.video_resolution_prices'][model]
           if (
             !isDiscountOnlyPriceSchedules(
               finalRatios['billing_setting.price_schedules'][model]

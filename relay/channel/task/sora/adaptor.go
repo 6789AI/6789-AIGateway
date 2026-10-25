@@ -64,50 +64,44 @@ type responseTask struct {
 	} `json:"error,omitempty"`
 }
 
-var vintedVideoDurations = map[string]map[int]bool{
-	"seedance2.0":     {5: true, 10: true, 15: true},
-	"seedance2.0fast": {5: true, 10: true, 15: true},
-	"seedance2.5":     {30: true},
-	"seedance2.0mini": {5: true, 10: true},
-}
-
-var vintedVideoRatios = map[string]bool{
-	"": true, "1:1": true, "3:4": true, "4:3": true,
-	"9:16": true, "16:9": true, "21:9": true,
-}
-
 var vintedImageIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 
 type vintedVideoRequest struct {
-	Prompt         string   `json:"prompt"`
-	Model          string   `json:"model,omitempty"`
-	Duration       *int     `json:"duration,omitempty"`
-	Ratio          *string  `json:"ratio,omitempty"`
-	Resolution     *string  `json:"resolution,omitempty"`
-	CameraMovement *string  `json:"camera_movement,omitempty"`
-	ImageIDs       []string `json:"image_ids,omitempty"`
-	Image          string   `json:"image,omitempty"`
-	Images         []string `json:"images,omitempty"`
-	ImageRefs      []string `json:"image_refs,omitempty"`
-	ImageURL       string   `json:"image_url,omitempty"`
-	ImageURLs      []string `json:"image_urls,omitempty"`
+	Prompt          string       `json:"prompt"`
+	Model           string       `json:"model,omitempty"`
+	Duration        *int         `json:"duration,omitempty"`
+	Seconds         *json.Number `json:"seconds,omitempty"`
+	Ratio           *string      `json:"ratio,omitempty"`
+	AspectRatio     *string      `json:"aspect_ratio,omitempty"`
+	Resolution      *string      `json:"resolution,omitempty"`
+	CameraMovement  *string      `json:"camera_movement,omitempty"`
+	ImageIDs        []string     `json:"image_ids,omitempty"`
+	Image           string       `json:"image,omitempty"`
+	Images          []string     `json:"images,omitempty"`
+	ImageRefs       []string     `json:"image_refs,omitempty"`
+	ImageURL        string       `json:"image_url,omitempty"`
+	ImageURLs       []string     `json:"image_urls,omitempty"`
+	ReferenceImages []string     `json:"reference_images,omitempty"`
+	InputMode       *string      `json:"input_mode,omitempty"`
+	Metadata        *struct {
+		Ratio      *string `json:"ratio,omitempty"`
+		Resolution *string `json:"resolution,omitempty"`
+	} `json:"metadata,omitempty"`
 }
 
 type vintedUpstreamRequest struct {
-	Prompt         string   `json:"prompt"`
-	Model          string   `json:"model"`
-	Duration       int      `json:"duration"`
-	Ratio          string   `json:"ratio"`
-	Resolution     string   `json:"resolution"`
-	CameraMovement string   `json:"camera_movement,omitempty"`
-	ImageIDs       []string `json:"image_ids,omitempty"`
-	ImageURLs      []string `json:"image_urls,omitempty"`
+	ModelID         string         `json:"model_id"`
+	CatalogRevision string         `json:"catalog_revision"`
+	InputMode       string         `json:"input_mode"`
+	Input           map[string]any `json:"input"`
+	Parameters      map[string]any `json:"parameters"`
 }
 
 type vintedAcceptedResponse struct {
 	ID         string `json:"id"`
 	Status     string `json:"status"`
 	Idempotent string `json:"idempotent,omitempty"`
+	Provider   string `json:"provider,omitempty"`
 }
 
 type vintedResponseTask struct {
@@ -116,6 +110,7 @@ type vintedResponseTask struct {
 	File        string `json:"file"`
 	DownloadURL string `json:"download_url"`
 	Error       string `json:"error"`
+	HasFile     *bool  `json:"has_file"`
 }
 
 // ============================
@@ -124,13 +119,18 @@ type vintedResponseTask struct {
 
 type TaskAdaptor struct {
 	taskcommon.BaseBilling
-	ChannelType int
-	apiKey      string
-	baseURL     string
-	isVinted    bool
+	ChannelType      int
+	apiKey           string
+	baseURL          string
+	isVinted         bool
+	vintedBody       []byte
+	vintedQuote      string
+	vintedResolution string
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
+	a.vintedBody, a.vintedQuote = nil, ""
+	a.vintedResolution = ""
 	a.ChannelType = info.ChannelType
 	a.baseURL = info.ChannelBaseUrl
 	a.apiKey = info.ApiKey
@@ -152,7 +152,7 @@ func collectVintedReferences(req vintedVideoRequest) ([]string, []string, error)
 		imageIDs = append(imageIDs, imageID)
 	}
 
-	for _, alias := range [][]string{req.Images, req.ImageRefs, req.ImageURLs} {
+	for _, alias := range [][]string{req.Images, req.ImageRefs, req.ImageURLs, req.ReferenceImages} {
 		for _, imageURL := range alias {
 			if strings.TrimSpace(imageURL) == "" {
 				return nil, nil, fmt.Errorf("image URL lists must not contain empty values")
@@ -169,6 +169,7 @@ func collectVintedReferences(req vintedVideoRequest) ([]string, []string, error)
 	urlAliases = append(urlAliases, req.Images...)
 	urlAliases = append(urlAliases, req.ImageRefs...)
 	urlAliases = append(urlAliases, req.ImageURLs...)
+	urlAliases = append(urlAliases, req.ReferenceImages...)
 	imageURLs := make([]string, 0, len(urlAliases))
 	seenURLs := make(map[string]struct{}, len(urlAliases))
 	for _, imageURL := range urlAliases {
@@ -192,81 +193,11 @@ func validateVintedRequestShape(req vintedVideoRequest) error {
 	if strings.TrimSpace(req.Prompt) == "" {
 		return fmt.Errorf("prompt is required")
 	}
-	if utf8.RuneCountInString(req.Prompt) > 6000 {
-		return fmt.Errorf("prompt must not exceed 6000 characters")
-	}
-	cameraMovement := ""
-	if req.CameraMovement != nil {
-		cameraMovement = strings.TrimSpace(*req.CameraMovement)
-	}
-	if cameraMovement != "" && cameraMovement != "auto" && cameraMovement != "fixed" {
-		return fmt.Errorf("unsupported Vinted camera movement: %s", cameraMovement)
+	if req.Duration != nil && (*req.Duration < 1 || *req.Duration > relaycommon.MaxTaskDurationSeconds) {
+		return fmt.Errorf("duration must be between 1 and %d seconds", relaycommon.MaxTaskDurationSeconds)
 	}
 	_, _, err := collectVintedReferences(req)
 	return err
-}
-
-func normalizeVintedRequest(req vintedVideoRequest, modelName string) (vintedUpstreamRequest, error) {
-	if err := validateVintedRequestShape(req); err != nil {
-		return vintedUpstreamRequest{}, err
-	}
-
-	modelName = strings.TrimSpace(modelName)
-	allowedDurations, ok := vintedVideoDurations[modelName]
-	if !ok {
-		return vintedUpstreamRequest{}, fmt.Errorf("unsupported Vinted video model: %s", modelName)
-	}
-
-	duration := 5
-	if req.Duration != nil {
-		duration = *req.Duration
-	}
-	if !allowedDurations[duration] {
-		return vintedUpstreamRequest{}, fmt.Errorf("duration %d is not supported for model %s", duration, modelName)
-	}
-
-	ratio := ""
-	if req.Ratio != nil {
-		ratio = strings.TrimSpace(*req.Ratio)
-	}
-	if !vintedVideoRatios[ratio] {
-		return vintedUpstreamRequest{}, fmt.Errorf("unsupported Vinted video ratio: %s", ratio)
-	}
-
-	resolution := "720p"
-	if req.Resolution != nil {
-		resolution = strings.TrimSpace(*req.Resolution)
-	}
-	if resolution != "720p" {
-		return vintedUpstreamRequest{}, fmt.Errorf("unsupported Vinted video resolution: %s", resolution)
-	}
-	cameraMovement := ""
-	if req.CameraMovement != nil {
-		cameraMovement = strings.TrimSpace(*req.CameraMovement)
-	}
-	imageIDs, imageURLs, err := collectVintedReferences(req)
-	if err != nil {
-		return vintedUpstreamRequest{}, err
-	}
-
-	maxImages := 9
-	if modelName == "seedance2.5" {
-		maxImages = 30
-	}
-	if len(imageIDs)+len(imageURLs) > maxImages {
-		return vintedUpstreamRequest{}, fmt.Errorf("model %s supports at most %d reference images", modelName, maxImages)
-	}
-
-	return vintedUpstreamRequest{
-		Prompt:         req.Prompt,
-		Model:          modelName,
-		Duration:       duration,
-		Ratio:          ratio,
-		Resolution:     resolution,
-		CameraMovement: cameraMovement,
-		ImageIDs:       imageIDs,
-		ImageURLs:      imageURLs,
-	}, nil
 }
 
 func validateRemixRequest(c *gin.Context) *dto.TaskError {
@@ -289,6 +220,9 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		}
 		var req vintedVideoRequest
 		if err := common.UnmarshalBodyReusable(c, &req); err != nil {
+			return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
+		}
+		if err := req.normalizeAliases(); err != nil {
 			return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 		}
 		if err := validateVintedRequestShape(req); err != nil {
@@ -328,11 +262,11 @@ func (a *TaskAdaptor) ValidateMappedTaskRequest(c *gin.Context, info *relaycommo
 	if !a.isVinted {
 		return nil
 	}
-	var req vintedVideoRequest
-	if err := common.UnmarshalBodyReusable(c, &req); err != nil {
-		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
-	}
-	if _, err := normalizeVintedRequest(req, info.UpstreamModelName); err != nil {
+	if err := a.prepareVintedRequest(c, info); err != nil {
+		var upstreamError *vintedAPIError
+		if errors.As(err, &upstreamError) {
+			return service.TaskErrorWrapperLocal(err, upstreamError.Code, upstreamError.StatusCode)
+		}
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 	}
 	return nil
@@ -392,6 +326,10 @@ func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info
 	req.Header.Set("Authorization", "Bearer "+a.apiKey)
 	if a.isVinted {
 		req.Header.Set("Content-Type", "application/json")
+		if a.vintedQuote == "" {
+			return fmt.Errorf("Vinted request has not been quoted")
+		}
+		req.Header.Set("Expected-Quote-Id", a.vintedQuote)
 		idempotencyKey := strings.TrimSpace(info.UpstreamIdempotencyKey)
 		if idempotencyKey == "" {
 			source := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
@@ -426,19 +364,10 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	}
 	contentType := c.GetHeader("Content-Type")
 	if a.isVinted {
-		var request vintedVideoRequest
-		if err := common.Unmarshal(cachedBody, &request); err != nil {
-			return nil, errors.Wrap(err, "unmarshal_vinted_request_failed")
-		}
-		normalized, err := normalizeVintedRequest(request, info.UpstreamModelName)
-		if err != nil {
+		if err := a.prepareVintedRequest(c, info); err != nil {
 			return nil, err
 		}
-		newBody, err := common.Marshal(normalized)
-		if err != nil {
-			return nil, errors.Wrap(err, "marshal_vinted_request_failed")
-		}
-		return bytes.NewReader(newBody), nil
+		return bytes.NewReader(a.vintedBody), nil
 	}
 
 	if strings.HasPrefix(contentType, "application/json") {
@@ -640,6 +569,10 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		case "running":
 			taskResult.Status = model.TaskStatusInProgress
 		case "succeeded":
+			if resTask.HasFile != nil && !*resTask.HasFile {
+				taskResult.Status = model.TaskStatusInProgress
+				break
+			}
 			taskResult.Status = model.TaskStatusSuccess
 			taskResult.RemoteUrl = strings.TrimSpace(resTask.File)
 			if taskResult.RemoteUrl == "" {
@@ -709,11 +642,20 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 		var availability struct {
 			Status         string `json:"status"`
 			VideoAvailable *bool  `json:"video_available"`
+			HasFile        *bool  `json:"has_file"`
 		}
-		if common.Unmarshal(data, &availability) == nil &&
-			availability.Status == "completed" &&
-			availability.VideoAvailable != nil && !*availability.VideoAvailable {
-			if data, err = sjson.SetBytes(data, "status", "processing"); err != nil {
+		if common.Unmarshal(data, &availability) == nil {
+			pendingStatus := ""
+			if availability.Status == "completed" && availability.VideoAvailable != nil && !*availability.VideoAvailable {
+				pendingStatus = "processing"
+			}
+			if a.isVinted && availability.Status == "succeeded" && availability.HasFile != nil && !*availability.HasFile {
+				pendingStatus = "running"
+			}
+			if pendingStatus != "" {
+				data, err = sjson.SetBytes(data, "status", pendingStatus)
+			}
+			if err != nil {
 				return nil, errors.Wrap(err, "set pending video status failed")
 			}
 		}

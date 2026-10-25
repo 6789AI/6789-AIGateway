@@ -75,6 +75,7 @@ export const SYNC_FIELD_ORDER: RatioType[] = [
   'billing_expr',
   'price_schedules',
   'task_duration_multiplier',
+  'video_resolution_prices',
 ]
 
 export const NUMERIC_SYNC_FIELDS = new Set<string>([
@@ -109,7 +110,10 @@ export function getPreferredSyncField(
   ratioType: RatioType,
   sourceName: string
 ): RatioType {
-  if (ratioType === 'task_duration_multiplier') {
+  if (
+    ratioType === 'task_duration_multiplier' ||
+    ratioType === 'video_resolution_prices'
+  ) {
     return ratioType
   }
   const modeValue = ratioTypes.billing_mode?.upstreams?.[sourceName]
@@ -182,7 +186,12 @@ export function getBillingCategory(
   if (ratioType === 'price_schedules') {
     return isDiscountOnlyPriceSchedules(value) ? 'activity' : 'price'
   }
-  if (ratioType === 'task_duration_multiplier') return 'activity'
+  if (
+    ratioType === 'task_duration_multiplier' ||
+    ratioType === 'video_resolution_prices'
+  ) {
+    return 'activity'
+  }
   if (ratioType === 'billing_mode') {
     return value === 'scheduled_price' ? 'price' : 'tiered'
   }

@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -40,6 +41,10 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	other["is_task"] = true
 	other["request_path"] = c.Request.URL.Path
 	other["model_price"] = info.PriceData.ModelPrice
+	if info.TaskResolutionPrice {
+		other["video_resolution"] = info.TaskVideoResolution
+		other["resolution_price"] = true
+	}
 	if info.PriceData.ModelRatio > 0 {
 		other["model_ratio"] = info.PriceData.ModelRatio
 	}
@@ -130,6 +135,10 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 	}
 	if bc := task.PrivateData.BillingContext; bc != nil {
 		other["model_price"] = bc.ModelPrice
+		if bc.ResolutionPrice {
+			other["video_resolution"] = bc.VideoResolution
+			other["resolution_price"] = true
+		}
 		if bc.ModelRatio > 0 {
 			other["model_ratio"] = bc.ModelRatio
 		}
@@ -170,17 +179,11 @@ func taskBillingRatiosForContext(bc *model.TaskBillingContext, ratios map[string
 	if bc.ApplyBillingRatios != nil && !*bc.ApplyBillingRatios {
 		return nil
 	}
-	if !bc.PerCallBilling || bc.MultiplyByDuration == nil || *bc.MultiplyByDuration {
+	if !bc.PerCallBilling {
 		return ratios
 	}
-
-	filtered := make(map[string]float64, len(ratios))
-	for name, ratio := range ratios {
-		if name != "seconds" {
-			filtered[name] = ratio
-		}
-	}
-	return filtered
+	multiplyDuration := bc.MultiplyByDuration == nil || *bc.MultiplyByDuration
+	return billing_setting.FilterTaskBillingRatios(ratios, multiplyDuration, bc.ResolutionPrice)
 }
 
 // MergeTaskBillingRatios merges upstream-observed task ratios into the

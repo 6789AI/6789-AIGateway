@@ -41,7 +41,7 @@ func videoProxyError(c *gin.Context, status int, errType, message string) {
 
 func resolveVintedVideoURL(ctx context.Context, client *http.Client, baseURL, apiKey, upstreamTaskID string) (string, error) {
 	requestURL := fmt.Sprintf(
-		"%s/v1/videos/%s/signed_url?download=1",
+		"%s/v1/videos/%s/signed_url",
 		strings.TrimRight(baseURL, "/"),
 		url.PathEscape(upstreamTaskID),
 	)
@@ -71,7 +71,9 @@ func resolveVintedVideoURL(ctx context.Context, client *http.Client, baseURL, ap
 	if payload.URL == "" {
 		return "", fmt.Errorf("signed URL response is missing url")
 	}
-	if strings.TrimSpace(payload.Quality) != "original" {
+	// Current Vinted signed URLs do not promise a quality field. Still refuse
+	// an explicitly labelled preview from legacy deployments.
+	if quality := strings.TrimSpace(payload.Quality); quality != "" && quality != "original" {
 		return "", fmt.Errorf("%w: signed URL quality is %q", errVintedOriginalNotReady, payload.Quality)
 	}
 

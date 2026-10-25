@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -270,54 +269,6 @@ func TestSoraParseTaskResultKeepsMinimaxH3FailureTerminal(t *testing.T) {
 	assert.Equal(t, "provider rejected request", taskResult.Reason)
 }
 
-func TestVintedBuildRequestBodyUsesProviderProtocol(t *testing.T) {
-	payload := `{
-		"model":"seedance2.0fast",
-		"prompt":"product showcase",
-		"duration":10,
-		"ratio":"16:9",
-		"resolution":"720p",
-		"image_urls":["https://example.com/first.png","https://example.com/second.png"],
-		"seconds":"15",
-		"metadata":{"unexpected":true}
-	}`
-	c, _ := newVintedTestContext(t, payload)
-	adaptor, info := newVintedAdaptorInfo("seedance2.0fast")
-
-	reqErr := adaptor.ValidateRequestAndSetAction(c, info)
-	require.Nil(t, reqErr)
-	require.Nil(t, adaptor.ValidateMappedTaskRequest(c, info))
-	body, err := adaptor.BuildRequestBody(c, info)
-	require.NoError(t, err)
-	encoded, err := io.ReadAll(body)
-	require.NoError(t, err)
-
-	var request map[string]interface{}
-	require.NoError(t, common.Unmarshal(encoded, &request))
-	assert.Equal(t, "seedance2.0fast", request["model"])
-	assert.Equal(t, "product showcase", request["prompt"])
-	assert.Equal(t, float64(10), request["duration"])
-	assert.Equal(t, "16:9", request["ratio"])
-	assert.Equal(t, "720p", request["resolution"])
-	assert.Equal(t, []interface{}{
-		"https://example.com/first.png",
-		"https://example.com/second.png",
-	}, request["image_urls"])
-	assert.Len(t, request, 6)
-	assert.NotContains(t, request, "seconds")
-	assert.NotContains(t, request, "metadata")
-	assert.Equal(t, constant.TaskActionGenerate, info.Action)
-
-	taskRequest, err := relaycommon.GetTaskRequest(c)
-	require.NoError(t, err)
-	assert.Equal(t, 10, taskRequest.Duration)
-	assert.Equal(t, []string{
-		"https://example.com/first.png",
-		"https://example.com/second.png",
-	}, taskRequest.Images)
-	assert.Equal(t, map[string]float64{"seconds": 10, "size": 1}, adaptor.EstimateBilling(c, info))
-}
-
 func TestVintedRejectsUnsupportedRemix(t *testing.T) {
 	c, _ := newVintedTestContext(t, `{"prompt":"change the scene"}`)
 	adaptor, info := newVintedAdaptorInfo("seedance2.0")
@@ -329,117 +280,6 @@ func TestVintedRejectsUnsupportedRemix(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
 	assert.Contains(t, taskErr.Message, "does not support remix")
 }
-
-func TestVintedBuildRequestBodyMergesReferenceAliases(t *testing.T) {
-	payload := `{
-		"model":"client-video-alias",
-		"prompt":"product showcase",
-		"duration":30,
-		"camera_movement":"fixed",
-		"image_ids":["img_first","img_first"],
-		"image":"https://example.com/first.png",
-		"images":["https://example.com/second.png"],
-		"image_refs":["https://example.com/first.png"],
-		"image_url":"https://example.com/third.png",
-		"image_urls":["https://example.com/second.png"]
-	}`
-	c, _ := newVintedTestContext(t, payload)
-	adaptor, info := newVintedAdaptorInfo("seedance2.5")
-
-	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info), "structural validation must run before model mapping")
-	require.Nil(t, adaptor.ValidateMappedTaskRequest(c, info))
-	body, err := adaptor.BuildRequestBody(c, info)
-	require.NoError(t, err)
-	encoded, err := io.ReadAll(body)
-	require.NoError(t, err)
-
-	var request vintedUpstreamRequest
-	require.NoError(t, common.Unmarshal(encoded, &request))
-	assert.Equal(t, "seedance2.5", request.Model)
-	assert.Equal(t, "fixed", request.CameraMovement)
-	assert.Equal(t, []string{"img_first"}, request.ImageIDs)
-	assert.Equal(t, []string{
-		"https://example.com/first.png",
-		"https://example.com/third.png",
-		"https://example.com/second.png",
-	}, request.ImageURLs)
-	assert.Equal(t, constant.TaskActionGenerate, info.Action)
-}
-
-func TestVintedReferenceLimitCountsIDsAndDeduplicatedURLsTogether(t *testing.T) {
-	images := make([]string, 9)
-	for i := range images {
-		images[i] = `"https://example.com/` + strconv.Itoa(i) + `.png"`
-	}
-	payload := `{"model":"seedance2.0","prompt":"test","duration":5,"image_ids":["img_1"],"images":[` + strings.Join(images, ",") + `]}`
-	c, _ := newVintedTestContext(t, payload)
-	adaptor, info := newVintedAdaptorInfo("seedance2.0")
-
-	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
-	taskErr := adaptor.ValidateMappedTaskRequest(c, info)
-	require.NotNil(t, taskErr)
-	assert.Contains(t, taskErr.Message, "at most 9 reference images")
-}
-
-func TestVintedRequestValidationMatchesProviderLimits(t *testing.T) {
-	tests := []struct {
-		name          string
-		payload       string
-		upstreamModel string
-		wantErr       string
-	}{
-		{
-			name:          "unsupported legacy model",
-			payload:       `{"model":"seedance-2.0","prompt":"test","duration":5,"resolution":"720p"}`,
-			upstreamModel: "seedance-2.0",
-			wantErr:       "unsupported Vinted video model",
-		},
-		{
-			name:          "invalid model duration combination",
-			payload:       `{"model":"seedance2.5","prompt":"test","duration":15,"resolution":"720p"}`,
-			upstreamModel: "seedance2.5",
-			wantErr:       "duration 15 is not supported",
-		},
-		{
-			name:          "invalid ratio",
-			payload:       `{"model":"seedance2.0","prompt":"test","duration":5,"ratio":"2:1","resolution":"720p"}`,
-			upstreamModel: "seedance2.0",
-			wantErr:       "unsupported Vinted video ratio",
-		},
-		{
-			name:          "invalid resolution",
-			payload:       `{"model":"seedance2.0","prompt":"test","duration":5,"resolution":"1080p"}`,
-			upstreamModel: "seedance2.0",
-			wantErr:       "unsupported Vinted video resolution",
-		},
-		{
-			name:          "too many references",
-			upstreamModel: "seedance2.0mini",
-			payload: func() string {
-				images := make([]string, 10)
-				for i := range images {
-					images[i] = `"https://example.com/reference-` + strconv.Itoa(i) + `.png"`
-				}
-				return `{"model":"seedance2.0mini","prompt":"test","duration":5,"resolution":"720p","image_urls":[` + strings.Join(images, ",") + `]}`
-			}(),
-			wantErr: "supports at most 9 reference images",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c, _ := newVintedTestContext(t, tt.payload)
-			adaptor, info := newVintedAdaptorInfo(tt.upstreamModel)
-			taskErr := adaptor.ValidateRequestAndSetAction(c, info)
-			require.Nil(t, taskErr, "structural validation must complete before mapped-model validation")
-			taskErr = adaptor.ValidateMappedTaskRequest(c, info)
-			require.NotNil(t, taskErr)
-			assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
-			assert.Contains(t, taskErr.Message, tt.wantErr)
-		})
-	}
-}
-
 func TestVintedBuildRequestHeaderUsesGatewayScopedIdempotencyKey(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -459,6 +299,7 @@ func TestVintedBuildRequestHeaderUsesGatewayScopedIdempotencyKey(t *testing.T) {
 			c, _ := newVintedTestContext(t, `{"model":"seedance2.0","prompt":"test","duration":5}`)
 			c.Request.Header.Set("Idempotency-Key", tt.clientKey)
 			adaptor, info := newVintedAdaptorInfo("seedance2.0")
+			adaptor.vintedQuote = "quote-test"
 			info.RequestId = tt.requestID
 			info.PublicTaskID = tt.publicID
 			info.UpstreamIdempotencyKey = tt.upstreamKey
@@ -467,6 +308,7 @@ func TestVintedBuildRequestHeaderUsesGatewayScopedIdempotencyKey(t *testing.T) {
 			require.NoError(t, adaptor.BuildRequestHeader(c, upstreamRequest, info))
 			assert.Equal(t, "Bearer upstream-key", upstreamRequest.Header.Get("Authorization"))
 			assert.Equal(t, "application/json", upstreamRequest.Header.Get("Content-Type"))
+			assert.Equal(t, "quote-test", upstreamRequest.Header.Get("Expected-Quote-Id"))
 			actual := upstreamRequest.Header.Get("Idempotency-Key")
 			if tt.wantHeader != "" {
 				assert.Equal(t, tt.wantHeader, actual)
@@ -508,6 +350,7 @@ func TestVintedParseTaskResultUsesProviderStatusesAndStableProxyFlow(t *testing.
 	}{
 		{name: "queued", body: `{"id":"job_1","status":"queued","file":"","download_url":"","error":""}`, wantStatus: model.TaskStatusQueued},
 		{name: "running", body: `{"id":"job_1","status":"running","file":"","download_url":"","error":""}`, wantStatus: model.TaskStatusInProgress},
+		{name: "succeeded awaiting archive", body: `{"id":"job_1","status":"succeeded","has_file":false}`, wantStatus: model.TaskStatusInProgress},
 		{name: "succeeded file", body: `{"id":"job_1","status":"succeeded","file":"/v1/videos/job_1/file?exp=1&sig=x","download_url":"","error":""}`, wantStatus: model.TaskStatusSuccess, wantRemote: "/v1/videos/job_1/file?exp=1&sig=x"},
 		{name: "succeeded download URL", body: `{"id":"job_1","status":"succeeded","file":"","download_url":"https://vinted.example/video.mp4","error":""}`, wantStatus: model.TaskStatusSuccess, wantRemote: "https://vinted.example/video.mp4"},
 		{name: "failed", body: `{"id":"job_1","status":"failed","file":"","download_url":"","error":"provider rejected prompt"}`, wantStatus: model.TaskStatusFailure, wantReason: "provider rejected prompt"},
@@ -569,4 +412,40 @@ func TestVintedPollingUsesSubmissionEndpointAndCredentialSnapshot(t *testing.T) 
 
 	assert.Equal(t, "/gateway/v1/videos/job%2Fupstream", requestedPath)
 	assert.Equal(t, "Bearer submit-key", authorization)
+}
+
+func TestSoraVideoQualityResolutionUsesRequestFieldsAndPortraitSizes(t *testing.T) {
+	for _, tc := range []struct{ name, fields, want string }{
+		{"flat resolution", `"resolution":"480p"`, "480p"},
+		{"metadata resolution", `"metadata":{"resolution":"768p"}`, "768p"},
+		{"JSON string metadata", `"metadata":"{\"resolution\":\"720p\"}"`, "720p"},
+		{"portrait size", `"size":"1080x1920"`, "1080p"},
+		{"2K resolution", `"resolution":"2K"`, "2K"},
+		{"default", `"duration":5`, "720p"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, _ := newVintedTestContext(t, `{"model":"canvas-alias","prompt":"test",`+tc.fields+`}`)
+			info := &relaycommon.RelayInfo{TaskRelayInfo: &relaycommon.TaskRelayInfo{}}
+			a := &TaskAdaptor{}
+			require.Nil(t, a.ValidateRequestAndSetAction(ctx, info))
+			resolution, err := a.VideoBillingResolution(ctx, info)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, resolution)
+		})
+	}
+}
+
+func TestSoraRemixBillingUsesOriginalQualityInsteadOfNewTaskDefault(t *testing.T) {
+	for _, originalResolution := range []string{"1080p", ""} {
+		ctx, _ := newVintedTestContext(t, `{"prompt":"change the lighting"}`)
+		info := &relaycommon.RelayInfo{
+			TaskRelayInfo:       &relaycommon.TaskRelayInfo{Action: constant.TaskActionRemix},
+			TaskVideoResolution: originalResolution,
+		}
+		a := &TaskAdaptor{}
+		require.Nil(t, a.ValidateRequestAndSetAction(ctx, info))
+		resolution, err := a.VideoBillingResolution(ctx, info)
+		require.NoError(t, err)
+		assert.Equal(t, originalResolution, resolution)
+	}
 }

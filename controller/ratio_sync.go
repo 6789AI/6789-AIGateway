@@ -76,6 +76,7 @@ var pricingSyncFields = []string{
 	billing_setting.BillingExprField,
 	billing_setting.PriceSchedulesField,
 	billing_setting.TaskDurationMultiplierField,
+	billing_setting.VideoResolutionPricesField,
 }
 
 var numericPricingSyncFields = map[string]bool{
@@ -99,6 +100,8 @@ func valueMap(value any) map[string]any {
 	switch typed := value.(type) {
 	case map[string]any:
 		return typed
+	case map[string]map[string]float64:
+		return lo.MapValues(typed, func(value map[string]float64, _ string) any { return value })
 	case map[string]float64:
 		return lo.MapValues(typed, func(value float64, _ string) any { return value })
 	case map[string]string:
@@ -402,6 +405,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 				BaseModelPrice         *float64                        `json:"base_model_price"`
 				BaseModelRatio         *float64                        `json:"base_model_ratio"`
 				PriceSchedules         []billing_setting.PriceSchedule `json:"price_schedules"`
+				VideoResolutionPrices  map[string]float64              `json:"video_resolution_prices"`
 				TaskDurationMultiplier *bool                           `json:"task_duration_multiplier"`
 			}
 			if err := common.Unmarshal(body.Data, &pricingItems); err != nil {
@@ -422,6 +426,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 			billingExprMap := make(map[string]string)
 			priceSchedulesMap := make(map[string][]billing_setting.PriceSchedule)
 			taskDurationMultiplierMap := make(map[string]bool)
+			videoResolutionPricesMap := make(map[string]map[string]float64)
 
 			for _, item := range pricingItems {
 				if item.ModelName == "" {
@@ -435,6 +440,9 @@ func FetchUpstreamRatios(c *gin.Context) {
 				}
 				if len(item.PriceSchedules) > 0 {
 					priceSchedulesMap[item.ModelName] = item.PriceSchedules
+				}
+				if len(item.VideoResolutionPrices) > 0 {
+					videoResolutionPricesMap[item.ModelName] = item.VideoResolutionPrices
 				}
 				if item.TaskDurationMultiplier != nil {
 					taskDurationMultiplierMap[item.ModelName] = *item.TaskDurationMultiplier
@@ -519,6 +527,9 @@ func FetchUpstreamRatios(c *gin.Context) {
 			}
 			if len(priceSchedulesMap) > 0 {
 				converted[billing_setting.PriceSchedulesField] = valueMap(priceSchedulesMap)
+			}
+			if len(videoResolutionPricesMap) > 0 {
+				converted[billing_setting.VideoResolutionPricesField] = valueMap(videoResolutionPricesMap)
 			}
 			if len(taskDurationMultiplierMap) > 0 {
 				converted[billing_setting.TaskDurationMultiplierField] = valueMap(taskDurationMultiplierMap)

@@ -85,6 +85,12 @@ type MappedTaskRequestValidator interface {
 	ValidateMappedTaskRequest(c *gin.Context, info *relaycommon.RelayInfo) *taskdto.TaskError
 }
 
+// TaskVideoResolutionProvider returns the effective upstream resolution, including
+// provider defaults. Unknown resolutions retain the model's base price.
+type TaskVideoResolutionProvider interface {
+	VideoBillingResolution(c *gin.Context, info *relaycommon.RelayInfo) (string, error)
+}
+
 type OpenAIVideoConverter interface {
 	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
 }

@@ -35,6 +35,7 @@ export type ModelPricingSnapshotInput = {
   billingExpr: string
   priceSchedules: string
   taskDurationMultiplier?: string
+  videoResolutionPrices?: string
 }
 
 export type ModelPricingSnapshot = {
@@ -52,6 +53,7 @@ export type ModelPricingSnapshot = {
   requestRuleExpr?: string
   priceSchedules?: PriceSchedule[]
   multiplyByDuration?: boolean
+  videoResolutionPrices?: Record<string, number>
   hasConflict: boolean
 }
 
@@ -160,6 +162,9 @@ export const getPriceDetail = (
       : t('Expression based')
   }
   if (row.billingMode === 'per-request') {
+    if (Object.keys(row.videoResolutionPrices || {}).length > 0) {
+      return t('Video quality prices')
+    }
     return t('Fixed request price')
   }
   if (row.billingMode === 'scheduled_price') {
@@ -196,6 +201,7 @@ export const buildModelSnapshots = ({
   billingExpr,
   priceSchedules,
   taskDurationMultiplier = '{}',
+  videoResolutionPrices = '{}',
 }: ModelPricingSnapshotInput): ModelPricingSnapshot[] => {
   const priceMap = safeJsonParse<Record<string, number>>(modelPrice, {
     fallback: {},
@@ -246,6 +252,10 @@ export const buildModelSnapshots = ({
     { fallback: {}, context: 'task duration multiplier' }
   )
 
+  const videoResolutionPricesMap = safeJsonParse<
+    Record<string, Record<string, number>>
+  >(videoResolutionPrices, { fallback: {}, context: 'video quality prices' })
+
   const modelNames = new Set([
     ...Object.keys(priceMap),
     ...Object.keys(ratioMap),
@@ -259,6 +269,7 @@ export const buildModelSnapshots = ({
     ...Object.keys(billingExprMap),
     ...Object.keys(priceSchedulesMap),
     ...Object.keys(taskDurationMultiplierMap),
+    ...Object.keys(videoResolutionPricesMap),
   ])
 
   return [...modelNames].map((name) => {
@@ -301,6 +312,7 @@ export const buildModelSnapshots = ({
           })
         ),
         multiplyByDuration,
+        videoResolutionPrices: videoResolutionPricesMap[name],
         hasConflict: false,
       }
     }
@@ -324,6 +336,7 @@ export const buildModelSnapshots = ({
           })
         ),
         multiplyByDuration,
+        videoResolutionPrices: videoResolutionPricesMap[name],
         hasConflict: false,
       }
     }
@@ -346,6 +359,7 @@ export const buildModelSnapshots = ({
         })
       ),
       multiplyByDuration,
+      videoResolutionPrices: videoResolutionPricesMap[name],
       hasConflict:
         price !== '' &&
         (ratio !== '' ||
@@ -375,5 +389,6 @@ export const getSnapshotSignature = (snapshot?: ModelPricingSnapshot) => {
     requestRuleExpr: snapshot.requestRuleExpr || '',
     priceSchedules: snapshot.priceSchedules || [],
     multiplyByDuration: snapshot.multiplyByDuration ?? true,
+    videoResolutionPrices: snapshot.videoResolutionPrices || {},
   })
 }

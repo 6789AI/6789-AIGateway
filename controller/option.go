@@ -372,6 +372,12 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "billing_setting." + billing_setting.VideoResolutionPricesField:
+		err = billing_setting.ValidateVideoResolutionPricesJSON(option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+			return
+		}
 	case "billing_setting." + billing_setting.TaskDurationMultiplierField:
 		err = billing_setting.ValidateTaskDurationMultiplierJSON(option.Value.(string))
 		if err != nil {

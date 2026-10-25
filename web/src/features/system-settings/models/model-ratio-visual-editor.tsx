@@ -79,6 +79,7 @@ type ModelRatioVisualEditorProps = {
   savedBillingExpr: string
   savedPriceSchedules: string
   savedTaskDurationMultiplier: string
+  savedVideoResolutionPrices: string
   modelPrice: string
   modelRatio: string
   cacheRatio: string
@@ -91,6 +92,7 @@ type ModelRatioVisualEditorProps = {
   billingExpr: string
   priceSchedules: string
   taskDurationMultiplier: string
+  videoResolutionPrices: string
   candidateModelNames?: string[]
   candidateModelsLoading?: boolean
   filterMode?: 'all' | 'unset'
@@ -122,6 +124,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
     savedBillingExpr,
     savedPriceSchedules,
     savedTaskDurationMultiplier,
+    savedVideoResolutionPrices,
     modelPrice,
     modelRatio,
     cacheRatio,
@@ -134,6 +137,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
     billingExpr,
     priceSchedules,
     taskDurationMultiplier,
+    videoResolutionPrices,
     candidateModelNames,
     candidateModelsLoading,
     filterMode = 'all',
@@ -210,6 +214,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingExpr: savedBillingExpr,
       priceSchedules: savedPriceSchedules,
       taskDurationMultiplier: savedTaskDurationMultiplier,
+      videoResolutionPrices: savedVideoResolutionPrices,
     })
     const draftRows = buildModelSnapshots({
       modelPrice,
@@ -224,6 +229,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingExpr,
       priceSchedules,
       taskDurationMultiplier,
+      videoResolutionPrices,
     })
 
     const savedByName = new Map(savedRows.map((row) => [row.name, row]))
@@ -269,6 +275,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
     savedBillingExpr,
     savedPriceSchedules,
     savedTaskDurationMultiplier,
+    savedVideoResolutionPrices,
     modelPrice,
     modelRatio,
     cacheRatio,
@@ -281,6 +288,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
     billingExpr,
     priceSchedules,
     taskDurationMultiplier,
+    videoResolutionPrices,
   ])
 
   const modeCounts = useMemo(
@@ -330,6 +338,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
         requestRuleExpr: editableModel.requestRuleExpr,
         priceSchedules: editableModel.priceSchedules,
         multiplyByDuration: editableModel.multiplyByDuration ?? true,
+        videoResolutionPrices: editableModel.videoResolutionPrices,
       })
       setEditorOpen(true)
       if (isMobile) setSheetOpen(true)
@@ -408,6 +417,9 @@ const ModelRatioVisualEditorComponent = forwardRef<
         taskDurationMultiplier,
         { fallback: {}, silent: true }
       )
+      const videoResolutionPricesMap = safeJsonParse<
+        Record<string, Record<string, number>>
+      >(videoResolutionPrices, { fallback: {}, silent: true })
 
       delete priceMap[name]
       delete ratioMap[name]
@@ -421,6 +433,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       delete billingExprMap[name]
       delete priceSchedulesMap[name]
       delete taskDurationMultiplierMap[name]
+      delete videoResolutionPricesMap[name]
 
       onChange('ModelPrice', JSON.stringify(priceMap, null, 2))
       onChange('ModelRatio', JSON.stringify(ratioMap, null, 2))
@@ -449,6 +462,10 @@ const ModelRatioVisualEditorComponent = forwardRef<
         'billing_setting.task_duration_multiplier',
         JSON.stringify(taskDurationMultiplierMap, null, 2)
       )
+      onChange(
+        'billing_setting.video_resolution_prices',
+        JSON.stringify(videoResolutionPricesMap, null, 2)
+      )
 
       if (editData?.name === name) {
         setEditData(null)
@@ -469,6 +486,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingExpr,
       priceSchedules,
       taskDurationMultiplier,
+      videoResolutionPrices,
       onChange,
       editData,
     ]
@@ -568,6 +586,9 @@ const ModelRatioVisualEditorComponent = forwardRef<
         taskDurationMultiplier,
         { fallback: {}, silent: true }
       )
+      const videoResolutionPricesMap = safeJsonParse<
+        Record<string, Record<string, number>>
+      >(videoResolutionPrices, { fallback: {}, silent: true })
 
       const setIfPresent = (
         target: Record<string, number>,
@@ -592,6 +613,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
         delete billingExprMap[name]
         delete priceSchedulesMap[name]
         delete taskDurationMultiplierMap[name]
+        delete videoResolutionPricesMap[name]
 
         if (data.billingMode === 'tiered_expr') {
           const combined = combineBillingExpr(
@@ -619,6 +641,9 @@ const ModelRatioVisualEditorComponent = forwardRef<
             billingModeMap[name] = 'scheduled_price'
           }
           setIfPresent(priceMap, name, data.price)
+          if (Object.keys(data.videoResolutionPrices || {}).length > 0) {
+            videoResolutionPricesMap[name] = { ...data.videoResolutionPrices }
+          }
           if (data.multiplyByDuration === false) {
             taskDurationMultiplierMap[name] = false
           }
@@ -664,6 +689,10 @@ const ModelRatioVisualEditorComponent = forwardRef<
         'billing_setting.task_duration_multiplier',
         JSON.stringify(taskDurationMultiplierMap, null, 2)
       )
+      onChange(
+        'billing_setting.video_resolution_prices',
+        JSON.stringify(videoResolutionPricesMap, null, 2)
+      )
     },
     [
       modelPrice,
@@ -678,6 +707,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingExpr,
       priceSchedules,
       taskDurationMultiplier,
+      videoResolutionPrices,
       onChange,
     ]
   )
@@ -912,6 +942,8 @@ export const ModelRatioVisualEditor = memo(
       prevProps.savedBillingMode === nextProps.savedBillingMode &&
       prevProps.savedBillingExpr === nextProps.savedBillingExpr &&
       prevProps.savedPriceSchedules === nextProps.savedPriceSchedules &&
+      prevProps.savedVideoResolutionPrices ===
+        nextProps.savedVideoResolutionPrices &&
       prevProps.savedTaskDurationMultiplier ===
         nextProps.savedTaskDurationMultiplier &&
       prevProps.modelPrice === nextProps.modelPrice &&
@@ -926,6 +958,7 @@ export const ModelRatioVisualEditor = memo(
       prevProps.billingExpr === nextProps.billingExpr &&
       prevProps.priceSchedules === nextProps.priceSchedules &&
       prevProps.taskDurationMultiplier === nextProps.taskDurationMultiplier &&
+      prevProps.videoResolutionPrices === nextProps.videoResolutionPrices &&
       prevProps.candidateModelNames === nextProps.candidateModelNames &&
       prevProps.candidateModelsLoading === nextProps.candidateModelsLoading &&
       prevProps.filterMode === nextProps.filterMode &&

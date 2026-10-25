@@ -807,6 +807,8 @@ func relayTask(c *gin.Context, relayMode int) {
 			OriginModelName:    relayInfo.OriginModelName,
 			PerCallBilling:     isTaskPricePatch || relayInfo.PriceData.UsePrice,
 			MultiplyByDuration: multiplyByDuration,
+			ResolutionPrice:    relayInfo.TaskResolutionPrice,
+			VideoResolution:    relayInfo.TaskVideoResolution,
 			ApplyBillingRatios: applyBillingRatios,
 		}
 		task.Quota = taskQuota

@@ -41,6 +41,7 @@ const getModelDefaults = (settings: BillingSettings) => ({
   BillingExpr: settings['billing_setting.billing_expr'],
   PriceSchedules: settings['billing_setting.price_schedules'],
   TaskDurationMultiplier: settings['billing_setting.task_duration_multiplier'],
+  VideoResolutionPrices: settings['billing_setting.video_resolution_prices'],
 })
 
 const getGroupDefaults = (settings: BillingSettings) => ({

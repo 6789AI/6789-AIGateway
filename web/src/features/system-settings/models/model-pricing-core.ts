@@ -83,6 +83,7 @@ export type ModelRatioData = {
   requestRuleExpr?: string
   priceSchedules?: PriceSchedule[]
   multiplyByDuration?: boolean
+  videoResolutionPrices?: Record<string, number>
 }
 
 export type PreviewRow = {

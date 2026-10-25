@@ -88,6 +88,11 @@ import { validatePriceSchedules } from './price-schedule'
 import { formatPricingNumber } from './pricing-format'
 import { ScheduledPricingEditor } from './scheduled-pricing-editor'
 import { TieredPricingEditor } from './tiered-pricing-editor'
+import { VideoResolutionPriceEditor } from './video-resolution-price-editor'
+import {
+  VIDEO_RESOLUTIONS,
+  parseVideoResolutionPriceDraft,
+} from './video-resolution-prices'
 
 export type { ModelRatioData } from './model-pricing-core'
 
@@ -163,6 +168,10 @@ export const ModelPricingEditorPanel = forwardRef<
   const [requestRuleExpr, setRequestRuleExpr] = useState('')
   const [priceSchedules, setPriceSchedules] = useState<PriceSchedule[]>([])
   const [multiplyByDuration, setMultiplyByDuration] = useState(true)
+  const [videoResolutionPrices, setVideoResolutionPrices] = useState<
+    Record<string, string>
+  >({})
+  const [resolutionPriceInvalid, setResolutionPriceInvalid] = useState(false)
   const [scheduleValidationError, setScheduleValidationError] = useState<
     string | null
   >(null)
@@ -214,6 +223,13 @@ export const ModelPricingEditorPanel = forwardRef<
       setRequestRuleExpr(editData.requestRuleExpr || '')
       setPriceSchedules(editData.priceSchedules || [])
       setMultiplyByDuration(editData.multiplyByDuration ?? true)
+      setVideoResolutionPrices(
+        Object.fromEntries(
+          Object.entries(editData.videoResolutionPrices || {}).map(
+            ([key, value]) => [key, String(value)]
+          )
+        )
+      )
     } else {
       form.reset({
         name: '',
@@ -231,11 +247,13 @@ export const ModelPricingEditorPanel = forwardRef<
       setRequestRuleExpr('')
       setPriceSchedules([])
       setMultiplyByDuration(true)
+      setVideoResolutionPrices({})
     }
 
     setPromptPrice(nextLaneState.promptPrice)
     setLanePrices(nextLaneState.prices)
     setLaneEnabled(nextLaneState.enabled)
+    setResolutionPriceInvalid(false)
     setScheduleValidationError(null)
     setEditorReloadToken((token) => token + 1)
   }, [editData, form])
@@ -371,8 +389,8 @@ export const ModelPricingEditorPanel = forwardRef<
 
   const watchedValues = form.watch()
   const previewRows = useMemo(
-    () =>
-      buildPreviewRows(
+    () => [
+      ...buildPreviewRows(
         watchedValues,
         pricingMode,
         billingExpr,
@@ -383,6 +401,17 @@ export const ModelPricingEditorPanel = forwardRef<
         laneEnabled,
         t
       ),
+      ...(pricingMode === 'per-request'
+        ? VIDEO_RESOLUTIONS.filter((tier) =>
+            videoResolutionPrices[tier]?.trim()
+          ).map((tier) => ({
+            key: tier,
+            multiline: false,
+            label: tier.toUpperCase().replace('P', 'p'),
+            value: `$${videoResolutionPrices[tier]} / ${multiplyByDuration ? t('second') : t('request')}`,
+          }))
+        : []),
+    ],
     [
       billingExpr,
       laneEnabled,
@@ -393,6 +422,8 @@ export const ModelPricingEditorPanel = forwardRef<
       requestRuleExpr,
       t,
       watchedValues,
+      multiplyByDuration,
+      videoResolutionPrices,
     ]
   )
 
@@ -442,6 +473,11 @@ export const ModelPricingEditorPanel = forwardRef<
   }, [editData, laneEnabled, lanePrices, pricingMode, promptPrice, t])
 
   const validatePricingValues = useCallback(() => {
+    const invalid =
+      pricingMode === 'per-request' &&
+      parseVideoResolutionPriceDraft(videoResolutionPrices) === null
+    setResolutionPriceInvalid(invalid)
+    if (invalid) return false
     if (pricingMode === 'per-request') {
       const basePrice = toNumberOrNull(form.getValues('price'))
       if (basePrice === null || basePrice < 0) {
@@ -497,6 +533,7 @@ export const ModelPricingEditorPanel = forwardRef<
     priceSchedules,
     pricingMode,
     promptPrice,
+    videoResolutionPrices,
     t,
   ])
 
@@ -524,6 +561,8 @@ export const ModelPricingEditorPanel = forwardRef<
       }
       if (pricingMode === 'per-request') {
         data.multiplyByDuration = multiplyByDuration
+        data.videoResolutionPrices =
+          parseVideoResolutionPriceDraft(videoResolutionPrices) || {}
       }
 
       return data
@@ -531,6 +570,7 @@ export const ModelPricingEditorPanel = forwardRef<
     [
       billingExpr,
       multiplyByDuration,
+      videoResolutionPrices,
       priceSchedules,
       pricingMode,
       requestRuleExpr,
@@ -709,6 +749,15 @@ export const ModelPricingEditorPanel = forwardRef<
                             </Field>
                           </FormItem>
                         )}
+                      />
+                      <VideoResolutionPriceEditor
+                        prices={videoResolutionPrices}
+                        onChange={(prices) => {
+                          setVideoResolutionPrices(prices)
+                          setResolutionPriceInvalid(false)
+                        }}
+                        multiplyByDuration={multiplyByDuration}
+                        invalid={resolutionPriceInvalid}
                       />
                       <Field
                         orientation='horizontal'

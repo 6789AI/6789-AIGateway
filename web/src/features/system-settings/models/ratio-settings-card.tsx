@@ -42,6 +42,7 @@ import {
   normalizeJsonString,
   validateJsonString,
 } from './utils'
+import { isVideoResolutionPricesMap } from './video-resolution-prices'
 
 type Translate = (key: string, options?: Record<string, unknown>) => string
 
@@ -119,6 +120,11 @@ const createModelSchema = (t: Translate) =>
     BillingMode: createJsonStringField(t),
     BillingExpr: createJsonStringField(t),
     PriceSchedules: createJsonStringField(t),
+    VideoResolutionPrices: createJsonStringField(t, {
+      predicate: isVideoResolutionPricesMap,
+      predicateMessage:
+        'Video quality prices must map models to non-negative prices for 480p, 720p, 768p, 1080p or 2k.',
+    }),
     TaskDurationMultiplier: createJsonStringField(t, {
       predicate: (parsed) =>
         typeof parsed === 'object' &&
@@ -214,6 +220,9 @@ export function RatioSettingsCard({
     TaskDurationMultiplier: normalizeJsonString(
       modelDefaults.TaskDurationMultiplier
     ),
+    VideoResolutionPrices: normalizeJsonString(
+      modelDefaults.VideoResolutionPrices
+    ),
   })
   const [savedModelValues, setSavedModelValues] = useState(
     modelNormalizedDefaults.current
@@ -255,6 +264,9 @@ export function RatioSettingsCard({
       TaskDurationMultiplier: formatJsonForTextarea(
         modelDefaults.TaskDurationMultiplier
       ),
+      VideoResolutionPrices: formatJsonForTextarea(
+        modelDefaults.VideoResolutionPrices
+      ),
     },
   })
 
@@ -294,6 +306,9 @@ export function RatioSettingsCard({
       TaskDurationMultiplier: normalizeJsonString(
         modelDefaults.TaskDurationMultiplier
       ),
+      VideoResolutionPrices: normalizeJsonString(
+        modelDefaults.VideoResolutionPrices
+      ),
     }
     setSavedModelValues(modelNormalizedDefaults.current)
 
@@ -314,6 +329,9 @@ export function RatioSettingsCard({
       PriceSchedules: formatJsonForTextarea(modelDefaults.PriceSchedules),
       TaskDurationMultiplier: formatJsonForTextarea(
         modelDefaults.TaskDurationMultiplier
+      ),
+      VideoResolutionPrices: formatJsonForTextarea(
+        modelDefaults.VideoResolutionPrices
       ),
     })
   }, [modelDefaults, modelForm])
@@ -364,6 +382,9 @@ export function RatioSettingsCard({
         TaskDurationMultiplier: normalizeJsonString(
           values.TaskDurationMultiplier
         ),
+        VideoResolutionPrices: normalizeJsonString(
+          values.VideoResolutionPrices
+        ),
       }
 
       const apiKeyMap: Record<string, string> = {
@@ -371,6 +392,7 @@ export function RatioSettingsCard({
         BillingExpr: 'billing_setting.billing_expr',
         PriceSchedules: 'billing_setting.price_schedules',
         TaskDurationMultiplier: 'billing_setting.task_duration_multiplier',
+        VideoResolutionPrices: 'billing_setting.video_resolution_prices',
         FreeModelBannerEnabled: 'billing_setting.free_model_banner_enabled',
       }
 
@@ -499,6 +521,8 @@ export function RatioSettingsCard({
           'billing_setting.billing_mode': modelDefaults.BillingMode,
           'billing_setting.billing_expr': modelDefaults.BillingExpr,
           'billing_setting.price_schedules': modelDefaults.PriceSchedules,
+          'billing_setting.video_resolution_prices':
+            modelDefaults.VideoResolutionPrices,
           'billing_setting.task_duration_multiplier':
             modelDefaults.TaskDurationMultiplier,
         }}

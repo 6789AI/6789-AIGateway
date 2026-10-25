@@ -5539,6 +5539,14 @@
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
     "Zoom": "缩放",
-    "Model request limits": "模型请求限流"
+    "Model request limits": "模型请求限流",
+    "Video quality prices": "视频画质定价",
+    "JSON map of model identifiers to video quality prices in USD.": "模型标识到各视频画质美元单价的 JSON 映射。",
+    "Leave a quality price blank to use the base price. A configured quality price replaces the base price and built-in resolution ratios.": "画质价格留空时沿用基础价。已配置的画质价格会替代基础价及内置分辨率倍率。",
+    "Use base price": "沿用基础价",
+    "Video quality prices must be finite numbers greater than or equal to zero.": "画质价格必须为大于或等于 0 的有限数字。",
+    "Video quality prices must map models to non-negative prices for 480p, 720p, 768p, 1080p or 2k.": "画质价格须按模型配置为 480p、720p、768p、1080p 或 2k 的非负单价。",
+    "per second": "每秒",
+    "second": "秒"
   }
 }

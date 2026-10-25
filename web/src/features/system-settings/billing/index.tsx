@@ -56,6 +56,7 @@ const defaultBillingSettings: BillingSettings = {
   'billing_setting.billing_expr': '{}',
   'billing_setting.price_schedules': '{}',
   'billing_setting.task_duration_multiplier': '{}',
+  'billing_setting.video_resolution_prices': '{}',
   'billing_setting.free_model_banner_enabled': true,
   'tool_price_setting.prices': '{}',
   TopupGroupRatio: '',

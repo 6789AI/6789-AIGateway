@@ -254,6 +254,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 // ModelPriceHelperPerCall 按次/按量计费的 PriceHelper (MJ、Task)
 func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (priceData hosttypes.PriceData, err error) {
 	info.PromotionFreeUsage = false
+	info.TaskResolutionPrice = false
 	activityKeyBefore := info.PromotionActivityKey
 	defer func() {
 		refundScheduledActivityAfterPricingError(c, info, activityKeyBefore, err)
@@ -284,6 +285,10 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (price
 		}
 	}
 	if usePrice {
+		if resolutionPrice, matched := billing_setting.GetVideoResolutionPrice(info.OriginModelName, info.TaskVideoResolution); matched {
+			modelPrice = resolutionPrice
+			info.TaskResolutionPrice = true
+		}
 		if adjustment, matched := billing_setting.GetScheduledPriceAdjustment(info.OriginModelName, modelPrice, now); matched {
 			granted, reserveErr := reserveScheduledActivity(c, info, adjustment)
 			if reserveErr != nil {

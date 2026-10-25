@@ -40,6 +40,7 @@ type Pricing struct {
 	ActiveDiscountRate     *float64                        `json:"active_discount_rate,omitempty"`
 	ActivePromotion        *billing_setting.ModelPromotion `json:"active_promotion,omitempty"`
 	PriceSchedules         []billing_setting.PriceSchedule `json:"price_schedules,omitempty"`
+	VideoResolutionPrices  map[string]float64              `json:"video_resolution_prices,omitempty"`
 	TaskDurationMultiplier *bool                           `json:"task_duration_multiplier,omitempty"`
 	PricingVersion         string                          `json:"pricing_version,omitempty"`
 }
@@ -85,11 +86,15 @@ func GetPricing() []Pricing {
 	now := time.Now()
 	activePromotions := billing_setting.GetActiveModelPromotions(now)
 	taskDurationMultipliers := billing_setting.GetTaskDurationMultiplierCopy()
+	videoResolutionPrices := billing_setting.GetVideoResolutionPricesCopy()
 	promotionByModel := make(map[string]billing_setting.ModelPromotion, len(activePromotions))
 	for _, promotion := range activePromotions {
 		promotionByModel[promotion.ModelName] = promotion
 	}
 	for index := range result {
+		if result[index].QuotaType == 1 {
+			result[index].VideoResolutionPrices = videoResolutionPrices[result[index].ModelName]
+		}
 		if multiply, configured := taskDurationMultipliers[result[index].ModelName]; configured {
 			multiplyCopy := multiply
 			result[index].TaskDurationMultiplier = &multiplyCopy

@@ -15,7 +15,7 @@ func TestResolveVintedVideoURLRequestsOriginalSignedURL(t *testing.T) {
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/v1/videos/job_upstream/signed_url", r.URL.Path)
-		assert.Equal(t, "1", r.URL.Query().Get("download"))
+		assert.Empty(t, r.URL.RawQuery)
 		assert.Equal(t, "Bearer upstream-key", r.Header.Get("Authorization"))
 		w.Header().Set("Content-Type", "application/json")
 		_, err := fmt.Fprintf(w, `{"url":"/v1/videos/job_upstream/file?exp=123&sig=secret","expires_at":123,"quality":"original"}`)
@@ -27,6 +27,22 @@ func TestResolveVintedVideoURLRequestsOriginalSignedURL(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, server.URL+"/v1/videos/job_upstream/file?exp=123&sig=secret", result)
+}
+
+func TestResolveVintedVideoURLAcceptsCurrentContractWithoutQuality(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer upstream-key", r.Header.Get("Authorization"))
+		assert.Empty(t, r.URL.RawQuery)
+		w.Header().Set("Content-Type", "application/json")
+		_, err := w.Write([]byte(`{"url":"/v1/videos/job_upstream/file?sig=signed"}`))
+		assert.NoError(t, err)
+	}))
+	t.Cleanup(server.Close)
+
+	result, err := resolveVintedVideoURL(context.Background(), server.Client(), server.URL, "upstream-key", "job_upstream")
+
+	require.NoError(t, err)
+	assert.Equal(t, server.URL+"/v1/videos/job_upstream/file?sig=signed", result)
 }
 
 func TestResolveVintedVideoURLRejectsInvalidResponse(t *testing.T) {

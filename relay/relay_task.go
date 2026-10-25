@@ -124,6 +124,7 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 	// 提取 remix 参数（时长、分辨率 → OtherRatios）
 	if info.Action == constant.TaskActionRemix {
 		if originTask.PrivateData.BillingContext != nil {
+			info.TaskVideoResolution = originTask.PrivateData.BillingContext.VideoResolution
 			// 新的 remix 逻辑：直接从原始任务的 BillingContext 中提取 OtherRatios（如果存在）
 			for s, f := range originTask.PrivateData.BillingContext.OtherRatios {
 				info.PriceData.AddOtherRatio(s, f)
@@ -236,6 +237,18 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 
 	// 4. 价格计算：基础模型价格
 	info.OriginModelName = modelName
+	if info.Action != constant.TaskActionRemix {
+		info.TaskVideoResolution = ""
+	}
+	if info.RelayMode != relayconstant.RelayModeImageSubmit {
+		if provider, ok := adaptor.(channel.TaskVideoResolutionProvider); ok {
+			resolution, resolutionErr := provider.VideoBillingResolution(c, info)
+			if resolutionErr != nil {
+				return nil, service.TaskErrorWrapperLocal(resolutionErr, "invalid_video_resolution", http.StatusBadRequest)
+			}
+			info.TaskVideoResolution = billing_setting.NormalizeVideoResolution(resolution)
+		}
+	}
 	priceData := info.PriceData
 	var err error
 	if info.RelayMode == relayconstant.RelayModeImageSubmit {
@@ -265,6 +278,10 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		info.PriceData.UsePrice,
 		adaptor.EstimateBilling(c, info),
 	)
+	if info.TaskResolutionPrice {
+		estimatedRatios = billing_setting.FilterTaskBillingRatios(estimatedRatios, true, true)
+		info.PriceData.ReplaceOtherRatios(billing_setting.FilterTaskBillingRatios(info.PriceData.OtherRatios(), true, true))
+	}
 	if len(estimatedRatios) > 0 {
 		for k, v := range estimatedRatios {
 			info.PriceData.AddOtherRatio(k, v)
@@ -328,6 +345,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		info.PriceData.UsePrice,
 		adaptor.AdjustBillingOnSubmit(info, taskData),
 	)
+	if info.TaskResolutionPrice {
+		adjustedRatios = billing_setting.FilterTaskBillingRatios(adjustedRatios, true, true)
+	}
 	if !common.StringsContains(constant.TaskPricePatches, modelName) && len(adjustedRatios) > 0 {
 		if adjustedQuota, ok := recalcQuotaFromRatios(info, adjustedRatios); ok {
 			// 基于调整后的 ratios 重新计算 quota

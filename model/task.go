@@ -136,6 +136,8 @@ type TaskBillingContext struct {
 	OriginModelName    string             `json:"origin_model_name,omitempty"`    // 模型名称，必须为OriginModelName
 	PerCallBilling     bool               `json:"per_call_billing,omitempty"`     // 按次计费：跳过轮询阶段的 token 差额结算
 	MultiplyByDuration *bool              `json:"multiply_by_duration,omitempty"` // 按次计费是否应用 seconds；nil 表示兼容旧任务并启用
+	ResolutionPrice    bool               `json:"resolution_price,omitempty"`
+	VideoResolution    string             `json:"video_resolution,omitempty"`
 	ApplyBillingRatios *bool              `json:"apply_billing_ratios,omitempty"` // 是否应用任务倍率；nil 表示兼容旧任务并启用
 }
 

@@ -268,6 +268,7 @@ export type ModelSettings = {
   'billing_setting.billing_expr': string
   'billing_setting.price_schedules': string
   'billing_setting.task_duration_multiplier': string
+  'billing_setting.video_resolution_prices': string
   'billing_setting.free_model_banner_enabled': boolean
   'tool_price_setting.prices': string
   TopupGroupRatio: string
@@ -330,6 +331,7 @@ export type BillingSettings = {
   'billing_setting.billing_expr': string
   'billing_setting.price_schedules': string
   'billing_setting.task_duration_multiplier': string
+  'billing_setting.video_resolution_prices': string
   'billing_setting.free_model_banner_enabled': boolean
   'tool_price_setting.prices': string
   TopupGroupRatio: string
@@ -472,8 +474,10 @@ export type RatioType =
   | 'billing_expr'
   | 'price_schedules'
   | 'task_duration_multiplier'
+  | 'video_resolution_prices'
 
 export type RatioSyncValue =
+  | Record<string, number>
   | number
   | string
   | boolean

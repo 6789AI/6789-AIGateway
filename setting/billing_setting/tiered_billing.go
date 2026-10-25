@@ -23,6 +23,7 @@ const (
 	BillingExprField            = "billing_expr"
 	PriceSchedulesField         = "price_schedules"
 	TaskDurationMultiplierField = "task_duration_multiplier"
+	VideoResolutionPricesField  = "video_resolution_prices"
 	FreeModelBannerField        = "free_model_banner_enabled"
 
 	PriceScheduleAbsolute = "absolute"
@@ -69,13 +70,15 @@ type ScheduledAdjustment struct {
 
 // BillingSetting is managed by config.GlobalConfig.Register.
 // DB keys: billing_setting.billing_mode, billing_setting.billing_expr,
-// billing_setting.price_schedules, billing_setting.task_duration_multiplier
+// billing_setting.price_schedules, billing_setting.task_duration_multiplier,
+// billing_setting.video_resolution_prices
 type BillingSetting struct {
-	BillingMode            map[string]string          `json:"billing_mode"`
-	BillingExpr            map[string]string          `json:"billing_expr"`
-	PriceSchedules         map[string][]PriceSchedule `json:"price_schedules"`
-	TaskDurationMultiplier map[string]bool            `json:"task_duration_multiplier"`
-	FreeModelBannerEnabled bool                       `json:"free_model_banner_enabled"`
+	BillingMode            map[string]string             `json:"billing_mode"`
+	BillingExpr            map[string]string             `json:"billing_expr"`
+	PriceSchedules         map[string][]PriceSchedule    `json:"price_schedules"`
+	TaskDurationMultiplier map[string]bool               `json:"task_duration_multiplier"`
+	VideoResolutionPrices  map[string]map[string]float64 `json:"video_resolution_prices"`
+	FreeModelBannerEnabled bool                          `json:"free_model_banner_enabled"`
 }
 
 var billingSetting = BillingSetting{
@@ -83,6 +86,7 @@ var billingSetting = BillingSetting{
 	BillingExpr:            make(map[string]string),
 	PriceSchedules:         make(map[string][]PriceSchedule),
 	TaskDurationMultiplier: make(map[string]bool),
+	VideoResolutionPrices:  make(map[string]map[string]float64),
 	FreeModelBannerEnabled: true,
 }
 
@@ -159,6 +163,9 @@ func GetPricingSyncData(base map[string]any) map[string]any {
 	}
 	if durationMultipliers := GetTaskDurationMultiplierCopy(); len(durationMultipliers) > 0 {
 		extra[TaskDurationMultiplierField] = durationMultipliers
+	}
+	if prices := GetVideoResolutionPricesCopy(); len(prices) > 0 {
+		extra[VideoResolutionPricesField] = prices
 	}
 	return lo.Assign(base, extra)
 }

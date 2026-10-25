@@ -19,6 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  // Video resolution pricing settings
+  'JSON map of model identifiers to video quality prices in USD.',
+  'Video quality prices must map models to non-negative prices for 480p, 720p, 768p, 1080p or 2k.',
+
   // Header navigation
   'Home',
   'Console',

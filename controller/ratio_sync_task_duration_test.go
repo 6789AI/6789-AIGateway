@@ -31,3 +31,16 @@ func TestBuildDifferencesSupportsTaskDurationMultiplier(t *testing.T) {
 	assert.Equal(t, false, item.Current)
 	assert.Equal(t, true, item.Upstreams["upstream"])
 }
+
+func TestBuildDifferencesSupportsVideoQualityPriceMaps(t *testing.T) {
+	local := map[string]any{billing_setting.VideoResolutionPricesField: map[string]map[string]float64{"video": {"720p": 0.1}}}
+	upstream := []struct {
+		name string
+		data map[string]any
+	}{{name: "upstream", data: map[string]any{billing_setting.VideoResolutionPricesField: map[string]map[string]float64{"video": {"720p": 0, "768p": 0.2}}}}}
+	differences := buildDifferences(local, upstream)
+	item, ok := differences["video"][billing_setting.VideoResolutionPricesField]
+	require.True(t, ok)
+	assert.Equal(t, map[string]float64{"720p": 0.1}, item.Current)
+	assert.Equal(t, map[string]float64{"720p": 0, "768p": 0.2}, item.Upstreams["upstream"])
+}
