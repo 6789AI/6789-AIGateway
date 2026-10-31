@@ -89,33 +89,28 @@ func AddRedemption(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": msg})
 		return
 	}
-	var keys []string
-	for i := 0; i < redemption.Count; i++ {
-		key := common.GetUUID()
-		cleanRedemption := model.Redemption{
-			UserId:      c.GetInt("id"),
-			Name:        redemption.Name,
-			Key:         key,
-			CreatedTime: common.GetTimestamp(),
-			Quota:       redemption.Quota,
-			ExpiredTime: redemption.ExpiredTime,
-		}
-		err = cleanRedemption.Insert()
-		if err != nil {
-			common.SysError("failed to insert redemption: " + err.Error())
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": i18n.T(c, i18n.MsgRedemptionCreateFailed),
-				"data":    keys,
-			})
-			return
-		}
-		keys = append(keys, key)
+	keys, err := model.CreateRedemptionCodes(model.Redemption{
+		UserId:      c.GetInt("id"),
+		Name:        redemption.Name,
+		CreatedTime: common.GetTimestamp(),
+		Quota:       redemption.Quota,
+		ExpiredTime: redemption.ExpiredTime,
+		Count:       redemption.Count,
+		OnePerUser:  redemption.OnePerUser,
+	})
+	if err != nil {
+		common.SysError("failed to insert redemption: " + err.Error())
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": i18n.T(c, i18n.MsgRedemptionCreateFailed),
+		})
+		return
 	}
 	recordManageAudit(c, "redemption.create", map[string]interface{}{
-		"name":  redemption.Name,
-		"count": redemption.Count,
-		"quota": logger.LogQuota(redemption.Quota),
+		"name":         redemption.Name,
+		"count":        redemption.Count,
+		"quota":        logger.LogQuota(redemption.Quota),
+		"one_per_user": redemption.OnePerUser,
 	})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

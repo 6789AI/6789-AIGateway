@@ -31,6 +31,7 @@ import {
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Form,
   FormControl,
@@ -405,6 +406,30 @@ export function RedemptionsMutateDrawer({
                     )}
                   />
                 )}
+                <FormField
+                  control={form.control}
+                  name='one_per_user'
+                  render={({ field }) => (
+                    <FormItem className='flex items-start gap-3 rounded-md border p-3'>
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={(checked) => field.onChange(checked === true)}
+                          disabled={isUpdate}
+                        />
+                      </FormControl>
+                      <div className='min-w-0 space-y-1'>
+                        <FormLabel>
+                          {t('Limit each account to one code in this batch')}
+                        </FormLabel>
+                        <FormDescription>
+                          {t('Applies only to this batch and cannot be changed after creation.')}
+                        </FormDescription>
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </SideDrawerSection>
             </fieldset>
           </form>

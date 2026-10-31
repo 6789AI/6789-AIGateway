@@ -97,6 +97,7 @@ type ApiMethod = (url: string, data?: unknown) => Promise<{ data: unknown }>
 type MockableApi = {
   get: ApiMethod
   put: ApiMethod
+  post: ApiMethod
 }
 type RenderedDrawer = {
   host: HTMLDivElement
@@ -110,6 +111,7 @@ type CurrencyFixture = {
 const apiClient = api as unknown as MockableApi
 const originalGet = apiClient.get
 const originalPut = apiClient.put
+const originalPost = apiClient.post
 const originalConsoleLog = Reflect.get(console, 'log')
 let renderedDrawer: RenderedDrawer | null = null
 
@@ -125,6 +127,8 @@ function redemption(id: number, quota = 500001): Redemption {
     redeemed_time: 0,
     expired_time: 0,
     used_user_id: 0,
+    one_per_user: false,
+    batch_id: '',
   }
 }
 
@@ -138,7 +142,7 @@ function deferred<T>() {
   return { promise, reject, resolve }
 }
 
-function drawerTree(currentRow: Redemption) {
+function drawerTree(currentRow?: Redemption) {
   return (
     <I18nextProvider i18n={i18n}>
       <RedemptionsProvider>
@@ -154,7 +158,7 @@ function drawerTree(currentRow: Redemption) {
 }
 
 async function renderDrawer(
-  currentRow: Redemption,
+  currentRow?: Redemption,
   currency: CurrencyFixture = {
     quotaDisplayType: 'USD',
     usdExchangeRate: 1,
@@ -276,6 +280,7 @@ async function waitForLoadedForm(): Promise<void> {
 afterEach(async () => {
   apiClient.get = originalGet
   apiClient.put = originalPut
+  apiClient.post = originalPost
   Reflect.set(console, 'log', originalConsoleLog)
   toast.dismiss()
   domWindow.localStorage.clear()
@@ -302,6 +307,28 @@ test('redemption drawer shows the reported CNY quota without floating-point nois
   await waitForLoadedForm()
 
   assert.equal(getControlByLabel<HTMLInputElement>('Quota (CNY)').value, '200')
+})
+
+test('new redemption batch sends the per-account limit when selected', async () => {
+  const requests: Array<Record<string, unknown>> = []
+  apiClient.post = async (_url, data) => {
+    assert.ok(data && typeof data === 'object')
+    requests.push(data as Record<string, unknown>)
+    return { data: { success: true, data: ['code-1', 'code-2'] } }
+  }
+
+  await renderDrawer()
+  await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'gift')
+  const limit = getControlByLabel<HTMLElement>(
+    'Limit each account to one code in this batch'
+  )
+  await act(async () => limit.click())
+  await submitForm()
+  await act(async () =>
+    waitForCondition(() => requests.length === 1, 'create was not submitted')
+  )
+
+  assert.equal(requests[0]?.one_per_user, true)
 })
 
 test('redemption drawer blocks updates and reports an error when loading rejects', async () => {

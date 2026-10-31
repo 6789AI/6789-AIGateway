@@ -24,6 +24,16 @@ type Redemption struct {
 	UsedUserId   int            `json:"used_user_id"`
 	DeletedAt    gorm.DeletedAt `gorm:"index"`
 	ExpiredTime  int64          `json:"expired_time" gorm:"bigint"` // 过期时间，0 表示不过期
+	OnePerUser   bool           `json:"one_per_user"`
+	BatchID      string         `json:"batch_id" gorm:"type:char(32)"`
+}
+
+type RedemptionBatchClaim struct {
+	Id           int    `gorm:"primaryKey"`
+	BatchID      string `gorm:"type:char(32);uniqueIndex:idx_redemption_batch_user"`
+	UserId       int    `gorm:"uniqueIndex:idx_redemption_batch_user"`
+	RedemptionId int
+	CreatedTime  int64
 }
 
 func GetAllRedemptions(startIdx int, num int) (redemptions []*Redemption, total int64, err error) {
@@ -159,6 +169,19 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if redemption.ExpiredTime != 0 && redemption.ExpiredTime < common.GetTimestamp() {
 			return errors.New("该兑换码已过期")
 		}
+		if redemption.OnePerUser {
+			if redemption.BatchID == "" {
+				return errors.New("restricted redemption code is missing batch ID")
+			}
+			if err := tx.Create(&RedemptionBatchClaim{
+				BatchID:      redemption.BatchID,
+				UserId:       userId,
+				RedemptionId: redemption.Id,
+				CreatedTime:  common.GetTimestamp(),
+			}).Error; err != nil {
+				return err
+			}
+		}
 		// Compare-and-swap on status: only the transaction that flips
 		// enabled -> used may credit quota, so a concurrent redeem of the
 		// same code loses here even without a row lock (e.g. on SQLite).
@@ -188,6 +211,40 @@ func Redeem(key string, userId int) (quota int, err error) {
 	refreshUserQuotaCacheAfterCredit(userId, redemption.Quota)
 	RecordLog(userId, LogTypeTopup, fmt.Sprintf("通过兑换码充值 %s，兑换码ID %d", logger.LogQuota(redemption.Quota), redemption.Id))
 	return redemption.Quota, nil
+}
+
+func CreateRedemptionCodes(redemption Redemption) ([]string, error) {
+	if redemption.Count < 1 || redemption.Count > 100 {
+		return nil, errors.New("invalid redemption code count")
+	}
+	batchID := ""
+	if redemption.OnePerUser {
+		batchID = common.GetUUID()
+	}
+	keys := make([]string, 0, redemption.Count)
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		for i := 0; i < redemption.Count; i++ {
+			code := Redemption{
+				UserId:      redemption.UserId,
+				Name:        redemption.Name,
+				Key:         common.GetUUID(),
+				CreatedTime: redemption.CreatedTime,
+				Quota:       redemption.Quota,
+				ExpiredTime: redemption.ExpiredTime,
+				OnePerUser:  redemption.OnePerUser,
+				BatchID:     batchID,
+			}
+			if err := tx.Create(&code).Error; err != nil {
+				return err
+			}
+			keys = append(keys, code.Key)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return keys, nil
 }
 
 func (redemption *Redemption) Insert() error {

@@ -201,3 +201,108 @@ func TestRedeemRollsBackWhenUserDoesNotExist(t *testing.T) {
 	require.NoError(t, DB.First(&stored, "id = ?", redemption.Id).Error)
 	assert.Equal(t, common.RedemptionCodeStatusEnabled, stored.Status)
 }
+
+func TestRedemptionBatchAllowsOneCodePerUser(t *testing.T) {
+	truncateTables(t)
+	require.NoError(t, DB.AutoMigrate(&Redemption{}, &RedemptionBatchClaim{}))
+	require.NoError(t, DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().Delete(&Redemption{}).Error)
+	require.NoError(t, DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&RedemptionBatchClaim{}).Error)
+	t.Cleanup(func() {
+		require.NoError(t, DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&RedemptionBatchClaim{}).Error)
+		require.NoError(t, DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().Delete(&Redemption{}).Error)
+	})
+
+	users := []User{
+		{Username: "batch-redeem-user-1", Password: "password", Status: common.UserStatusEnabled, AffCode: "batch-user-1"},
+		{Username: "batch-redeem-user-2", Password: "password", Status: common.UserStatusEnabled, AffCode: "batch-user-2"},
+	}
+	require.NoError(t, DB.Create(&users).Error)
+	batch := Redemption{Name: "gift", Count: 2, Quota: 250, OnePerUser: true, CreatedTime: common.GetTimestamp()}
+	keys, err := CreateRedemptionCodes(batch)
+	require.NoError(t, err)
+	require.Len(t, keys, 2)
+
+	var codes []Redemption
+	require.NoError(t, DB.Where("key IN ?", keys).Find(&codes).Error)
+	require.Len(t, codes, 2)
+	assert.NotEmpty(t, codes[0].BatchID)
+	assert.Equal(t, codes[0].BatchID, codes[1].BatchID)
+	assert.True(t, codes[0].OnePerUser)
+
+	quota, err := Redeem(keys[0], users[0].Id)
+	require.NoError(t, err)
+	assert.Equal(t, 250, quota)
+	deleted, err := DeleteInvalidRedemptions()
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, deleted)
+	_, err = Redeem(keys[1], users[0].Id)
+	require.ErrorIs(t, err, ErrRedeemFailed)
+
+	var unused Redemption
+	require.NoError(t, DB.Where("key = ?", keys[1]).First(&unused).Error)
+	assert.Equal(t, common.RedemptionCodeStatusEnabled, unused.Status)
+	var firstUser User
+	require.NoError(t, DB.First(&firstUser, users[0].Id).Error)
+	assert.Equal(t, 250, firstUser.Quota)
+	var claimCount int64
+	require.NoError(t, DB.Model(&RedemptionBatchClaim{}).Where("batch_id = ? AND user_id = ?", codes[0].BatchID, users[0].Id).Count(&claimCount).Error)
+	assert.EqualValues(t, 1, claimCount)
+
+	_, err = Redeem(keys[1], users[1].Id)
+	require.NoError(t, err)
+	otherBatchKeys, err := CreateRedemptionCodes(Redemption{Name: "gift", Count: 1, Quota: 250, OnePerUser: true})
+	require.NoError(t, err)
+	_, err = Redeem(otherBatchKeys[0], users[0].Id)
+	require.NoError(t, err)
+	unrestrictedKeys, err := CreateRedemptionCodes(Redemption{Name: "gift", Count: 1, Quota: 250})
+	require.NoError(t, err)
+	_, err = Redeem(unrestrictedKeys[0], users[0].Id)
+	require.NoError(t, err)
+	require.NoError(t, DB.First(&firstUser, users[0].Id).Error)
+	assert.Equal(t, 750, firstUser.Quota)
+
+	rollbackKeys, err := CreateRedemptionCodes(Redemption{Name: "gift", Count: 1, Quota: 250, OnePerUser: true})
+	require.NoError(t, err)
+	_, err = Redeem(rollbackKeys[0], 999999)
+	require.ErrorIs(t, err, ErrRedeemFailed)
+	var rollbackCode Redemption
+	require.NoError(t, DB.Where("key = ?", rollbackKeys[0]).First(&rollbackCode).Error)
+	assert.Equal(t, common.RedemptionCodeStatusEnabled, rollbackCode.Status)
+	require.NoError(t, DB.Model(&RedemptionBatchClaim{}).Where("batch_id = ?", rollbackCode.BatchID).Count(&claimCount).Error)
+	assert.Zero(t, claimCount)
+}
+
+func TestRedemptionBatchConcurrentCodesCreditOnce(t *testing.T) {
+	truncateTables(t)
+	require.NoError(t, DB.AutoMigrate(&Redemption{}, &RedemptionBatchClaim{}))
+	require.NoError(t, DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().Delete(&Redemption{}).Error)
+	require.NoError(t, DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&RedemptionBatchClaim{}).Error)
+	t.Cleanup(func() {
+		require.NoError(t, DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&RedemptionBatchClaim{}).Error)
+		require.NoError(t, DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().Delete(&Redemption{}).Error)
+	})
+	user := User{Username: "concurrent-batch-user", Password: "password", Status: common.UserStatusEnabled}
+	require.NoError(t, DB.Create(&user).Error)
+	keys, err := CreateRedemptionCodes(Redemption{Name: "gift", Count: 2, Quota: 300, OnePerUser: true})
+	require.NoError(t, err)
+
+	results := make(chan error, 2)
+	for _, key := range keys {
+		go func(key string) {
+			_, redeemErr := Redeem(key, user.Id)
+			results <- redeemErr
+		}(key)
+	}
+	successes := 0
+	for range keys {
+		if err := <-results; err == nil {
+			successes++
+		}
+	}
+	assert.Equal(t, 1, successes)
+	require.NoError(t, DB.First(&user, user.Id).Error)
+	assert.Equal(t, 300, user.Quota)
+	var claimCount int64
+	require.NoError(t, DB.Model(&RedemptionBatchClaim{}).Count(&claimCount).Error)
+	assert.EqualValues(t, 1, claimCount)
+}
