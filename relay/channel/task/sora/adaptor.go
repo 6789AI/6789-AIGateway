@@ -58,10 +58,7 @@ type responseTask struct {
 	VideoAvailable     *bool           `json:"video_available,omitempty"`
 	Size               string          `json:"size,omitempty"`
 	RemixedFromVideoID string          `json:"remixed_from_video_id,omitempty"`
-	Error              *struct {
-		Message string `json:"message"`
-		Code    string `json:"code"`
-	} `json:"error,omitempty"`
+	Error              json.RawMessage `json:"error,omitempty"`
 }
 
 var vintedImageIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
@@ -606,7 +603,7 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		// The minimax_h3 provider can temporarily return a valid task envelope with
 		// status=unknown while generation is still running. Keep polling instead of
 		// turning that transitional response into a failed task and refund.
-		if resTask.Model == "minimax_h3" && (resTask.ID != "" || resTask.TaskID != "") && resTask.Error == nil {
+		if resTask.Model == "minimax_h3" && (resTask.ID != "" || resTask.TaskID != "") && (len(resTask.Error) == 0 || bytes.Equal(bytes.TrimSpace(resTask.Error), []byte("null"))) {
 			taskResult.Status = model.TaskStatusInProgress
 		}
 	case "completed":
@@ -618,9 +615,22 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		}
 	case "failed", "cancelled":
 		taskResult.Status = model.TaskStatusFailure
-		if resTask.Error != nil {
-			taskResult.Reason = resTask.Error.Message
-		} else {
+		if len(resTask.Error) > 0 {
+			if err := common.Unmarshal(resTask.Error, &taskResult.Reason); err != nil {
+				var upstreamError struct {
+					Message string `json:"message"`
+					Code    string `json:"code"`
+				}
+				if common.Unmarshal(resTask.Error, &upstreamError) == nil {
+					taskResult.Reason = upstreamError.Message
+					if taskResult.Reason == "" {
+						taskResult.Reason = upstreamError.Code
+					}
+				}
+			}
+		}
+		taskResult.Reason = strings.TrimSpace(taskResult.Reason)
+		if taskResult.Reason == "" {
 			taskResult.Reason = "task failed"
 		}
 	default:

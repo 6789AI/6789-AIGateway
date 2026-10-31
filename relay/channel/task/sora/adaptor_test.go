@@ -269,6 +269,80 @@ func TestSoraParseTaskResultKeepsMinimaxH3FailureTerminal(t *testing.T) {
 	assert.Equal(t, "provider rejected request", taskResult.Reason)
 }
 
+func TestSoraParseTaskResultPreservesTerminalFailureReason(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus string
+		wantReason string
+	}{
+		{
+			name:       "string error from upstream",
+			body:       `{"id":"job_1","status":"failed","progress":30,"error":"生成服务报告视频生成异常"}`,
+			wantStatus: model.TaskStatusFailure,
+			wantReason: "生成服务报告视频生成异常",
+		},
+		{
+			name:       "object error from upstream",
+			body:       `{"id":"job_1","status":"failed","error":{"message":"provider rejected request","code":"rejected"}}`,
+			wantStatus: model.TaskStatusFailure,
+			wantReason: "provider rejected request",
+		},
+		{
+			name:       "cancelled with string error",
+			body:       `{"id":"job_1","status":"cancelled","error":"user cancelled"}`,
+			wantStatus: model.TaskStatusFailure,
+			wantReason: "user cancelled",
+		},
+		{
+			name:       "failed without error",
+			body:       `{"id":"job_1","status":"failed","error":null}`,
+			wantStatus: model.TaskStatusFailure,
+			wantReason: "task failed",
+		},
+		{
+			name:       "processing with null error",
+			body:       `{"id":"job_1","status":"processing","error":null}`,
+			wantStatus: model.TaskStatusInProgress,
+		},
+		{
+			name:       "minimax unknown with null error",
+			body:       `{"id":"job_1","model":"minimax_h3","status":"unknown","error":null}`,
+			wantStatus: model.TaskStatusInProgress,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(tt.body))
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.wantStatus, result.Status)
+			assert.Equal(t, tt.wantReason, result.Reason)
+		})
+	}
+}
+
+func TestSoraDoResponseAcceptsStringError(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	info := &relaycommon.RelayInfo{TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "task_public"}}
+	upstreamBody := `{"id":"job_1","status":"failed","error":"provider rejected request"}`
+
+	upstreamID, taskData, taskErr := (&TaskAdaptor{}).DoResponse(c, &http.Response{
+		StatusCode: http.StatusAccepted,
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}, info)
+
+	require.Nil(t, taskErr)
+	assert.Equal(t, "job_1", upstreamID)
+	assert.JSONEq(t, upstreamBody, string(taskData))
+	var response map[string]any
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.Equal(t, "task_public", response["id"])
+	assert.Equal(t, "provider rejected request", response["error"])
+}
+
 func TestVintedRejectsUnsupportedRemix(t *testing.T) {
 	c, _ := newVintedTestContext(t, `{"prompt":"change the scene"}`)
 	adaptor, info := newVintedAdaptorInfo("seedance2.0")
