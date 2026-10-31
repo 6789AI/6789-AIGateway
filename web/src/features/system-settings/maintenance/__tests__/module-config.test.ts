@@ -34,6 +34,56 @@ describe('navigation module configuration', () => {
     assert.equal(config.comfyCanvas, false)
   })
 
+  test('loads ordered custom links while preserving legacy built-in entries', () => {
+    const config = parseHeaderNavModules(
+      JSON.stringify({
+        home: false,
+        links: [
+          {
+            key: 'custom-help',
+            label: 'Help',
+            href: 'https://example.com/help',
+          },
+          { key: 'docs', label: 'Guide', href: '/guide' },
+        ],
+      })
+    )
+
+    assert.equal(config.home, false)
+    assert.deepEqual(
+      config.links.slice(0, 2).map((link) => link.key),
+      ['custom-help', 'docs']
+    )
+    assert.equal(config.links.find((link) => link.key === 'home')?.href, '')
+  })
+
+  test('drops unsafe and duplicate custom URLs from saved settings', () => {
+    const config = parseHeaderNavModules(
+      JSON.stringify({
+        links: [
+          { key: 'custom-bad', label: 'Bad', href: 'javascript:alert(1)' },
+          { key: 'custom-good', label: 'Good', href: '/good' },
+          { key: 'custom-good', label: 'Duplicate', href: '/duplicate' },
+          {
+            key: 'docs',
+            label: 'Docs',
+            href: 'https://user:pass@example.com/',
+          },
+        ],
+      })
+    )
+
+    assert.equal(
+      config.links.some((link) => link.key === 'custom-bad'),
+      false
+    )
+    assert.equal(
+      config.links.filter((link) => link.key === 'custom-good').length,
+      1
+    )
+    assert.equal(config.links.find((link) => link.key === 'docs')?.href, '')
+  })
+
   test('shows redemption top-up by default for legacy sidebar configuration', () => {
     const config = parseSidebarModulesAdmin(
       '{"personal":{"enabled":true,"topup":true,"personal":true}}'

@@ -16,7 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { HeaderNavModules } from '../../../lib/nav-modules'
+import {
+  isSafeHeaderNavHref,
+  parseHeaderNavLinks,
+  type HeaderNavModules,
+} from '../../../lib/nav-modules'
 import type { TopNavLink } from '../types'
 
 export const comfyCanvasTopNavLink = {
@@ -34,52 +38,80 @@ type BuildTopNavLinksOptions = {
 export function buildTopNavLinks(
   options: BuildTopNavLinksOptions
 ): TopNavLink[] {
-  const links: TopNavLink[] = []
-
-  if (options.modules.home !== false) {
-    links.push({ title: options.translate('Home'), href: '/' })
-  }
-
-  if (options.modules.console !== false) {
-    links.push({ title: options.translate('Console'), href: '/dashboard' })
-  }
-
-  if (options.modules.comfyCanvas !== false) {
-    links.push({
-      title: options.translate('Comfy Canvas'),
-      ...comfyCanvasTopNavLink,
-    })
-  }
-
-  if (options.modules.pricing.enabled) {
-    links.push({
-      title: options.translate('Model Square'),
+  const docsHref =
+    options.docsLink && isSafeHeaderNavHref(options.docsLink)
+      ? options.docsLink
+      : '/docs'
+  const defaults = {
+    home: { title: 'Home', href: '/', enabled: options.modules.home !== false },
+    console: {
+      title: 'Console',
+      href: '/dashboard',
+      enabled: options.modules.console !== false,
+    },
+    comfyCanvas: {
+      title: 'Comfy Canvas',
+      href: comfyCanvasTopNavLink.href,
+      enabled: options.modules.comfyCanvas !== false,
+    },
+    pricing: {
+      title: 'Model Square',
       href: '/pricing',
-      requiresAuth: options.modules.pricing.requireAuth && !options.isAuthed,
-    })
-  }
-
-  if (options.modules.rankings.enabled) {
-    links.push({
-      title: options.translate('Rankings'),
+      enabled: options.modules.pricing.enabled,
+    },
+    rankings: {
+      title: 'Rankings',
       href: '/rankings',
-      requiresAuth: options.modules.rankings.requireAuth && !options.isAuthed,
-    })
+      enabled: options.modules.rankings.enabled,
+    },
+    docs: {
+      title: 'Docs',
+      href: docsHref,
+      enabled: options.modules.docs !== false,
+    },
+    about: {
+      title: 'About',
+      href: '/about',
+      enabled: options.modules.about !== false,
+    },
   }
 
-  if (options.modules.docs !== false) {
-    links.push({
-      title: options.translate('Docs'),
-      href: options.docsLink ?? '/docs',
-      external: Boolean(options.docsLink),
-    })
-  }
+  return parseHeaderNavLinks(options.modules.links).flatMap((item) => {
+    const builtin = defaults[item.key as keyof typeof defaults]
+    if (builtin && !builtin.enabled) return []
+    if (!builtin && item.enabled === false) return []
 
-  if (options.modules.about !== false) {
-    links.push({ title: options.translate('About'), href: '/about' })
-  }
+    const href = item.href || builtin?.href
+    if (!href || !isSafeHeaderNavHref(href)) return []
+    const title = item.label || (builtin && options.translate(builtin.title))
+    if (!title) return []
 
-  return links
+    const isPricingRoute =
+      href === '/pricing' ||
+      href.startsWith('/pricing/') ||
+      href.startsWith('/pricing?')
+    const isRankingsRoute =
+      href === '/rankings' ||
+      href.startsWith('/rankings/') ||
+      href.startsWith('/rankings?')
+
+    return [
+      {
+        id: item.key,
+        title,
+        href,
+        external: /^https?:\/\//i.test(href),
+        requiresAuth:
+          !options.isAuthed &&
+          ((item.key === 'pricing' &&
+            isPricingRoute &&
+            options.modules.pricing.requireAuth) ||
+            (item.key === 'rankings' &&
+              isRankingsRoute &&
+              options.modules.rankings.requireAuth)),
+      },
+    ]
+  })
 }
 
 /**

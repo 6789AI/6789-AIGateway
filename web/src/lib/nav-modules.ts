@@ -22,6 +22,28 @@ export type ModuleAccess = { enabled: boolean; requireAuth: boolean }
 
 export type HeaderNavModule = 'rankings' | 'pricing'
 
+export const HEADER_NAV_LINK_KEYS = [
+  'home',
+  'console',
+  'comfyCanvas',
+  'pricing',
+  'rankings',
+  'docs',
+  'about',
+] as const
+
+export type HeaderNavLinkConfig = {
+  key: string
+  label: string
+  href: string
+  enabled?: boolean
+}
+
+export const DEFAULT_HEADER_NAV_LINKS: HeaderNavLinkConfig[] =
+  HEADER_NAV_LINK_KEYS.map((key) => ({ key, label: '', href: '' }))
+
+export const MAX_HEADER_NAV_LINKS = 20
+
 export type HeaderNavModules = {
   home: boolean
   console: boolean
@@ -30,7 +52,8 @@ export type HeaderNavModules = {
   rankings: ModuleAccess
   docs: boolean
   about: boolean
-  [key: string]: boolean | ModuleAccess
+  links?: HeaderNavLinkConfig[]
+  [key: string]: boolean | ModuleAccess | HeaderNavLinkConfig[] | undefined
 }
 
 const DEFAULT_HEADER_NAV_MODULES: HeaderNavModules = {
@@ -41,6 +64,7 @@ const DEFAULT_HEADER_NAV_MODULES: HeaderNavModules = {
   rankings: { enabled: true, requireAuth: false },
   docs: true,
   about: true,
+  links: DEFAULT_HEADER_NAV_LINKS,
 }
 
 const DEFAULTS: Record<HeaderNavModule, ModuleAccess> = {
@@ -53,7 +77,63 @@ function cloneHeaderNavDefaults(): HeaderNavModules {
     ...DEFAULT_HEADER_NAV_MODULES,
     pricing: { ...DEFAULT_HEADER_NAV_MODULES.pricing },
     rankings: { ...DEFAULT_HEADER_NAV_MODULES.rankings },
+    links: DEFAULT_HEADER_NAV_LINKS.map((link) => ({ ...link })),
   }
+}
+
+export function isSafeHeaderNavHref(href: string): boolean {
+  if (!href || href.length > 2048 || /[\s\\]/.test(href)) return false
+  if (href.startsWith('/') && !href.startsWith('//')) return true
+  if (!/^https?:\/\//i.test(href)) return false
+
+  try {
+    const url = new URL(href)
+    return !url.username && !url.password && Boolean(url.hostname)
+  } catch {
+    return false
+  }
+}
+
+export function parseHeaderNavLinks(raw: unknown): HeaderNavLinkConfig[] {
+  if (!Array.isArray(raw)) {
+    return DEFAULT_HEADER_NAV_LINKS.map((link) => ({ ...link }))
+  }
+
+  const links: HeaderNavLinkConfig[] = []
+  const seen = new Set<string>()
+  for (const item of raw.slice(0, MAX_HEADER_NAV_LINKS)) {
+    if (!item || typeof item !== 'object') continue
+    const record = item as Record<string, unknown>
+    const key = record.key
+    if (typeof key !== 'string' || seen.has(key)) continue
+    const isBuiltin = HEADER_NAV_LINK_KEYS.some((builtin) => builtin === key)
+    if (!isBuiltin && !/^custom-[a-zA-Z0-9-]{1,64}$/.test(key)) continue
+    if (
+      !isBuiltin &&
+      links.filter((link) => link.key.startsWith('custom-')).length >=
+        MAX_HEADER_NAV_LINKS - HEADER_NAV_LINK_KEYS.length
+    ) {
+      continue
+    }
+
+    const label = typeof record.label === 'string' ? record.label.trim() : ''
+    const href = typeof record.href === 'string' ? record.href.trim() : ''
+    if (label.length > 40 || (href && !isSafeHeaderNavHref(href))) continue
+    if (!isBuiltin && (!label || !href)) continue
+
+    links.push({
+      key,
+      label,
+      href,
+      ...(!isBuiltin ? { enabled: record.enabled !== false } : {}),
+    })
+    seen.add(key)
+  }
+
+  for (const fallback of DEFAULT_HEADER_NAV_LINKS) {
+    if (!seen.has(fallback.key)) links.push({ ...fallback })
+  }
+  return links
 }
 
 export function parseHeaderNavBoolean(
@@ -112,6 +192,10 @@ export function parseHeaderNavModules(raw: unknown): HeaderNavModules {
   if (!parsed) return result
 
   Object.entries(parsed).forEach(([key, value]) => {
+    if (key === 'links') {
+      result.links = parseHeaderNavLinks(value)
+      return
+    }
     if (key === 'pricing') {
       result.pricing = parseAccess(value, result.pricing)
       return

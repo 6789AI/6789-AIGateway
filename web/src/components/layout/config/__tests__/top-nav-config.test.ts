@@ -70,4 +70,71 @@ describe('top navigation configuration', () => {
       false
     )
   })
+
+  test('uses saved order, labels, links and custom visibility', () => {
+    const links = buildTopNavLinks({
+      modules: {
+        ...modules,
+        links: [
+          {
+            key: 'custom-news',
+            label: 'News',
+            href: 'https://example.com/news',
+          },
+          { key: 'pricing', label: 'Models', href: '/pricing' },
+          { key: 'home', label: '', href: '/welcome' },
+          {
+            key: 'custom-hidden',
+            label: 'Hidden',
+            href: '/hidden',
+            enabled: false,
+          },
+        ],
+      },
+      isAuthed: false,
+      translate: (key) => `translated:${key}`,
+    })
+
+    assert.deepEqual(
+      links.slice(0, 3).map(({ title, href, external }) => ({
+        title,
+        href,
+        external,
+      })),
+      [
+        { title: 'News', href: 'https://example.com/news', external: true },
+        { title: 'Models', href: '/pricing', external: false },
+        { title: 'translated:Home', href: '/welcome', external: false },
+      ]
+    )
+    assert.equal(
+      links.some((link) => link.title === 'Hidden'),
+      false
+    )
+    assert.equal(links.length, 8)
+  })
+
+  test('keeps route access behavior for the original pricing route', () => {
+    const links = buildTopNavLinks({
+      modules: {
+        ...modules,
+        pricing: { enabled: true, requireAuth: true },
+        links: [
+          { key: 'pricing', label: '', href: '/pricing' },
+          { key: 'rankings', label: '', href: '/welcome' },
+        ],
+      },
+      isAuthed: false,
+      translate,
+    })
+
+    assert.equal(
+      links.find((link) => link.id === 'pricing')?.requiresAuth,
+      true
+    )
+    assert.equal(
+      links.find((link) => link.id === 'rankings')?.requiresAuth,
+      false
+    )
+  })
 })

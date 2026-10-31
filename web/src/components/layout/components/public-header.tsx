@@ -189,7 +189,7 @@ export function PublicHeader(props: PublicHeaderProps) {
         }
         setAuthPromptSecondsLeft(AUTH_PROMPT_SECONDS)
         setAuthPromptTarget({
-          title: t(link.title),
+          title: link.title,
           href: link.href,
         })
         return
@@ -199,7 +199,7 @@ export function PublicHeader(props: PublicHeaderProps) {
         setMobileOpen(false)
       }
     },
-    [t]
+    []
   )
 
   return (
@@ -238,46 +238,48 @@ export function PublicHeader(props: PublicHeaderProps) {
             </Link>
 
             {/* Desktop nav */}
-            <div className='hidden items-center gap-0.5 sm:flex'>
-              {links.map((link) => {
-                const isActive = pathname === link.href
-                if (link.external) {
+            <div className='hidden min-w-0 items-center gap-0.5 sm:flex'>
+              <div className='flex max-w-[55vw] min-w-0 [scrollbar-width:none] items-center overflow-x-auto whitespace-nowrap [&::-webkit-scrollbar]:hidden'>
+                {links.map((link) => {
+                  const isActive = pathname === link.href
+                  if (link.external) {
+                    return (
+                      <a
+                        key={link.id ?? `${link.href}:${link.title}`}
+                        href={link.href}
+                        target='_blank'
+                        rel='noopener noreferrer'
+                        aria-disabled={link.disabled}
+                        tabIndex={link.disabled ? -1 : undefined}
+                        onClick={(event) => handleNavLinkClick(event, link)}
+                        className={cn(
+                          'text-muted-foreground hover:text-foreground shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200',
+                          link.disabled && 'pointer-events-none opacity-50'
+                        )}
+                      >
+                        {link.title}
+                      </a>
+                    )
+                  }
                   return (
-                    <a
-                      key={`${link.href}:${link.title}`}
-                      href={link.href}
-                      target='_blank'
-                      rel='noopener noreferrer'
-                      aria-disabled={link.disabled}
-                      tabIndex={link.disabled ? -1 : undefined}
+                    <Link
+                      key={link.id ?? `${link.href}:${link.title}`}
+                      to={link.href}
+                      disabled={link.disabled}
                       onClick={(event) => handleNavLinkClick(event, link)}
                       className={cn(
-                        'text-muted-foreground hover:text-foreground rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200',
+                        'shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200',
+                        isActive
+                          ? 'text-foreground'
+                          : 'text-muted-foreground hover:text-foreground',
                         link.disabled && 'pointer-events-none opacity-50'
                       )}
                     >
-                      {t(link.title)}
-                    </a>
+                      {link.title}
+                    </Link>
                   )
-                }
-                return (
-                  <Link
-                    key={`${link.href}:${link.title}`}
-                    to={link.href}
-                    disabled={link.disabled}
-                    onClick={(event) => handleNavLinkClick(event, link)}
-                    className={cn(
-                      'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200',
-                      isActive
-                        ? 'text-foreground'
-                        : 'text-muted-foreground hover:text-foreground',
-                      link.disabled && 'pointer-events-none opacity-50'
-                    )}
-                  >
-                    {t(link.title)}
-                  </Link>
-                )
-              })}
+                })}
+              </div>
 
               {(showLanguageSwitcher ||
                 showThemeSwitch ||
@@ -375,7 +377,7 @@ export function PublicHeader(props: PublicHeaderProps) {
               if (link.external) {
                 return (
                   <a
-                    key={`${link.href}:${link.title}`}
+                    key={link.id ?? `${link.href}:${link.title}`}
                     href={link.href}
                     target='_blank'
                     rel='noopener noreferrer'
@@ -385,20 +387,20 @@ export function PublicHeader(props: PublicHeaderProps) {
                     className={linkClassName}
                     style={transitionStyle}
                   >
-                    {t(link.title)}
+                    {link.title}
                   </a>
                 )
               }
               return (
                 <Link
-                  key={`${link.href}:${link.title}`}
+                  key={link.id ?? `${link.href}:${link.title}`}
                   to={link.href}
                   disabled={link.disabled}
                   onClick={(event) => handleNavLinkClick(event, link, true)}
                   className={linkClassName}
                   style={transitionStyle}
                 >
-                  {t(link.title)}
+                  {link.title}
                 </Link>
               )
             })}

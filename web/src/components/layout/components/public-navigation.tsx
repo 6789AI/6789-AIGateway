@@ -50,13 +50,18 @@ export function PublicNavigation({
   const links = dynamicLinks.length > 0 ? dynamicLinks : defaultLinks
 
   return (
-    <nav className={cn('hidden items-center gap-1 md:flex', className)}>
-      {links.map((link, index) => {
+    <nav
+      className={cn(
+        'hidden max-w-full items-center gap-1 overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex',
+        className
+      )}
+    >
+      {links.map((link) => {
         // Handle external links
         if (link.external) {
           return (
             <a
-              key={index}
+              key={link.id ?? `${link.href}:${link.title}`}
               href={link.href}
               target='_blank'
               rel='noopener noreferrer'
@@ -72,7 +77,7 @@ export function PublicNavigation({
         // Handle internal links
         return (
           <Link
-            key={index}
+            key={link.id ?? `${link.href}:${link.title}`}
             to={link.href}
             className={cn(
               'text-muted-foreground hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground inline-flex h-9 w-max items-center justify-center rounded-md bg-transparent px-4 py-2 text-sm font-medium transition-colors focus:outline-none',

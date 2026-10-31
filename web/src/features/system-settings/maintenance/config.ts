@@ -16,6 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import {
+  DEFAULT_HEADER_NAV_LINKS,
+  parseHeaderNavLinks,
+  type HeaderNavLinkConfig,
+} from '@/lib/nav-modules'
+
 export type HeaderNavAccessConfig = {
   enabled: boolean
   requireAuth: boolean
@@ -29,7 +35,8 @@ export type HeaderNavModulesConfig = {
   rankings: HeaderNavAccessConfig
   docs: boolean
   about: boolean
-  [key: string]: boolean | HeaderNavAccessConfig
+  links: HeaderNavLinkConfig[]
+  [key: string]: boolean | HeaderNavAccessConfig | HeaderNavLinkConfig[]
 }
 
 export type SidebarSectionConfig = {
@@ -53,6 +60,7 @@ export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
   },
   docs: true,
   about: true,
+  links: DEFAULT_HEADER_NAV_LINKS,
 }
 
 export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
@@ -101,6 +109,7 @@ const cloneHeaderNavDefault = (): HeaderNavModulesConfig => ({
   ...HEADER_NAV_DEFAULT,
   pricing: { ...HEADER_NAV_DEFAULT.pricing },
   rankings: { ...HEADER_NAV_DEFAULT.rankings },
+  links: DEFAULT_HEADER_NAV_LINKS.map((link) => ({ ...link })),
 })
 
 const parseAccessModule = (
@@ -152,6 +161,10 @@ export function parseHeaderNavModules(
     }
 
     Object.entries(parsed).forEach(([key, raw]) => {
+      if (key === 'links') {
+        result.links = parseHeaderNavLinks(raw)
+        return
+      }
       if (key === 'pricing') {
         result.pricing = parseAccessModule(raw, base.pricing)
         return
