@@ -160,6 +160,11 @@ func TestSoraParseTaskResultWaitsForVideoAvailability(t *testing.T) {
 			wantStatus: model.TaskStatusInProgress,
 		},
 		{
+			name:       "upstream pending confirmation before completion",
+			body:       `{"id":"vidtask_upstream","status":"pending_confirmation","video_available":false,"error":null}`,
+			wantStatus: model.TaskStatusInProgress,
+		},
+		{
 			name:       "completed before content is ready",
 			body:       `{"id":"vidtask_upstream","status":"completed","seconds":10,"asset_state":"generating","video_available":false}`,
 			wantStatus: model.TaskStatusInProgress,
@@ -197,6 +202,12 @@ func TestSoraConvertToOpenAIVideoDoesNotExposePrematureCompletion(t *testing.T) 
 			name:       "content still generating",
 			status:     model.TaskStatusInProgress,
 			body:       `{"id":"vidtask_upstream","status":"completed","video_available":false}`,
+			wantStatus: "processing",
+		},
+		{
+			name:       "pending confirmation while upstream prepares the task",
+			status:     model.TaskStatusInProgress,
+			body:       `{"id":"vidtask_upstream","status":"pending_confirmation","video_available":false}`,
 			wantStatus: "processing",
 		},
 		{

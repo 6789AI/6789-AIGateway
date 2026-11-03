@@ -132,7 +132,7 @@ OpenAI/Sora 渠道可通过 `settings.video_protocol=vinted` 启用 Vinted 专�
 
 任务提交时会持久化轮询协议、URL 和认证请求头，后续渠道配置变更不影响在途任务。任务轮询识别 `queued/running/succeeded/failed`；明确返回 `has_file:false` 的成功任务继续等待归档。内容代理通过无旧查询参数的 `/signed_url` 获取地址，兼容当前无 `quality` 字段的响应，同时拒绝明确标记的预览文件；支持相对地址、匿名成片下载和 `Range` / `If-Range`。兼容画布 `seconds/aspect_ratio/reference_images` 和 `metadata.ratio/resolution` 字段别名，详见 [Vinted 渠道适配](vinted-video-adapter.md)。
 
-普通 OpenAI/Sora 视频渠道按兼容协议转发请求，上游实现仍需自行验证。创建和查询响应中的 `seconds` 可为 JSON 数字或字符串，`error` 可为字符串或包含 `message` 的对象；轮询收到明确的 `failed/cancelled` 时记录失败原因并结束任务。若上游明确返回 `status:"completed"` 且 `video_available:false`，任务继续轮询，对客户端暂报 `processing`，直到文件可下载。没有 `video_available` 字段的上游仍按 `completed` 判定成功。
+普通 OpenAI/Sora 视频渠道按兼容协议转发请求，上游实现仍需自行验证。创建和查询响应中的 `seconds` 可为 JSON 数字或字符串，`error` 可为字符串或包含 `message` 的对象；轮询收到 `pending_confirmation` 时继续等待并对客户端暂报 `processing`，收到明确的 `failed/cancelled` 时记录失败原因并结束任务。若上游明确返回 `status:"completed"` 且 `video_available:false`，任务继续轮询，对客户端暂报 `processing`，直到文件可下载。没有 `video_available` 字段的上游仍按 `completed` 判定成功。
 
 统一视频任务的按次定价可配置 480p、720p、768p、1080p、2K 单价；OpenAI/Sora（含 Vinted）、Ali、Gemini/Vertex、Vidu、Hailuo、DoubaoVideo 按有效上游画质匹配，未配置档位保留原计费。命中画质价格后不重复应用内置分辨率倍率，计费与结算策略见 [按次视频画质定价](video-resolution-pricing.md)。
 

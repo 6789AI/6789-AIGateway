@@ -597,7 +597,7 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	switch resTask.Status {
 	case "queued", "pending":
 		taskResult.Status = model.TaskStatusQueued
-	case "processing", "in_progress":
+	case "processing", "in_progress", "pending_confirmation":
 		taskResult.Status = model.TaskStatusInProgress
 	case "unknown":
 		// The minimax_h3 provider can temporarily return a valid task envelope with
@@ -656,6 +656,9 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 		}
 		if common.Unmarshal(data, &availability) == nil {
 			pendingStatus := ""
+			if availability.Status == "pending_confirmation" {
+				pendingStatus = "processing"
+			}
 			if availability.Status == "completed" && availability.VideoAvailable != nil && !*availability.VideoAvailable {
 				pendingStatus = "processing"
 			}
