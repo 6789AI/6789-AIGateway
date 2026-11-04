@@ -31,7 +31,7 @@ describe('task video preview', () => {
         task_id: 'task_preview',
         result_url: 'https://provider.example/video.mp4',
       }),
-      '/v1/videos/task_preview/content'
+      '/v1/videos/task_preview/content?preview=1'
     )
   })
 
@@ -43,7 +43,7 @@ describe('task video preview', () => {
         task_id: 'task_legacy',
         fail_reason: 'https://provider.example/legacy.mp4',
       }),
-      '/v1/videos/task_legacy/content'
+      '/v1/videos/task_legacy/content?preview=1'
     )
   })
 

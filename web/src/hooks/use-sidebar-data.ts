@@ -37,6 +37,7 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import type { SidebarData } from '@/components/layout/types'
+import { redemptionTopupShopUrl } from '@/features/redemption-topup/constants'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -111,6 +112,7 @@ export function useSidebarData(): SidebarData {
           {
             title: t('Redemption Code Top-up'),
             url: '/redemption-topup',
+            externalUrl: redemptionTopupShopUrl,
             icon: Ticket,
             tone: 'warning',
           },

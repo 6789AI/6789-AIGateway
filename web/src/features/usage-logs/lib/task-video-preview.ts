@@ -48,5 +48,5 @@ export function getTaskVideoPreviewUrl(
     return undefined
   }
 
-  return `/v1/videos/${encodeURIComponent(taskId)}/content`
+  return `/v1/videos/${encodeURIComponent(taskId)}/content?preview=1`
 }

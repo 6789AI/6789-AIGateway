@@ -16,25 +16,32 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { ExternalLink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Main } from '@/components/layout'
+import { Button } from '@/components/ui/button'
 
-import { redemptionTopupFrameProps } from './layout'
+import { redemptionTopupShopUrl } from './constants'
 
 export function RedemptionTopup() {
   const { t } = useTranslation()
 
   return (
-    <Main className='p-0'>
-      <iframe
-        src={redemptionTopupFrameProps.src}
-        title={t('Redemption Code Top-up')}
-        className={redemptionTopupFrameProps.className}
-        sandbox={redemptionTopupFrameProps.sandbox}
-        allow={redemptionTopupFrameProps.allow}
-        referrerPolicy={redemptionTopupFrameProps.referrerPolicy}
-      />
+    <Main className='items-center justify-center gap-4 p-6 text-center'>
+      <h1 className='text-xl font-semibold'>{t('Redemption Code Top-up')}</h1>
+      <Button
+        render={
+          <a
+            href={redemptionTopupShopUrl}
+            target='_blank'
+            rel='noopener noreferrer'
+          />
+        }
+      >
+        <ExternalLink />
+        {t('Open in new tab')}
+      </Button>
     </Main>
   )
 }

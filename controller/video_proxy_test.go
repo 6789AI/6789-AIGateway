@@ -94,3 +94,33 @@ func TestIsForwardableVideoResponseStatusIncludesRangeResponses(t *testing.T) {
 	assert.True(t, isForwardableVideoResponseStatus(http.StatusRequestedRangeNotSatisfiable))
 	assert.False(t, isForwardableVideoResponseStatus(http.StatusBadGateway))
 }
+
+func TestCopyVideoProxyHeadersAllowsDirectVideoPlayback(t *testing.T) {
+	upstream := http.Header{
+		"Content-Type":            {"video/mp4"},
+		"Content-Length":          {"1024"},
+		"Content-Range":           {"bytes 0-1023/35551474"},
+		"Content-Security-Policy": {"sandbox; default-src 'none'"},
+	}
+	forwarded := make(http.Header)
+
+	copyVideoProxyHeaders(forwarded, upstream)
+
+	assert.Equal(t, "video/mp4", forwarded.Get("Content-Type"))
+	assert.Equal(t, "1024", forwarded.Get("Content-Length"))
+	assert.Equal(t, "bytes 0-1023/35551474", forwarded.Get("Content-Range"))
+	assert.Empty(t, forwarded.Get("Content-Security-Policy"))
+	assert.Equal(t, "nosniff", forwarded.Get("X-Content-Type-Options"))
+}
+
+func TestCopyVideoProxyHeadersPreservesNonVideoSecurityPolicy(t *testing.T) {
+	upstream := http.Header{
+		"Content-Type":            {"text/html"},
+		"Content-Security-Policy": {"sandbox; default-src 'none'"},
+	}
+	forwarded := make(http.Header)
+
+	copyVideoProxyHeaders(forwarded, upstream)
+
+	assert.Equal(t, "sandbox; default-src 'none'", forwarded.Get("Content-Security-Policy"))
+}

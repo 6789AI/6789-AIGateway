@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strings"
@@ -92,6 +93,24 @@ func isForwardableVideoResponseStatus(status int) bool {
 	return status == http.StatusOK ||
 		status == http.StatusPartialContent ||
 		status == http.StatusRequestedRangeNotSatisfiable
+}
+
+func copyVideoProxyHeaders(dst, upstream http.Header) {
+	mediaType, _, err := mime.ParseMediaType(upstream.Get("Content-Type"))
+	isVideo := err == nil && strings.HasPrefix(mediaType, "video/")
+	for key, values := range upstream {
+		// A CSP on the media response becomes the document policy when the video
+		// URL is opened directly, and default-src 'none' blocks its own player.
+		if isVideo && strings.EqualFold(key, "Content-Security-Policy") {
+			continue
+		}
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
+	if isVideo {
+		dst.Set("X-Content-Type-Options", "nosniff")
+	}
 }
 
 func VideoProxy(c *gin.Context) {
@@ -268,11 +287,7 @@ func VideoProxy(c *gin.Context) {
 		return
 	}
 
-	for key, values := range resp.Header {
-		for _, value := range values {
-			c.Writer.Header().Add(key, value)
-		}
-	}
+	copyVideoProxyHeaders(c.Writer.Header(), resp.Header)
 
 	if resp.StatusCode != http.StatusRequestedRangeNotSatisfiable {
 		c.Writer.Header().Set("Cache-Control", "public, max-age=86400")

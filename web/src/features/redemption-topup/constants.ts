@@ -16,11 +16,4 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export const redemptionTopupFrameProps = {
-  src: 'https://catfk.com/shop/40RJHCKS',
-  className: 'bg-background h-full min-h-0 w-full flex-1 border-0',
-  sandbox:
-    'allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts',
-  allow: 'payment',
-  referrerPolicy: 'strict-origin-when-cross-origin',
-} as const
+export const redemptionTopupShopUrl = 'https://catfk.com/shop/40RJHCKS'

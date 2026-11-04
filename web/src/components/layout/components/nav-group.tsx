@@ -132,7 +132,18 @@ function SidebarMenuLink({ item, href }: { item: NavLink; href: string }) {
         className={cn(
           item.tone ? NAV_ITEM_TONE_CLASS_NAMES[item.tone] : undefined
         )}
-        render={<Link to={item.url} onClick={() => setOpenMobile(false)} />}
+        render={
+          item.externalUrl ? (
+            <a
+              href={item.externalUrl}
+              target='_blank'
+              rel='noopener noreferrer'
+              onClick={() => setOpenMobile(false)}
+            />
+          ) : (
+            <Link to={item.url} onClick={() => setOpenMobile(false)} />
+          )
+        }
       >
         {item.icon && <item.icon className='shrink-0' />}
         <span className='min-w-0 flex-1 truncate'>{item.title}</span>

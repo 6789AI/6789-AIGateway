@@ -117,7 +117,7 @@
 | `POST /v1/videos` | OpenAI、Sora、Gemini、Vertex AI、Ali、Kling、Jimeng、Vidu、VolcEngine、DoubaoVideo、MiniMax | 统一视频创建入口；Vinted 配置将现有平铺请求转换为实时目录、图库资产和报价合同 |
 | `GET /v1/videos/:task_id` | 上述视频任务渠道 | 查询本系统任务并调用对应上游查询逻辑 |
 | `POST /v1/videos/:video_id/remix` | OpenAI、Sora | 只有 OpenAI 协议的 Sora/OpenAI 任务适配器实现真正的 remix 上游路径；Vinted 配置拒绝 remix |
-| `GET /v1/videos/:task_id/content`、`HEAD /v1/videos/:task_id/content` | 已完成且具有可代理内容的视频任务 | 公共内容能力 URL；Vinted 原画代理支持 `Range` / `If-Range`，并转发 `206` / `416` 状态 |
+| `GET /v1/videos/:task_id/content`、`HEAD /v1/videos/:task_id/content` | 已完成且具有可代理内容的视频任务 | 公共内容能力 URL；Vinted 原画代理支持 `Range` / `If-Range`，并转发 `206` / `416` 状态；视频响应不透传会阻止浏览器直接播放的上游 CSP |
 | `POST /v1/video/generations`、`GET /v1/video/generations/:task_id` | 与统一视频任务渠道相同 | 旧版兼容入口 |
 | `/kling/v1/videos/text2video`、`/kling/v1/videos/image2video` 及查询路由 | Kling | Kling 官方格式兼容入口 |
 | `POST /jimeng/` | Jimeng | 即梦官方格式入口 |
