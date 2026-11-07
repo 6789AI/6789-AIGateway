@@ -1,10 +1,14 @@
 package model
 
 import (
+	"errors"
+
 	"github.com/QuantumNous/new-api/common"
 
 	"gorm.io/gorm"
 )
+
+var ErrVendorInUse = errors.New("vendor is assigned to models")
 
 // Vendor 用于存储供应商信息，供模型引用
 // Name 唯一，用于在模型中关联
@@ -50,6 +54,23 @@ func (v *Vendor) Update() error {
 // Delete 软删除供应商
 func (v *Vendor) Delete() error {
 	return DB.Delete(v).Error
+}
+
+func DeleteVendorIfUnused(id int) error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var vendor Vendor
+		if err := lockForUpdate(tx).First(&vendor, id).Error; err != nil {
+			return err
+		}
+		var count int64
+		if err := tx.Model(&Model{}).Where("vendor_id = ?", id).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return ErrVendorInUse
+		}
+		return tx.Delete(&vendor).Error
+	})
 }
 
 // GetVendorByID 根据 ID 获取供应商

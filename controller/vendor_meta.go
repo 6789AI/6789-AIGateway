@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
@@ -116,7 +117,11 @@ func DeleteVendorMeta(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.DB.Delete(&model.Vendor{}, id).Error; err != nil {
+	if err := model.DeleteVendorIfUnused(id); err != nil {
+		if errors.Is(err, model.ErrVendorInUse) {
+			common.ApiErrorMsg(c, "该供应商仍有关联模型，请先修改模型的供应商")
+			return
+		}
 		common.ApiError(c, err)
 		return
 	}
