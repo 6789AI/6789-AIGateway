@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { parseSidebarNavColors } from '@/lib/navigation-colors'
+
 import { SystemInfoSection } from '../general/system-info-section'
 import {
   parseHeaderNavModules,
@@ -25,6 +27,7 @@ import {
 } from '../maintenance/config'
 import { HeaderNavigationSection } from '../maintenance/header-navigation-section'
 import { NoticeSection } from '../maintenance/notice-section'
+import { SidebarColorsSection } from '../maintenance/sidebar-colors-section'
 import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
 import type { SiteSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
@@ -113,6 +116,19 @@ const SITE_SECTIONS = [
         <SidebarModulesSection
           config={sidebarConfig}
           initialSerialized={sidebarSerialized}
+        />
+      )
+    },
+  },
+  {
+    id: 'sidebar-colors',
+    titleKey: 'Sidebar colors',
+    build: (settings: SiteSettings) => {
+      const config = parseSidebarNavColors(settings.SidebarNavColors)
+      return (
+        <SidebarColorsSection
+          config={config}
+          initialSerialized={JSON.stringify(config)}
         />
       )
     },

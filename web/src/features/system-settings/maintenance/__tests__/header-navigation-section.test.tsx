@@ -133,11 +133,16 @@ describe('header navigation editor', () => {
       const urlInput = container.querySelector<HTMLInputElement>(
         'input[name="links.7.href"]'
       )
+      const colorInput = container.querySelector<HTMLInputElement>(
+        'input[name="links.7.color"]'
+      )
       assert.ok(nameInput)
       assert.ok(urlInput)
+      assert.ok(colorInput)
       await act(async () => {
         changeInputValue(nameInput, 'Support')
         changeInputValue(urlInput, 'javascript:alert(1)')
+        changeInputValue(colorInput, '#1769EE')
       })
 
       const saveButton = [...actionsContainer.querySelectorAll('button')].find(
@@ -168,10 +173,16 @@ describe('header navigation editor', () => {
       assert.equal(requests.length, 1)
       assert.equal(requests[0].key, 'HeaderNavModules')
       const saved = JSON.parse(requests[0].value) as {
-        links: Array<{ key: string; label: string; href: string }>
+        links: Array<{
+          key: string
+          label: string
+          href: string
+          color?: string
+        }>
       }
       assert.equal(saved.links[6].label, 'Support')
       assert.equal(saved.links[6].href, 'https://example.com/support')
+      assert.equal(saved.links[6].color, '#1769EE')
     } finally {
       api.put = originalPut
       await act(async () => root.unmount())

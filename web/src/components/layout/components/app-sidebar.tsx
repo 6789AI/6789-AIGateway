@@ -21,7 +21,9 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Sidebar, SidebarContent, SidebarRail } from '@/components/ui/sidebar'
 import { useLayout } from '@/context/layout-provider'
 import { useSidebarView } from '@/hooks/use-sidebar-view'
+import { useStatus } from '@/hooks/use-status'
 import { MOTION_TRANSITION, MOTION_VARIANTS } from '@/lib/motion'
+import { parseSidebarNavColors } from '@/lib/navigation-colors'
 
 import { NavGroup } from './nav-group'
 import { SidebarViewHeader } from './sidebar-view-header'
@@ -46,6 +48,8 @@ import { SidebarViewHeader } from './sidebar-view-header'
 export function AppSidebar() {
   const { collapsible, variant } = useLayout()
   const { key, view, navGroups } = useSidebarView()
+  const { status } = useStatus()
+  const colors = parseSidebarNavColors(status?.SidebarNavColors)
   const shouldReduce = useReducedMotion()
 
   return (
@@ -65,7 +69,11 @@ export function AppSidebar() {
             className='flex flex-col'
           >
             {navGroups.map((props) => (
-              <NavGroup key={props.id || props.title} {...props} />
+              <NavGroup
+                key={props.id || props.title}
+                {...props}
+                colors={colors}
+              />
             ))}
           </motion.div>
         </AnimatePresence>

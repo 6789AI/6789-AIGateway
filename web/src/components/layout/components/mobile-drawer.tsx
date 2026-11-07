@@ -261,15 +261,16 @@ export function MobileDrawer({
                   </div>
                 ) : (
                   <AnimatePresence>
-                    {mobileLinksList.map((link, index) => (
+                    {mobileLinksList.map((link) => (
                       <motion.div
-                        key={`${link.href}-${index}`}
+                        key={link.id ?? `${link.href}:${link.title}`}
                         className='border-border border-b p-2.5 last:border-b-0'
                         variants={MOBILE_DRAWER_ANIMATION.menuItem as Variants}
                       >
                         <Link
                           to={link.href}
                           className='text-primary/60 hover:text-primary/80 transition-colors'
+                          style={link.color ? { color: link.color } : undefined}
                           onClick={onClose}
                         >
                           {link.title}

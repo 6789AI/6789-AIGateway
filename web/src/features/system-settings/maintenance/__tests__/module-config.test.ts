@@ -57,6 +57,26 @@ describe('navigation module configuration', () => {
     assert.equal(config.links.find((link) => link.key === 'home')?.href, '')
   })
 
+  test('preserves valid header text colors and rejects malformed colors', () => {
+    const config = parseHeaderNavModules(
+      JSON.stringify({
+        links: [
+          { key: 'pricing', label: '', href: '', color: '#1275EE' },
+          { key: 'docs', label: '', href: '', color: 'red;position:fixed' },
+        ],
+      })
+    )
+
+    assert.equal(
+      config.links.find((link) => link.key === 'pricing')?.color,
+      '#1275EE'
+    )
+    assert.equal(
+      config.links.find((link) => link.key === 'docs')?.color,
+      undefined
+    )
+  })
+
   test('drops unsafe and duplicate custom URLs from saved settings', () => {
     const config = parseHeaderNavModules(
       JSON.stringify({

@@ -82,6 +82,7 @@ func InitOptionMap() {
 	common.OptionMap["BTMailPassword"] = ""
 	common.OptionMap["Notice"] = ""
 	common.OptionMap["About"] = ""
+	common.OptionMap["SidebarNavColors"] = "{}"
 	common.OptionMap["HomePageContent"] = ""
 	common.OptionMap["Footer"] = common.Footer
 	common.OptionMap["SystemName"] = common.SystemName

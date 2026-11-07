@@ -45,6 +45,7 @@ export function NavLinkItem({ link, className }: NavLinkItemProps) {
         target='_blank'
         rel='noopener noreferrer'
         className={linkClassName}
+        style={link.color ? { color: link.color } : undefined}
         aria-disabled={link.disabled}
       >
         {link.title}
@@ -53,7 +54,12 @@ export function NavLinkItem({ link, className }: NavLinkItemProps) {
   }
 
   return (
-    <Link to={link.href} className={linkClassName} disabled={link.disabled}>
+    <Link
+      to={link.href}
+      className={linkClassName}
+      style={link.color ? { color: link.color } : undefined}
+      disabled={link.disabled}
+    >
       {link.title}
     </Link>
   )
@@ -76,9 +82,9 @@ export function NavLinkList({
 }: NavLinkListProps) {
   return (
     <>
-      {links.map((link, index) => (
+      {links.map((link) => (
         <NavLinkItem
-          key={index}
+          key={link.id ?? `${link.href}:${link.title}`}
           link={link}
           className={cn(className, itemClassName)}
         />

@@ -40,6 +40,7 @@ import {
   isSafeHeaderNavHref,
   MAX_HEADER_NAV_LINKS,
 } from '@/lib/nav-modules'
+import { NAV_COLOR_PATTERN } from '@/lib/navigation-colors'
 
 import {
   SettingsControlChildren,
@@ -56,12 +57,18 @@ import {
   type HeaderNavModulesConfig,
   serializeHeaderNavModules,
 } from './config'
+import { NavigationColorInput } from './navigation-color-input'
 
 const headerNavLinkSchema = z
   .object({
     key: z.string(),
     label: z.string().max(40, 'Maximum 40 characters.'),
     href: z.string().max(2048, 'Invalid navigation URL.'),
+    color: z
+      .string()
+      .refine((value) => !value || NAV_COLOR_PATTERN.test(value), {
+        message: 'Invalid color',
+      }),
     enabled: z.boolean().optional(),
   })
   .superRefine((link, context) => {
@@ -134,7 +141,7 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
     config.about === undefined
       ? HEADER_NAV_DEFAULT.about
       : Boolean(config.about),
-  links: config.links.map((link) => ({ ...link })),
+  links: config.links.map((link) => ({ ...link, color: link.color ?? '' })),
 })
 
 export function HeaderNavigationSection({
@@ -181,6 +188,7 @@ export function HeaderNavigationSection({
         ...link,
         label: link.label.trim(),
         href: link.href.trim(),
+        ...(link.color ? { color: link.color } : { color: undefined }),
       })),
     }
 
@@ -383,6 +391,7 @@ export function HeaderNavigationSection({
                     key: `custom-${crypto.randomUUID()}`,
                     label: '',
                     href: '',
+                    color: '',
                     enabled: true,
                   })
                 }
@@ -478,6 +487,24 @@ export function HeaderNavigationSection({
                                 )}
                               </FormDescription>
                             )}
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name={`links.${index}.color`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Text color')}</FormLabel>
+                            <NavigationColorInput
+                              label={t('Text color')}
+                              value={field.value}
+                              name={field.name}
+                              onChange={field.onChange}
+                              onBlur={field.onBlur}
+                              inputRef={field.ref}
+                            />
                             <FormMessage />
                           </FormItem>
                         )}

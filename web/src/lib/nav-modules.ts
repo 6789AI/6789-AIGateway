@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { getStatus } from '@/lib/api'
+import { normalizeNavColor } from '@/lib/navigation-colors'
 
 export type ModuleAccess = { enabled: boolean; requireAuth: boolean }
 
@@ -37,6 +38,7 @@ export type HeaderNavLinkConfig = {
   label: string
   href: string
   enabled?: boolean
+  color?: string
 }
 
 export const DEFAULT_HEADER_NAV_LINKS: HeaderNavLinkConfig[] =
@@ -121,10 +123,12 @@ export function parseHeaderNavLinks(raw: unknown): HeaderNavLinkConfig[] {
     if (label.length > 40 || (href && !isSafeHeaderNavHref(href))) continue
     if (!isBuiltin && (!label || !href)) continue
 
+    const color = normalizeNavColor(record.color)
     links.push({
       key,
       label,
       href,
+      ...(color ? { color } : {}),
       ...(!isBuiltin ? { enabled: record.enabled !== false } : {}),
     })
     seen.add(key)

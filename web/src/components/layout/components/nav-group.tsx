@@ -46,6 +46,7 @@ import {
   SidebarMenuSubItem,
   useSidebar,
 } from '@/components/ui/sidebar'
+import type { SidebarNavColors } from '@/lib/navigation-colors'
 import { cn } from '@/lib/utils'
 
 import { NAV_ITEM_TONE_CLASS_NAMES } from '../lib/nav-item-tone'
@@ -62,7 +63,11 @@ import { ChatPresetsItem } from './chat-presets-item'
  * Sidebar navigation group component
  * Renders a group of navigation items, supporting regular links and collapsible submenus
  */
-export function NavGroup({ title, items }: NavGroupProps) {
+export function NavGroup({
+  title,
+  items,
+  colors = {},
+}: NavGroupProps & { colors?: SidebarNavColors }) {
   const { state, isMobile } = useSidebar()
   const href = useLocation({ select: (location) => location.href })
 
@@ -77,13 +82,24 @@ export function NavGroup({ title, items }: NavGroupProps) {
 
           // Special handling: dynamic chat presets list
           if (item.type === 'chat-presets') {
-            return <ChatPresetsItem key={key} item={item as NavChatPresets} />
+            return (
+              <ChatPresetsItem
+                key={key}
+                item={item as NavChatPresets}
+                color={colors['chat-presets']}
+              />
+            )
           }
 
           // If no sub-items, render regular link
           if (!item.items) {
             return (
-              <SidebarMenuLink key={key} item={item as NavLink} href={href} />
+              <SidebarMenuLink
+                key={key}
+                item={item as NavLink}
+                href={href}
+                color={colors[(item as NavLink).url ?? '']}
+              />
             )
           }
 
@@ -94,6 +110,7 @@ export function NavGroup({ title, items }: NavGroupProps) {
                 key={key}
                 item={item as NavCollapsible}
                 href={href}
+                colors={colors}
               />
             )
           }
@@ -104,6 +121,7 @@ export function NavGroup({ title, items }: NavGroupProps) {
               key={key}
               item={item as NavCollapsible}
               href={href}
+              colors={colors}
             />
           )
         })}
@@ -122,7 +140,15 @@ function NavBadge({ children }: { children: ReactNode }) {
 /**
  * Sidebar menu link item
  */
-function SidebarMenuLink({ item, href }: { item: NavLink; href: string }) {
+function SidebarMenuLink({
+  item,
+  href,
+  color,
+}: {
+  item: NavLink
+  href: string
+  color?: string
+}) {
   const { setOpenMobile } = useSidebar()
   return (
     <SidebarMenuItem>
@@ -132,6 +158,7 @@ function SidebarMenuLink({ item, href }: { item: NavLink; href: string }) {
         className={cn(
           item.tone ? NAV_ITEM_TONE_CLASS_NAMES[item.tone] : undefined
         )}
+        style={color ? { color } : undefined}
         render={
           item.externalUrl ? (
             <a
@@ -159,9 +186,11 @@ function SidebarMenuLink({ item, href }: { item: NavLink; href: string }) {
 function SidebarMenuCollapsible({
   item,
   href,
+  colors,
 }: {
   item: NavCollapsible
   href: string
+  colors: SidebarNavColors
 }) {
   const { setOpenMobile } = useSidebar()
   // 检查当前路径是否匹配子菜单项
@@ -199,6 +228,11 @@ function SidebarMenuCollapsible({
             <SidebarMenuSubItem key={subItem.title}>
               <SidebarMenuSubButton
                 isActive={checkIsActive(href, subItem)}
+                style={
+                  colors[subItem.url ?? '']
+                    ? { color: colors[subItem.url ?? ''] }
+                    : undefined
+                }
                 render={
                   <Link to={subItem.url} onClick={() => setOpenMobile(false)} />
                 }
@@ -221,9 +255,11 @@ function SidebarMenuCollapsible({
 function SidebarMenuCollapsedDropdown({
   item,
   href,
+  colors,
 }: {
   item: NavCollapsible
   href: string
+  colors: SidebarNavColors
 }) {
   return (
     <SidebarMenuItem>
@@ -251,6 +287,11 @@ function SidebarMenuCollapsedDropdown({
             {item.items.map((sub) => (
               <DropdownMenuItem
                 key={`${sub.title}-${sub.url}`}
+                style={
+                  colors[sub.url ?? '']
+                    ? { color: colors[sub.url ?? ''] }
+                    : undefined
+                }
                 render={
                   <Link
                     to={sub.url}

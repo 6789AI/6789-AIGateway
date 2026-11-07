@@ -64,7 +64,7 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent side='bottom' align='start'>
             {normalizedLinks.map(
-              ({ id, title, href, isActive, disabled, external }) => (
+              ({ id, title, href, color, isActive, disabled, external }) => (
                 <DropdownMenuItem
                   key={id ?? `${title}-${href}`}
                   render={
@@ -74,6 +74,7 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
                         target='_blank'
                         rel='noopener noreferrer'
                         className={!isActive ? 'text-muted-foreground' : ''}
+                        style={color ? { color } : undefined}
                       >
                         {title}
                       </a>
@@ -81,6 +82,7 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
                       <Link
                         to={href}
                         className={!isActive ? 'text-muted-foreground' : ''}
+                        style={color ? { color } : undefined}
                         disabled={disabled}
                       >
                         {title}
@@ -103,7 +105,7 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
         {...props}
       >
         {normalizedLinks.map(
-          ({ id, title, href, isActive, disabled, external }) =>
+          ({ id, title, href, color, isActive, disabled, external }) =>
             external ? (
               <a
                 key={id ?? `${title}-${href}`}
@@ -111,6 +113,7 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
                 target='_blank'
                 rel='noopener noreferrer'
                 className={`hover:text-primary shrink-0 text-sm font-medium transition-colors ${isActive ? '' : 'text-muted-foreground'}`}
+                style={color ? { color } : undefined}
               >
                 {title}
               </a>
@@ -120,6 +123,7 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
                 to={href}
                 disabled={disabled}
                 className={`hover:text-primary shrink-0 text-sm font-medium transition-colors ${isActive ? '' : 'text-muted-foreground'}`}
+                style={color ? { color } : undefined}
               >
                 {title}
               </Link>

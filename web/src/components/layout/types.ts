@@ -96,6 +96,7 @@ export type TopNavLink = {
   id?: string
   title: string
   href: string
+  color?: string
   isActive?: boolean
   disabled?: boolean
   requiresAuth?: boolean

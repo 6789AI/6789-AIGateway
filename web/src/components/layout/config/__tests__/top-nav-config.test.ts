@@ -137,4 +137,17 @@ describe('top navigation configuration', () => {
       false
     )
   })
+
+  test('uses the saved text color on a configured navigation link', () => {
+    const links = buildTopNavLinks({
+      modules: {
+        ...modules,
+        links: [{ key: 'pricing', label: '', href: '', color: '#0A6FFF' }],
+      },
+      isAuthed: false,
+      translate,
+    })
+
+    assert.equal(links.find((link) => link.id === 'pricing')?.color, '#0A6FFF')
+  })
 })

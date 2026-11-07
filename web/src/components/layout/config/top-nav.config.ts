@@ -100,6 +100,7 @@ export function buildTopNavLinks(
         id: item.key,
         title,
         href,
+        color: item.color,
         external: /^https?:\/\//i.test(href),
         requiresAuth:
           !options.isAuthed &&

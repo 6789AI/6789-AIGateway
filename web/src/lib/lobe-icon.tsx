@@ -28,9 +28,11 @@ For commercial licensing, please contact support@quantumnous.com
 import * as LobeIcons from '@lobehub/icons'
 import type React from 'react'
 
+import { IconMuse } from '@/assets/custom/icon-muse'
 import { IconSub2api } from '@/assets/custom/icon-sub2api'
 
 const CUSTOM_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
+  Muse: IconMuse,
   Sub2API: IconSub2api,
 }
 

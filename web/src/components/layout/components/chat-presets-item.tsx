@@ -154,7 +154,13 @@ function DropdownPresetItem({
 /**
  * Dynamic chat presets navigation item
  */
-export function ChatPresetsItem({ item }: { item: NavChatPresets }) {
+export function ChatPresetsItem({
+  item,
+  color,
+}: {
+  item: NavChatPresets
+  color?: string
+}) {
   const { t } = useTranslation()
   const { chatPresets, serverAddress } = useChatPresets()
   const { state, isMobile, setOpenMobile } = useSidebar()
@@ -231,7 +237,12 @@ export function ChatPresetsItem({ item }: { item: NavChatPresets }) {
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger
-            render={<SidebarMenuButton tooltip={item.title} />}
+            render={
+              <SidebarMenuButton
+                tooltip={item.title}
+                style={color ? { color } : undefined}
+              />
+            }
           >
             {item.icon && <item.icon className='h-4 w-4 shrink-0' />}
             <span className='min-w-0 flex-1 truncate'>{item.title}</span>
@@ -261,7 +272,7 @@ export function ChatPresetsItem({ item }: { item: NavChatPresets }) {
     >
       <CollapsibleTrigger
         className='group/collapsible-trigger'
-        render={<SidebarMenuButton />}
+        render={<SidebarMenuButton style={color ? { color } : undefined} />}
       >
         {item.icon && <item.icon className='shrink-0' />}
         <span className='min-w-0 flex-1 truncate'>{item.title}</span>

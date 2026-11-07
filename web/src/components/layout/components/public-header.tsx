@@ -256,6 +256,7 @@ export function PublicHeader(props: PublicHeaderProps) {
                           'text-muted-foreground hover:text-foreground shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200',
                           link.disabled && 'pointer-events-none opacity-50'
                         )}
+                        style={link.color ? { color: link.color } : undefined}
                       >
                         {link.title}
                       </a>
@@ -274,6 +275,7 @@ export function PublicHeader(props: PublicHeaderProps) {
                           : 'text-muted-foreground hover:text-foreground',
                         link.disabled && 'pointer-events-none opacity-50'
                       )}
+                      style={link.color ? { color: link.color } : undefined}
                     >
                       {link.title}
                     </Link>
