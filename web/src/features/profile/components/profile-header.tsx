@@ -164,6 +164,21 @@ export function ProfileHeader({
                   <span className='truncate'>{profile.group}</span>
                 </>
               )}
+              {profile.authorized_groups &&
+                profile.authorized_groups.length > 0 && (
+                  <>
+                    <span>•</span>
+                    <span>{t('Authorized groups')}:</span>
+                    {profile.authorized_groups.map((group) => (
+                      <span
+                        key={group}
+                        className='text-foreground max-w-full rounded border px-1.5 py-0.5 break-all'
+                      >
+                        {group}
+                      </span>
+                    ))}
+                  </>
+                )}
             </div>
           </div>
           {onSettingsClick && (

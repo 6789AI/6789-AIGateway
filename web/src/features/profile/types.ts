@@ -45,6 +45,8 @@ export interface UserProfile {
   email?: string
   /** User group */
   group: string
+  /** Extra groups granted by an administrator */
+  authorized_groups?: string[]
   /** Current quota balance */
   quota: number
   /** Total used quota */

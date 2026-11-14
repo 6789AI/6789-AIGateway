@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/QuantumNous/new-api/constant"
 
@@ -784,6 +786,7 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"wechat_id":         user.WeChatId,
 		"telegram_id":       user.TelegramId,
 		"group":             user.Group,
+		"authorized_groups": user.AuthorizedGroups,
 		"quota":             user.Quota,
 		"used_quota":        user.UsedQuota,
 		"request_count":     user.RequestCount,
@@ -900,7 +903,7 @@ func GetUserModels(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	groups := service.GetUserUsableGroups(user.Group)
+	groups := service.GetUserUsableGroups(user.Group, user.GetAuthorizedGroups()...)
 	group := c.Query("group")
 	var groupsToQuery []string
 	switch {
@@ -910,7 +913,7 @@ func GetUserModels(c *gin.Context) {
 		}
 	case group == "auto":
 		if _, ok := groups[group]; ok {
-			groupsToQuery = service.GetUserAutoGroup(user.Group)
+			groupsToQuery = service.GetUserAutoGroup(user.Group, user.GetAuthorizedGroups()...)
 		}
 	default:
 		if _, ok := groups[group]; ok {
@@ -925,8 +928,12 @@ func GetUserModels(c *gin.Context) {
 }
 
 func UpdateUser(c *gin.Context) {
-	var updatedUser model.User
-	err := common.DecodeJson(c.Request.Body, &updatedUser)
+	var request struct {
+		model.User
+		AuthorizedGroups *[]string `json:"authorized_groups"`
+	}
+	err := common.DecodeJson(c.Request.Body, &request)
+	updatedUser := request.User
 	if err != nil || updatedUser.Id == 0 {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
@@ -947,6 +954,28 @@ func UpdateUser(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	updatedUser.AuthorizedGroups = slices.DeleteFunc(slices.Clone(originUser.AuthorizedGroups), func(group string) bool {
+		return group == updatedUser.Group
+	})
+	if request.AuthorizedGroups != nil {
+		if len(*request.AuthorizedGroups) > 32 {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		groups := make([]string, 0, len(*request.AuthorizedGroups))
+		for _, group := range *request.AuthorizedGroups {
+			group = strings.TrimSpace(group)
+			if group == "" || group == "auto" || !ratio_setting.ContainsGroupRatio(group) || slices.Contains(groups, group) {
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+				return
+			}
+			if group == updatedUser.Group {
+				continue
+			}
+			groups = append(groups, group)
+		}
+		updatedUser.AuthorizedGroups = groups
 	}
 	if updatedUser.Role != common.RoleGuestUser && updatedUser.Role != originUser.Role {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)

@@ -74,6 +74,38 @@ func TestUserUpdateDoesNotOverwriteConcurrentAccountingOrTokenChanges(t *testing
 	assert.Equal(t, "rotated-token", got.GetAccessToken())
 }
 
+func TestUserUpdateDoesNotRestoreRevokedAuthorizedGroups(t *testing.T) {
+	setupUserUpdateTestState(t)
+
+	user := User{
+		Username:         "authorized-group-race-user",
+		Password:         "password",
+		Group:            "default",
+		AuthorizedGroups: []string{"hidden"},
+		Status:           common.UserStatusEnabled,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	staleUser, err := GetUserById(user.Id, true)
+	require.NoError(t, err)
+
+	adminUser := *staleUser
+	adminUser.AuthorizedGroups = []string{}
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
+		return adminUser.EditWithTx(tx, false)
+	}))
+	assert.Greater(t, adminUser.AuthVersion, staleUser.AuthVersion)
+
+	staleUser.DisplayName = "updated after revocation"
+	require.NoError(t, staleUser.Update(false))
+
+	var got User
+	require.NoError(t, DB.First(&got, user.Id).Error)
+	assert.Empty(t, got.AuthorizedGroups)
+	assert.Equal(t, adminUser.AuthVersion, got.AuthVersion)
+	assert.Equal(t, "updated after revocation", got.DisplayName)
+}
+
 func TestUpdateUserAccessTokenOnlyUpdatesAccessToken(t *testing.T) {
 	setupUserUpdateTestState(t)
 

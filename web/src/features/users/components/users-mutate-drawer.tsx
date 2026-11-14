@@ -83,13 +83,15 @@ import {
 } from '../api'
 import { BINDING_FIELDS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
+  excludePrimaryGroup,
   userFormSchema,
   type UserFormValues,
   USER_FORM_DEFAULT_VALUES,
   transformFormDataToPayload,
   transformUserToFormDefaults,
 } from '../lib'
-import { type User } from '../types'
+import type { User } from '../types'
+import { AuthorizedGroupPicker } from './authorized-group-picker'
 import { UserQuotaDialog } from './user-quota-dialog'
 import { useUsers } from './users-provider'
 
@@ -134,16 +136,24 @@ export function UsersMutateDrawer({
 
   // Load existing data when updating
   useEffect(() => {
+    let active = true
     if (open && isUpdate && currentRow) {
       // For update, fetch fresh data
-      getUser(currentRow.id).then((result) => {
-        if (result.success && result.data) {
-          form.reset(transformUserToFormDefaults(result.data))
-        }
-      })
+      getUser(currentRow.id)
+        .then((result) => {
+          if (active && result.success && result.data) {
+            form.reset(transformUserToFormDefaults(result.data))
+          }
+        })
+        .catch(() => {
+          // The drawer keeps its current values when the refresh fails.
+        })
     } else if (open && !isUpdate) {
       // For create, reset to defaults
       form.reset(USER_FORM_DEFAULT_VALUES)
+    }
+    return () => {
+      active = false
     }
   }, [open, isUpdate, currentRow, form])
 
@@ -195,7 +205,7 @@ export function UsersMutateDrawer({
               : t(ERROR_MESSAGES.CREATE_FAILED))
         )
       }
-    } catch (_error) {
+    } catch {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setIsSubmitting(false)
@@ -278,7 +288,8 @@ export function UsersMutateDrawer({
                             { value: '10', label: t('Admin') },
                           ]}
                           onValueChange={(value) =>
-                            value !== null && field.onChange(parseInt(value))
+                            value !== null &&
+                            field.onChange(Number.parseInt(value))
                           }
                           value={String(field.value)}
                         >
@@ -360,13 +371,26 @@ export function UsersMutateDrawer({
                       <FormItem>
                         <FormLabel>{t('Group')}</FormLabel>
                         <Select
-                          items={[
-                            ...groups.map((group) => ({
-                              value: group,
-                              label: group,
-                            })),
-                          ]}
-                          onValueChange={field.onChange}
+                          items={groups.map((group) => ({
+                            value: group,
+                            label: group,
+                          }))}
+                          onValueChange={(group) => {
+                            if (group === null) return
+                            const authorizedGroups =
+                              form.getValues('authorized_groups')
+                            if (authorizedGroups.includes(group)) {
+                              form.setValue(
+                                'authorized_groups',
+                                excludePrimaryGroup(authorizedGroups, group),
+                                {
+                                  shouldDirty: true,
+                                  shouldValidate: true,
+                                }
+                              )
+                            }
+                            field.onChange(group)
+                          }}
                           value={field.value}
                         >
                           <FormControl>
@@ -384,6 +408,27 @@ export function UsersMutateDrawer({
                             </SelectGroup>
                           </SelectContent>
                         </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='authorized_groups'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {t('Additional authorized groups')}
+                        </FormLabel>
+                        <FormControl>
+                          <AuthorizedGroupPicker
+                            groups={groups}
+                            primaryGroup={form.watch('group')}
+                            value={field.value}
+                            onChange={field.onChange}
+                          />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}

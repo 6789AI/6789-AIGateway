@@ -70,3 +70,31 @@ func TestGetRequestAutoGroupsDoesNotFallBackAfterPermissionChange(t *testing.T) 
 
 	assert.Empty(t, groups)
 }
+
+func TestAuthorizedHiddenGroupIsSelectableOnlyForGrantedUser(t *testing.T) {
+	configureRequestAutoGroupsTest(t)
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+	ctx := newRequestAutoGroupsContext()
+	common.SetContextKey(ctx, constant.ContextKeyUserAuthorizedGroups, []string{"vip"})
+	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, []string{"vip", "svip"})
+
+	assert.Equal(t, []string{"vip"}, GetRequestAutoGroups(ctx, "default"))
+	assert.True(t, GroupInUserUsableGroups("default", "vip", "vip"))
+	assert.False(t, GroupInUserUsableGroups("default", "vip"))
+
+	common.SetContextKey(ctx, constant.ContextKeyUserAuthorizedGroups, []string{})
+	assert.Empty(t, GetRequestAutoGroups(ctx, "default"))
+}
+
+func TestAuthorizedHiddenGroupDoesNotEnableAuto(t *testing.T) {
+	configureRequestAutoGroupsTest(t)
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+
+	groups := GetUserUsableGroups("default", "vip")
+
+	assert.Contains(t, groups, "vip")
+	assert.NotContains(t, groups, "auto")
+
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","auto":"Auto"}`))
+	assert.Contains(t, GetUserUsableGroups("default", "vip"), "auto")
+}

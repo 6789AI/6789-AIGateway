@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -97,6 +98,7 @@ type User struct {
 	UsedQuota        int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
 	RequestCount     int                        `json:"request_count" gorm:"type:int;default:0;"`               // request number
 	Group            string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
+	AuthorizedGroups []string                   `json:"authorized_groups" gorm:"serializer:json;type:text;column:authorized_groups"`
 	AffCode          string                     `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
 	AffCount         int                        `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
 	AffQuota         int                        `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
@@ -114,17 +116,24 @@ type User struct {
 }
 
 func (user *User) ToBaseUser() *UserBase {
+	authorizedGroups := "[]"
+	if encoded, err := common.Marshal(user.AuthorizedGroups); err == nil {
+		authorizedGroups = string(encoded)
+	} else {
+		common.SysError("failed to encode authorized user groups: " + err.Error())
+	}
 	cache := &UserBase{
-		Id:          user.Id,
-		Group:       user.Group,
-		Quota:       user.Quota,
-		Status:      user.Status,
-		Role:        user.Role,
-		Username:    user.Username,
-		Setting:     user.Setting,
-		Email:       user.Email,
-		AuthVersion: user.AuthVersion,
-		CacheSchema: userCacheSchemaVersion,
+		Id:               user.Id,
+		Group:            user.Group,
+		AuthorizedGroups: authorizedGroups,
+		Quota:            user.Quota,
+		Status:           user.Status,
+		Role:             user.Role,
+		Username:         user.Username,
+		Setting:          user.Setting,
+		Email:            user.Email,
+		AuthVersion:      user.AuthVersion,
+		CacheSchema:      userCacheSchemaVersion,
 	}
 	return cache
 }
@@ -950,6 +959,7 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 	}
 	if err = tx.Model(&current).Omit(
 		"access_token",
+		"authorized_groups",
 		"quota",
 		"used_quota",
 		"request_count",
@@ -993,11 +1003,16 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 	}
 
 	newUser := *user
+	authorizedGroupsJSON, err := common.Marshal(newUser.AuthorizedGroups)
+	if err != nil {
+		return err
+	}
 	updates := map[string]interface{}{
-		"username":     newUser.Username,
-		"display_name": newUser.DisplayName,
-		"group":        newUser.Group,
-		"remark":       newUser.Remark,
+		"username":          newUser.Username,
+		"display_name":      newUser.DisplayName,
+		"group":             newUser.Group,
+		"authorized_groups": string(authorizedGroupsJSON),
+		"remark":            newUser.Remark,
 	}
 	if updatePassword {
 		updates["password"] = newUser.Password
@@ -1007,7 +1022,7 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 	if err = tx.First(&current, user.Id).Error; err != nil {
 		return err
 	}
-	authChanged := (updatePassword && current.Password != newUser.Password) || current.Group != newUser.Group
+	authChanged := (updatePassword && current.Password != newUser.Password) || current.Group != newUser.Group || !slices.Equal(current.AuthorizedGroups, newUser.AuthorizedGroups)
 	if authChanged {
 		newUser.AuthVersion, err = IncrementUserAuthVersionWithTx(tx, user.Id)
 		if err != nil {

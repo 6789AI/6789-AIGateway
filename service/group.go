@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func GetUserUsableGroups(userGroup string) map[string]string {
+func GetUserUsableGroups(userGroup string, authorizedGroups ...string) map[string]string {
 	groupsCopy := setting.GetUserUsableGroupsCopy()
 	if userGroup != "" {
 		specialSettings, b := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.Get(userGroup)
@@ -37,27 +37,32 @@ func GetUserUsableGroups(userGroup string) map[string]string {
 			groupsCopy[userGroup] = "用户分组"
 		}
 	}
+	for _, group := range authorizedGroups {
+		if ratio_setting.ContainsGroupRatio(group) && group != "auto" {
+			groupsCopy[group] = setting.GetUsableGroupDescription(group)
+		}
+	}
 	return groupsCopy
 }
 
-func GroupInUserUsableGroups(userGroup, groupName string) bool {
-	_, ok := GetUserUsableGroups(userGroup)[groupName]
+func GroupInUserUsableGroups(userGroup, groupName string, authorizedGroups ...string) bool {
+	_, ok := GetUserUsableGroups(userGroup, authorizedGroups...)[groupName]
 	return ok
 }
 
-func IsUserSelectableGroup(userGroup, groupName string) bool {
+func IsUserSelectableGroup(userGroup, groupName string, authorizedGroups ...string) bool {
 	if groupName == "" || groupName == "auto" {
 		return false
 	}
-	return GroupInUserUsableGroups(userGroup, groupName) && ratio_setting.ContainsGroupRatio(groupName)
+	return GroupInUserUsableGroups(userGroup, groupName, authorizedGroups...) && ratio_setting.ContainsGroupRatio(groupName)
 }
 
 // GetUserAutoGroup 根据用户分组获取自动分组设置
-func GetUserAutoGroup(userGroup string) []string {
+func GetUserAutoGroup(userGroup string, authorizedGroups ...string) []string {
 	autoGroups := make([]string, 0)
 	seen := make(map[string]struct{})
 	for _, group := range setting.GetAutoGroups() {
-		if !IsUserSelectableGroup(userGroup, group) {
+		if !IsUserSelectableGroup(userGroup, group, authorizedGroups...) {
 			continue
 		}
 		if _, ok := seen[group]; ok {
@@ -71,12 +76,12 @@ func GetUserAutoGroup(userGroup string) []string {
 
 // FilterUserTokenAutoGroups applies current permissions before the current
 // per-token limit. It intentionally does not fall back to the global Auto list.
-func FilterUserTokenAutoGroups(userGroup string, groups []string) []string {
+func FilterUserTokenAutoGroups(userGroup string, groups []string, authorizedGroups ...string) []string {
 	maxCount := setting.GetMaxTokenAutoGroups()
 	filtered := make([]string, 0, min(len(groups), maxCount))
 	seen := make(map[string]struct{})
 	for _, group := range groups {
-		if !IsUserSelectableGroup(userGroup, group) {
+		if !IsUserSelectableGroup(userGroup, group, authorizedGroups...) {
 			continue
 		}
 		if _, ok := seen[group]; ok {
@@ -95,15 +100,16 @@ func FilterUserTokenAutoGroups(userGroup string, groups []string) []string {
 // The absence of the context value means that the token inherits the complete
 // global Auto list; a present (even empty) value is an explicit token snapshot.
 func GetRequestAutoGroups(c *gin.Context, userGroup string) []string {
+	authorizedGroups := common.GetContextKeyStringSlice(c, constant.ContextKeyUserAuthorizedGroups)
 	value, ok := common.GetContextKey(c, constant.ContextKeyTokenAutoGroups)
 	if !ok {
-		return GetUserAutoGroup(userGroup)
+		return GetUserAutoGroup(userGroup, authorizedGroups...)
 	}
 	groups, ok := value.([]string)
 	if !ok {
 		return []string{}
 	}
-	return FilterUserTokenAutoGroups(userGroup, groups)
+	return FilterUserTokenAutoGroups(userGroup, groups, authorizedGroups...)
 }
 
 // GetGroupsEnabledModels 按 groups 顺序获取各分组启用的模型并去重
